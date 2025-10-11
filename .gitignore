@@ -1,0 +1,28 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# vllm model commands
+.vllm_model_cmd
+
+# tests and workspace
+tests/
+workspace/
+
+# data
+data/
+
+# temp
+exp/
+
+# local configs
+config/config-spider.toml
+config/config-bird.toml
+config/config.toml
