@@ -1,11 +1,11 @@
-# Beta-SQL: Large Language Model-based SQL Generation and Optimization System
+# Symph-SQL: A Software-Grounded Framework for Robust Text-to-SQL Generation
 
-Beta-SQL is a large language model-based SQL generation and optimization system that supports generating high-quality SQL statements from natural language queries. The system employs a multi-stage processing pipeline including value retrieval, schema linking, SQL generation, SQL revision, and SQL selection.
+Symph-SQL is a systematic and modular framework that, inspired by established software engineering principles, orchestrates a pipeline of specialized components to collaboratively address the challenges in Text-to-SQL generation. The framework enhances semantic grounding through semantic value retrieval and robust schema linking, employs a hybrid of three distinct generation methods to produce diverse SQL candidates, implements a novel tool-based revision process for automated testing and debugging, and proposes a confidence-aware selection mechanism that integrates execution-based confidence scores with LLM voting to select the best candidates.
 
 ## Project Structure
 
 ```
-Beta-SQL/
+Symph-SQL/
 ├── app/                    # Core application code
 │   ├── config/            # Configuration management
 │   ├── dataset/           # Dataset processing
@@ -39,7 +39,7 @@ Beta-SQL/
 
 ```bash
 git clone <repository-url>
-cd Beta-SQL
+cd Symph-SQL
 ```
 
 ### 2. Install Dependencies
@@ -217,10 +217,13 @@ workspace/
    - `value_distance_threshold`: Value distance threshold
    - `shortcut_consistency_score_threshold`: Consistency score threshold
 
-### Supported Datasets
+### Performance Results
 
-- **BIRD**: Large-scale cross-domain text-to-SQL benchmark
-- **Spider**: Complex cross-domain semantic parsing and text-to-SQL task
+With the Qwen3-Coder-30B-A3B model, Symph-SQL achieves state-of-the-art performance:
+- **BIRD-Dev**: 73.5% execution accuracy
+- **Spider-Test**: 89.8% execution accuracy
+
+These results are achieved without any model fine-tuning, demonstrating the effectiveness of the software-grounded framework approach.
 
 ## Logging
 
