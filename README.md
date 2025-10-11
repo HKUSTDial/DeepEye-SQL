@@ -11,6 +11,7 @@ Symph-SQL/
 │   ├── dataset/           # Dataset processing
 │   ├── db_utils/          # Database utilities
 │   ├── llm/               # Large language model interface
+│   ├── logger/            # Logging utilities
 │   ├── pipeline/          # Processing pipeline
 │   │   ├── value_retrieval/    # Value retrieval
 │   │   ├── schema_linking/     # Schema linking
@@ -21,7 +22,6 @@ Symph-SQL/
 │   └── prompt/            # Prompt templates
 ├── config/                # Configuration files
 ├── data/                  # Datasets
-├── exp/                   # Experiment scripts
 ├── runner/                # Runner scripts
 ├── script/                # Installation and download scripts
 └── workspace/             # Workspace (output directory)
