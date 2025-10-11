@@ -200,23 +200,6 @@ workspace/
 └── logs/                  # Log files
 ```
 
-## Configuration Parameters
-
-### Main Configuration Parameters
-
-1. **Parallel Processing Parameters**:
-   - `n_parallel`: Number of parallel processes
-   - `n_results`: Number of retrieval results
-
-2. **Sampling Budget Parameters**:
-   - `dc_sampling_budget`: Data constraint sampling budget
-   - `skeleton_sampling_budget`: Skeleton sampling budget
-   - `icl_sampling_budget`: In-context learning sampling budget
-
-3. **Threshold Parameters**:
-   - `value_distance_threshold`: Value distance threshold
-   - `shortcut_consistency_score_threshold`: Consistency score threshold
-
 ### Performance Results
 
 With the Qwen3-Coder-30B-A3B model, Symph-SQL achieves state-of-the-art performance:
