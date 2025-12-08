@@ -251,6 +251,9 @@ class SQLSelectionRunner:
     def run(self):
         all_futures = []
         for data_item in self._dataset:
+            if hasattr(data_item, "final_selected_sql") and data_item.final_selected_sql is not None:
+                logger.info(f"Skipping data item {data_item.question_id} because it has already been selected")
+                continue
             future = self._thread_pool_executor.submit(self._select_best_sql, data_item)
             all_futures.append(future)
         for idx, future in tqdm(enumerate(as_completed(all_futures), start=1), total=len(all_futures), desc="Selecting Best SQL"):
