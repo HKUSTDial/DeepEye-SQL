@@ -5,7 +5,6 @@ from app.llm import LLM
 from app.logger import logger
 from app.prompt import PromptFactory
 from app.db_utils import execute_sql, get_database_schema_profile, measure_execution_time
-from .utils import geometric_median
 from typing import Dict, List, Any, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from app.config import config
