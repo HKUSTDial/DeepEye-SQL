@@ -24,6 +24,7 @@ class LLMConfig(BaseModel):
     temperature: float = Field(default=0.7, description="The temperature of the model")
     api_type: Literal["openai", "azure"] = Field(default="openai", description="The type of the api")
     api_version: Optional[str] = Field(default=None, description="The version of the Azure API")
+    fix_end_token: bool = Field(default=False, description="Whether to fix the end token to the LLM response")
 
 
 class DatasetConfig(BaseModel):

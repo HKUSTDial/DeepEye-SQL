@@ -25,12 +25,11 @@ class SchemaLinkingRunner:
     def __init__(self):
         self._llm = LLM(config.schema_linking_config.llm)
         if Path(config.schema_linking_config.save_path).exists():
-            logger.info(f"Resuming dataset from {config.schema_linking_config.save_path}")
+            logger.info(f"Resuming schema linking checkpoint from {config.schema_linking_config.save_path}")
             self._dataset = load_dataset(config.schema_linking_config.save_path)
         else:
             logger.info(f"Loading dataset from {config.value_retrieval_config.save_path}")
             self._dataset = load_dataset(config.value_retrieval_config.save_path)
-        # self._dataset = load_dataset(config.value_retrieval_config.save_path)
         self._thread_pool_executor = ThreadPoolExecutor(max_workers=config.schema_linking_config.n_parallel)
         self._direct_linker = DirectLinker()
         self._reversed_linker = ReversedLinker()

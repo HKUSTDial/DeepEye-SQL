@@ -20,10 +20,11 @@ class SkeletonGenerator(BaseSQLGenerator):
         total_token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         all_sql_candidates = []
         while len(all_sql_candidates) < sampling_budget:
-            responses, token_usage = llm.ask([{"role": "user", "content": prompt}], n=sampling_budget - len(all_sql_candidates), stop=["</result>"])
-
+            responses, token_usage = llm.ask([{"role": "user", "content": prompt}], n=sampling_budget - len(all_sql_candidates))
             for response in responses:
                 response = response.content.strip()
+                if not response.endswith("</result>") and config.sql_generation_config.llm.fix_end_token:
+                    response += "</result>"
                 try:
                     parsed_sql_candidate = self._parse_llm_response(response)
                     if parsed_sql_candidate:

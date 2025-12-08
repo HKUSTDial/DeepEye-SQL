@@ -15,9 +15,10 @@ import json
 from collections import Counter
 from tqdm import tqdm
 import time
+from pathlib import Path
 
 
-class BRSelectionRunner:
+class SQLSelectionRunner:
     
     _llm: LLM = None
     _dataset: BaseDataset = None
@@ -25,20 +26,24 @@ class BRSelectionRunner:
     
     def __init__(self):
         self._llm = LLM(config.sql_selection_config.llm)
-        self._dataset = load_dataset(config.sql_revision_config.save_path)
+        if Path(config.sql_selection_config.save_path).exists():
+            logger.info(f"Resuming SQL selection checkpoint from {config.sql_selection_config.save_path}")
+            self._dataset = load_dataset(config.sql_selection_config.save_path)
+        else:
+            logger.info(f"Loading dataset from {config.sql_revision_config.save_path}")
+            self._dataset = load_dataset(config.sql_revision_config.save_path)
         self._thread_pool_executor = ThreadPoolExecutor(max_workers=config.sql_selection_config.n_parallel)
     
     def _parse_llm_response(self, response: str) -> Optional[List[Dict[str, Any]]]:
         """
         Parse the llm response and return the eval scores.
         """
-        # restore the stop token: </result>
-        response += "</result>"
         
         try:
             answer_match = re.search(r"<result>(.*?)</result>", response, re.DOTALL)
             if not answer_match:
                 logger.warning("No <result> tag found in LLM response")
+                logger.warning(f"Response content: {response}")
                 return None
             answer_content = answer_match.group(1).strip().upper()
             logger.info(f"Parsed LLM response: {answer_content}")
@@ -111,9 +116,13 @@ class BRSelectionRunner:
         prompt = PromptFactory.format_br_pair_selection_prompt(database_schema_profile, data_item.question, data_item.evidence, sql_a, execution_result_table_str_a, sql_b, execution_result_table_str_b)
         while len(votes) < config.sql_selection_config.evaluator_sampling_budget:
             try:
-                responses, token_usage = self._llm.ask([{"role": "user", "content": prompt}], n=config.sql_selection_config.evaluator_sampling_budget - len(votes), stop=["</result>"])
+                responses, token_usage = self._llm.ask([{"role": "user", "content": prompt}], n=config.sql_selection_config.evaluator_sampling_budget - len(votes))
                 for response in responses:
-                    parsed_response = self._parse_llm_response(response.content)
+                    response = response.content.strip()
+                    if not response.endswith("</result>") and config.sql_selection_config.llm.fix_end_token:
+                        response += "</result>"
+                    
+                    parsed_response = self._parse_llm_response(response)
                     if parsed_response:
                         votes.append(parsed_response)
                 total_token_usage["prompt_tokens"] += token_usage["prompt_tokens"]
@@ -121,7 +130,7 @@ class BRSelectionRunner:
                 total_token_usage["total_tokens"] += token_usage["total_tokens"]
             except Exception as e:
                 logger.error(f"Error parsing LLM response: {e}")
-                logger.debug(f"Response content: {response.content}")
+                # logger.debug(f"Response content: {response}")
                 continue
         return votes, total_token_usage
     

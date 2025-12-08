@@ -4,6 +4,7 @@ from app.llm import LLM
 from app.logger import logger
 from app.prompt import PromptFactory
 from app.db_utils import execute_sql, get_database_schema_profile
+from app.config import config
 from typing import Dict, List, Any, Optional, Tuple
 import re
 
@@ -23,8 +24,12 @@ class SelectChecker(BaseChecker):
             parsed_sql_candidate = None
             total_token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
             while not parsed_sql_candidate and sampling_budget > 0:
-                responses, token_usage = llm.ask([{"role": "user", "content": prompt}], n=1, stop=["</result>"])
+                responses, token_usage = llm.ask([{"role": "user", "content": prompt}], n=1)
                 response = responses[0].content.strip()
+                
+                if not response.endswith("</result>") and config.sql_revision_config.llm.fix_end_token:
+                    response += "</result>"
+                
                 total_token_usage["prompt_tokens"] += token_usage["prompt_tokens"]
                 total_token_usage["completion_tokens"] += token_usage["completion_tokens"]
                 total_token_usage["total_tokens"] += token_usage["total_tokens"]

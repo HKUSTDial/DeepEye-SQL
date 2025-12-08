@@ -1,5 +1,6 @@
 from .base import BaseSchemaLinker
 from ..utils import merge_schema_linking_results
+from app.config import config
 from app.dataset import DataItem
 from app.llm import LLM
 from app.logger import logger
@@ -21,9 +22,11 @@ class DirectLinker(BaseSchemaLinker):
         total_token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         all_selections = []
         while len(all_selections) < sampling_budget:
-            responses, token_usage = llm.ask([{"role": "user", "content": prompt}], n=sampling_budget - len(all_selections), stop=["</result>"])
+            responses, token_usage = llm.ask([{"role": "user", "content": prompt}], n=sampling_budget - len(all_selections))
             for response in responses:
                 response = response.content.strip()
+                if not response.endswith("</result>") and config.schema_linking_config.llm.fix_end_token:
+                    response += "</result>"
                 try:
                     parsed_selection = self._parse_llm_response(response, data_item.database_schema_after_value_retrieval)
                     if parsed_selection:
@@ -39,9 +42,6 @@ class DirectLinker(BaseSchemaLinker):
         return merge_schema_linking_results(all_selections), total_token_usage
     
     def _parse_llm_response(self, response: str, database_schema: Dict[str, Any]) -> Optional[Dict[str, List[str]]]:
-        # restore the stop token: </result>
-        response += "</result>"
-        
         try:
             # 提取<result>标签内的内容
             answer_match = re.search(r"<result>(.*?)</result>", response, re.DOTALL)

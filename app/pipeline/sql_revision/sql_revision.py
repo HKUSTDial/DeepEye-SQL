@@ -7,7 +7,7 @@ import time
 from app.logger import logger
 from tqdm import tqdm
 from typing import List
-
+from pathlib import Path
 
 class SQLRevisionRunner:
     
@@ -19,7 +19,12 @@ class SQLRevisionRunner:
     
     def __init__(self):
         self._llm = LLM(config.sql_revision_config.llm)
-        self._dataset = load_dataset(config.sql_generation_config.save_path)
+        if Path(config.sql_revision_config.save_path).exists():
+            logger.info(f"Resuming SQL revision checkpoint from {config.sql_revision_config.save_path}")
+            self._dataset = load_dataset(config.sql_revision_config.save_path)
+        else:
+            logger.info(f"Loading dataset from {config.sql_generation_config.save_path}")
+            self._dataset = load_dataset(config.sql_generation_config.save_path)
         self._thread_pool_executor = ThreadPoolExecutor(max_workers=config.sql_revision_config.n_parallel)
         self._checkers: List[BaseChecker] = [
             SyntaxChecker(),
@@ -61,6 +66,9 @@ class SQLRevisionRunner:
     def run(self):
         all_futures = []
         for data_item in self._dataset:
+            if hasattr(data_item, "sql_candidates_after_revision") and data_item.sql_candidates_after_revision is not None:
+                logger.info(f"Skipping data item {data_item.question_id} because it has already been revised")
+                continue
             future = self._thread_pool_executor.submit(self._revise_sql, data_item)
             all_futures.append(future)
         for idx, future in tqdm(enumerate(as_completed(all_futures), start=1), total=len(all_futures), desc="Revising SQL"):

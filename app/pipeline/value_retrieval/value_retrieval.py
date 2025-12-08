@@ -28,7 +28,12 @@ class ValueRetrievalRunner:
     
     def __init__(self):
         self._llm = LLM(config.value_retrieval_config.llm)
-        self._dataset = load_dataset(config.dataset_config.save_path)
+        if Path(config.value_retrieval_config.save_path).exists():
+            logger.info(f"Resuming value retrieval checkpoint from {config.value_retrieval_config.save_path}")
+            self._dataset = load_dataset(config.value_retrieval_config.save_path)
+        else:
+            logger.info(f"Loading dataset from {config.dataset_config.save_path}")
+            self._dataset = load_dataset(config.dataset_config.save_path)
         self._initialize_vector_db_client_and_collection()
     
     def _initialize_vector_db_client_and_collection(self):
@@ -109,6 +114,10 @@ class ValueRetrievalRunner:
     def run(self):
         for idx, data_item in tqdm(enumerate(self._dataset, start=1), desc="Value Retrieval", total=len(self._dataset)):
             data_item: DataItem
+            if hasattr(data_item, "retrieved_values") and data_item.retrieved_values is not None:
+                logger.info(f"Skipping data item {data_item.question_id} because it has already been retrieved")
+                continue
+            
             start_time = time.time()
             self._retrieve_values(data_item)
             end_time = time.time()

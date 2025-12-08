@@ -25,4 +25,5 @@ exp/
 # local configs
 config/config-spider.toml
 config/config-bird.toml
+config/config-gemini.toml
 config/config.toml

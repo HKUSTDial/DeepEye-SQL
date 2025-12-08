@@ -33,10 +33,12 @@ class ReversedLinker(BaseSchemaLinker):
         
         all_selections = []
         while len(all_selections) < sampling_budget:
-            responses, token_usage = llm.ask([{"role": "user", "content": prompt}], n=sampling_budget - len(all_selections), stop=["</result>"])
+            # responses, token_usage = llm.ask([{"role": "user", "content": prompt}], n=sampling_budget - len(all_selections), stop=["</result>"])
+            responses, token_usage = llm.ask([{"role": "user", "content": prompt}], n=sampling_budget - len(all_selections))
             for response in responses:
-                
                 response = response.content.strip()
+                if not response.endswith("</result>") and config.schema_linking_config.llm.fix_end_token:
+                    response += "</result>"
                 try:
                     parsed_sql_candidate = self._parse_llm_response(response)
                     if parsed_sql_candidate:
@@ -51,13 +53,6 @@ class ReversedLinker(BaseSchemaLinker):
         return merge_schema_linking_results(all_selections), total_token_usage
     
     def _parse_llm_response(self, response: str) -> Optional[Dict[str, List[str]]]:
-        # restore the stop token: </result>
-        response += "</result>"
-        
-        # fix some common format errors
-        if "</reasoning>\n[result>" in response:
-            response = response.replace("</reasoning>\n[result>", "</reasoning>\n<result>")
-        
         try:
             answer_match = re.search(r"<result>(.*?)</result>", response, re.DOTALL)
             if not answer_match:

@@ -13,13 +13,6 @@ class BaseChecker(ABC):
         pass
     
     def _parse_llm_response(self, response: str) -> Optional[str]:
-        # restore the stop token: </result>
-        response += "</result>"
-        
-        # fix some common format errors
-        if "</reasoning>\n[result>" in response:
-            response = response.replace("</reasoning>\n[result>", "</reasoning>\n<result>")
-        
         try:
             answer_match = re.search(r"<result>(.*?)</result>", response, re.DOTALL)
             if not answer_match:

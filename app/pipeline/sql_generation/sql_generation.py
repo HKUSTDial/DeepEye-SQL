@@ -6,6 +6,7 @@ from app.config import config
 import time
 from app.logger import logger
 from tqdm import tqdm
+from pathlib import Path
 
 
 
@@ -21,7 +22,12 @@ class SQLGenerationRunner:
     
     def __init__(self):
         self._llm = LLM(config.sql_generation_config.llm)
-        self._dataset = load_dataset(config.schema_linking_config.save_path)
+        if Path(config.sql_generation_config.save_path).exists():
+            logger.info(f"Resuming SQL generation checkpoint from {config.sql_generation_config.save_path}")
+            self._dataset = load_dataset(config.sql_generation_config.save_path)
+        else:
+            logger.info(f"Loading dataset from {config.schema_linking_config.save_path}")
+            self._dataset = load_dataset(config.schema_linking_config.save_path)
         self._thread_pool_executor = ThreadPoolExecutor(max_workers=config.sql_generation_config.n_parallel)
         self._dc_generator = DCGenerator()
         self._skeleton_generator = SkeletonGenerator()
@@ -66,6 +72,9 @@ class SQLGenerationRunner:
     def run(self):
         all_futures = []
         for data_item in self._dataset:
+            if hasattr(data_item, "sql_candidates") and data_item.sql_candidates is not None:
+                logger.info(f"Skipping data item {data_item.question_id} because it has already been generated")
+                continue
             future = self._thread_pool_executor.submit(self._generate_sql, data_item)
             all_futures.append(future)
         for idx, future in tqdm(enumerate(as_completed(all_futures), start=1), total=len(all_futures), desc="Generating SQL"):

@@ -32,18 +32,14 @@ class DataItem(BaseModel):
     database_schema_after_schema_linking: Optional[Dict[str, Any]] = Field(default=None, description="The database schema with linked tables and columns of the data item")
     
     # SQL Generation Step
-    sql_candidates: Optional[List[Dict[str, Any]]] = Field(default=None, description="The sql candidates of the data item")
+    sql_candidates: Optional[List[str]] = Field(default=None, description="The sql candidates of the data item")
     
     # SQL Revision Step
-    sql_candidates_after_revision: Optional[List[Dict[str, Any]]] = Field(default=None, description="The sql candidates after revision of the data item")
+    sql_candidates_after_revision: Optional[List[str]] = Field(default=None, description="The sql candidates after revision of the data item")
     
     # SQL Selection Step
     top_k_sql_eval_scores: Optional[Dict[str, float]] = Field(default=None, description="The eval scores of the top k sql candidates of the data item")
     final_selected_sql: Optional[str] = Field(default=None, description="The final selected sql of the data item")
-    
-    # # SQL Regeneration Step
-    # sql_candidates_after_regeneration: Optional[List[Dict[str, Any]]] = Field(default=None, description="The sql candidates after regeneration of the data item")
-    # final_best_sql: Optional[str] = Field(default=None, description="The final best sql of the data item")
     
     # Schema linking recall metrics
     direct_linking_recall: Optional[Dict[str, float]] = Field(default=None, description="The direct linking recall")
@@ -57,7 +53,6 @@ class DataItem(BaseModel):
     sql_generation_time: Optional[float] = Field(default=None, description="The time cost of sql generation of the data item")
     sql_revision_time: Optional[float] = Field(default=None, description="The time cost of sql revision of the data item")
     sql_selection_time: Optional[float] = Field(default=None, description="The time cost of sql selection of the data item")
-    sql_regeneration_time: Optional[float] = Field(default=None, description="The time cost of sql regeneration of the data item")
     total_time: Optional[float] = Field(default=None, description="The total time cost of the data item")
     
     # LLM cost metrics for each step
@@ -66,7 +61,6 @@ class DataItem(BaseModel):
     sql_generation_llm_cost: Optional[Dict[str, Any]] = Field(default=None, description="The llm cost of sql generation of the data item")
     sql_revision_llm_cost: Optional[Dict[str, Any]] = Field(default=None, description="The llm cost of sql revision of the data item")
     sql_selection_llm_cost: Optional[Dict[str, Any]] = Field(default=None, description="The llm cost of sql selection of the data item")
-    sql_regeneration_llm_cost: Optional[Dict[str, Any]] = Field(default=None, description="The llm cost of sql regeneration of the data item")
     total_llm_cost: Optional[Dict[str, Any]] = Field(default=None, description="The total llm cost of the data item")
 
 

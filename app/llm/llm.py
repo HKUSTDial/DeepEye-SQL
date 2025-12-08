@@ -13,7 +13,8 @@ from openai import (
     OpenAIError,
     AuthenticationError,
     RateLimitError,
-    BadRequestError
+    BadRequestError,
+    APITimeoutError
 )
 from openai.types.chat import ChatCompletionMessage
 from app.config import config, LLMConfig
@@ -55,7 +56,7 @@ class LLM:
     @retry(
         wait=wait_random_exponential(multiplier=1, max=60),
         stop=stop_after_attempt(6),
-        retry=retry_if_exception_type(RateLimitError)
+        retry=retry_if_exception_type((RateLimitError, APITimeoutError))
     )
     def ask(self, messages: List[Dict[str, str]],
                   system_message: Optional[Dict[str, str]] = None,

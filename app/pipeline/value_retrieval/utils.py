@@ -6,9 +6,12 @@ from app.prompt import PromptFactory
 import re
 import json
 from app.logger import logger
+from app.config import config
+import time
+import threading
 
 
-def extract_keywords(question: str, evidence: str, llm: LLM, max_retry: int = 5) -> tuple[List[str], Dict[str, int]]:
+def extract_keywords(question: str, evidence: str, llm: LLM, max_retry: int = 10) -> tuple[List[str], Dict[str, int]]:
     prompt = PromptFactory.format_keywords_extraction_prompt(question, evidence)
     retry = 0
     keywords_list = None
@@ -16,13 +19,15 @@ def extract_keywords(question: str, evidence: str, llm: LLM, max_retry: int = 5)
     
     while retry < max_retry:
         try:
-            response, token_usage = llm.ask([{"role": "user", "content": prompt}], n=1, stop=["</result>"])
+            response, token_usage = llm.ask([{"role": "user", "content": prompt}], n=1)
             total_token_usage["prompt_tokens"] += token_usage["prompt_tokens"]
             total_token_usage["completion_tokens"] += token_usage["completion_tokens"]
             total_token_usage["total_tokens"] += token_usage["total_tokens"]
             
-            # restore the stop token: </result>
-            content = response[0].content + "</result>"
+            content = response[0].content.strip()
+            
+            if not content.endswith("</result>") and config.value_retrieval_config.llm.fix_end_token:
+                content += "</result>"
             
             raw_list = re.search(r"<result>(.*?)</result>", content, re.DOTALL).group(1)
             keywords_list = json.loads(raw_list)
@@ -31,7 +36,12 @@ def extract_keywords(question: str, evidence: str, llm: LLM, max_retry: int = 5)
         except Exception as e:
             retry += 1
             logger.error(f"Error extracting keywords: {e}")
+            logger.error(f"Response content: {content}")
     
+    if keywords_list is None:
+        logger.warning("Failed to extract keywords from LLM response, using default keywords splitting strategy")
+        keywords_list = question.split(" ") + evidence.split(" ")
+        
     # post process the keywords_list
     processed_keywords = set()
     for keyword in keywords_list:
