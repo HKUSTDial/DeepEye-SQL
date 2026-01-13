@@ -75,11 +75,15 @@ class SchemaLinkingRunner:
             "completion_tokens": data_item.total_llm_cost["completion_tokens"] + data_item.schema_linking_llm_cost["completion_tokens"],
             "total_tokens": data_item.total_llm_cost["total_tokens"] + data_item.schema_linking_llm_cost["total_tokens"],
         }
+        self._eval_schema_linking_recall(data_item)
         
     def run(self):
         all_futures = []
         for data_item in self._dataset:
             if hasattr(data_item, "final_linked_tables_and_columns") and data_item.final_linked_tables_and_columns is not None:
+                # If already linked but recall is missing, evaluate it now
+                if not hasattr(data_item, "final_linking_recall") or data_item.final_linking_recall is None:
+                    self._eval_schema_linking_recall(data_item)
                 logger.info(f"Skipping data item {data_item.question_id} because it has already been linked")
                 continue
             future = self._thread_pool_executor.submit(self._link_tables_and_columns, data_item)
@@ -90,9 +94,6 @@ class SchemaLinkingRunner:
                 logger.info(f"Linking tables and columns {idx} / {len(all_futures)} completed")
                 self.save_result()
         logger.info("Linking tables and columns completed")
-        logger.info("Evaluating schema linking recall...")
-        self._eval_schema_linking_recall()        
-        logger.info("Schema linking recall evaluated")
         self.save_result()
         self._clean_up()
         
@@ -100,62 +101,62 @@ class SchemaLinkingRunner:
     def save_result(self):
         save_dataset(self._dataset, config.schema_linking_config.save_path)
         
-    def _eval_schema_linking_recall(self):
-        for data_item in self._dataset:
-            gold_tables_and_columns = self._reversed_linker._extract_tables_and_columns(data_item.gold_sql, data_item.database_schema_after_value_retrieval)
-            
-            # eval direct linking recall
-            direct_linking_table_recall = 0
-            direct_linking_column_recall = 0
-            for table_name, columns in data_item.direct_linked_tables_and_columns.items():
-                if table_name in gold_tables_and_columns:
-                    direct_linking_table_recall += 1
-                    for column_name in columns:
-                        if column_name in gold_tables_and_columns[table_name]:
-                            direct_linking_column_recall += 1
-            direct_linking_table_recall /= len(gold_tables_and_columns.keys()) if len(gold_tables_and_columns.keys()) > 0 else 1
-            direct_linking_column_recall /= sum(len(columns) for columns in gold_tables_and_columns.values()) if sum(len(columns) for columns in gold_tables_and_columns.values()) > 0 else 1
-            
-            # eval reversed linking recall
-            reversed_linking_table_recall = 0
-            reversed_linking_column_recall = 0
-            for table_name, columns in data_item.reversed_linked_tables_and_columns.items():
-                if table_name in gold_tables_and_columns:
-                    reversed_linking_table_recall += 1
-                    for column_name in columns:
-                        if column_name in gold_tables_and_columns[table_name]:
-                            reversed_linking_column_recall += 1
-            reversed_linking_table_recall /= len(gold_tables_and_columns.keys()) if len(gold_tables_and_columns.keys()) > 0 else 1
-            reversed_linking_column_recall /= sum(len(columns) for columns in gold_tables_and_columns.values()) if sum(len(columns) for columns in gold_tables_and_columns.values()) > 0 else 1
-            
-            # eval value linking recall
-            value_linking_table_recall = 0
-            value_linking_column_recall = 0
-            for table_name, columns in data_item.value_linked_tables_and_columns.items():
-                if table_name in gold_tables_and_columns:
-                    value_linking_table_recall += 1
-                    for column_name in columns:
-                        if column_name in gold_tables_and_columns[table_name]:
-                            value_linking_column_recall += 1
-            value_linking_table_recall /= len(gold_tables_and_columns.keys()) if len(gold_tables_and_columns.keys()) > 0 else 1
-            value_linking_column_recall /= sum(len(columns) for columns in gold_tables_and_columns.values()) if sum(len(columns) for columns in gold_tables_and_columns.values()) > 0 else 1
-            
-            # eval final linking recall
-            final_linking_table_recall = 0
-            final_linking_column_recall = 0
-            for table_name, columns in data_item.final_linked_tables_and_columns.items():
-                if table_name in gold_tables_and_columns:
-                    final_linking_table_recall += 1
-                    for column_name in columns:
-                        if column_name in gold_tables_and_columns[table_name]:
-                            final_linking_column_recall += 1
-            final_linking_table_recall /= len(gold_tables_and_columns.keys()) if len(gold_tables_and_columns.keys()) > 0 else 1
-            final_linking_column_recall /= sum(len(columns) for columns in gold_tables_and_columns.values()) if sum(len(columns) for columns in gold_tables_and_columns.values()) > 0 else 1
-            
-            data_item.direct_linking_recall = {"table_recall": direct_linking_table_recall, "column_recall": direct_linking_column_recall}
-            data_item.reversed_linking_recall = {"table_recall": reversed_linking_table_recall, "column_recall": reversed_linking_column_recall}
-            data_item.value_linking_recall = {"table_recall": value_linking_table_recall, "column_recall": value_linking_column_recall}
-            data_item.final_linking_recall = {"table_recall": final_linking_table_recall, "column_recall": final_linking_column_recall}
+    def _eval_schema_linking_recall(self, data_item: DataItem):
+        gold_tables_and_columns = self._reversed_linker._extract_tables_and_columns(data_item.gold_sql, data_item.database_schema_after_value_retrieval)
+        
+        # eval direct linking recall
+        direct_linking_table_recall = 0
+        direct_linking_column_recall = 0
+        for table_name, columns in data_item.direct_linked_tables_and_columns.items():
+            if table_name in gold_tables_and_columns:
+                direct_linking_table_recall += 1
+                for column_name in columns:
+                    if column_name in gold_tables_and_columns[table_name]:
+                        direct_linking_column_recall += 1
+        direct_linking_table_recall /= len(gold_tables_and_columns.keys()) if len(gold_tables_and_columns.keys()) > 0 else 1
+        direct_linking_column_recall /= sum(len(columns) for columns in gold_tables_and_columns.values()) if sum(len(columns) for columns in gold_tables_and_columns.values()) > 0 else 1
+        
+        # eval reversed linking recall
+        reversed_linking_table_recall = 0
+        reversed_linking_column_recall = 0
+        for table_name, columns in data_item.reversed_linked_tables_and_columns.items():
+            if table_name in gold_tables_and_columns:
+                reversed_linking_table_recall += 1
+                for column_name in columns:
+                    if column_name in gold_tables_and_columns[table_name]:
+                        reversed_linking_column_recall += 1
+        reversed_linking_table_recall /= len(gold_tables_and_columns.keys()) if len(gold_tables_and_columns.keys()) > 0 else 1
+        reversed_linking_column_recall /= sum(len(columns) for columns in gold_tables_and_columns.values()) if sum(len(columns) for columns in gold_tables_and_columns.values()) > 0 else 1
+        
+        # eval value linking recall
+        value_linking_table_recall = 0
+        value_linking_column_recall = 0
+        for table_name, columns in data_item.value_linked_tables_and_columns.items():
+            if table_name in gold_tables_and_columns:
+                value_linking_table_recall += 1
+                for column_name in columns:
+                    if column_name in gold_tables_and_columns[table_name]:
+                        value_linking_column_recall += 1
+        value_linking_table_recall /= len(gold_tables_and_columns.keys()) if len(gold_tables_and_columns.keys()) > 0 else 1
+        value_linking_column_recall /= sum(len(columns) for columns in gold_tables_and_columns.values()) if sum(len(columns) for columns in gold_tables_and_columns.values()) > 0 else 1
+        
+        # eval final linking recall
+        final_linking_table_recall = 0
+        final_linking_column_recall = 0
+        for table_name, columns in data_item.final_linked_tables_and_columns.items():
+            if table_name in gold_tables_and_columns:
+                final_linking_table_recall += 1
+                for column_name in columns:
+                    if column_name in gold_tables_and_columns[table_name]:
+                        final_linking_column_recall += 1
+        final_linking_table_recall /= len(gold_tables_and_columns.keys()) if len(gold_tables_and_columns.keys()) > 0 else 1
+        final_linking_column_recall /= sum(len(columns) for columns in gold_tables_and_columns.values()) if sum(len(columns) for columns in gold_tables_and_columns.values()) > 0 else 1
+        
+        data_item.direct_linking_recall = {"table_recall": direct_linking_table_recall, "column_recall": direct_linking_column_recall}
+        data_item.reversed_linking_recall = {"table_recall": reversed_linking_table_recall, "column_recall": reversed_linking_column_recall}
+        data_item.value_linking_recall = {"table_recall": value_linking_table_recall, "column_recall": value_linking_column_recall}
+        data_item.final_linking_recall = {"table_recall": final_linking_table_recall, "column_recall": final_linking_column_recall}
+
     
     def _clean_up(self):
         if self._thread_pool_executor is not None:

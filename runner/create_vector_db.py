@@ -14,6 +14,7 @@ def make_vector_db_for_db_id(db_path: str, vector_database_config: VectorDatabas
     try:
         embedding_function = get_embedding_function(
             model_name_or_path=vector_database_config.embedding_model_name_or_path,
+            api_type=vector_database_config.api_type,
             use_qwen3_embedding=vector_database_config.use_qwen3_embedding,
             local_files_only=vector_database_config.local_files_only,
             normalize_embeddings=vector_database_config.normalize_embeddings,

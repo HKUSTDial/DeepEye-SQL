@@ -51,7 +51,6 @@ class LLM:
     @staticmethod
     def get_instances():
         return LLM._instances
-    
         
     @retry(
         wait=wait_random_exponential(multiplier=1, max=60),

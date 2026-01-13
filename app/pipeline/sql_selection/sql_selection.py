@@ -172,9 +172,7 @@ class SQLSelectionRunner:
         
         # Track token usage for this specific data item
         total_token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-        
-        data_item.top_k_sql_eval_scores = {}
-        
+                
         top_k_sql_candidates = self._get_top_k_sql_candidates(data_item)
         
         if len(top_k_sql_candidates) == 0:

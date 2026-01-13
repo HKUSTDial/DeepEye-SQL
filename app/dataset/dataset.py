@@ -1,10 +1,9 @@
 from app.config import config, DatasetConfig
 from app.db_utils import load_database_schema_dict
 from pydantic import BaseModel, Field
-from typing import List, Optional, Literal, Any, Dict
+from typing import List, Optional, Any, Dict
 from pathlib import Path
 import json
-import pickle
 from abc import ABC, abstractmethod
 from tqdm import tqdm
 
@@ -38,7 +37,6 @@ class DataItem(BaseModel):
     sql_candidates_after_revision: Optional[List[str]] = Field(default=None, description="The sql candidates after revision of the data item")
     
     # SQL Selection Step
-    top_k_sql_eval_scores: Optional[Dict[str, float]] = Field(default=None, description="The eval scores of the top k sql candidates of the data item")
     final_selected_sql: Optional[str] = Field(default=None, description="The final selected sql of the data item")
     
     # Schema linking recall metrics

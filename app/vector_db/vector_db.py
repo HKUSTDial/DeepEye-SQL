@@ -27,8 +27,16 @@ def _is_number_column(column_values: List[str]) -> bool:
     return all(NUMBER_PATTERN.match(value) for value in column_values)
 
 
-def get_embedding_function(model_name_or_path: str, use_qwen3_embedding: bool = False, local_files_only: bool = False, normalize_embeddings: bool = False, base_url: str = None, api_key: str = None):
-    if api_key is None:
+def get_embedding_function(
+    model_name_or_path: str, 
+    api_type: str = "local",
+    use_qwen3_embedding: bool = False, 
+    local_files_only: bool = False, 
+    normalize_embeddings: bool = False, 
+    base_url: str = None, 
+    api_key: str = None
+):
+    if api_type == "local":
         if use_qwen3_embedding:
             logger.info(f"Using Qwen3 embedding function for {model_name_or_path}")
             return QwenEmbeddingFunction(
@@ -47,9 +55,15 @@ def get_embedding_function(model_name_or_path: str, use_qwen3_embedding: bool = 
                 local_files_only=local_files_only,
                 normalize_embeddings=normalize_embeddings
             )
-    else:
+    elif api_type == "openai":
         logger.info(f"Using OpenAI embedding function for {model_name_or_path}")
-        return OpenAIEmbeddingFunction(model_name=model_name_or_path, api_base=base_url, api_key=api_key)
+        return OpenAIEmbeddingFunction(
+            model_name=model_name_or_path, 
+            api_base=base_url, 
+            api_key=api_key
+        )
+    else:
+        raise ValueError(f"Unsupported embedding api_type: {api_type}")
 
 
 def make_vector_db(db_path: str, vector_db_path: str, max_value_length: int = 100, lower_meta_data=True, embedding_function=None):

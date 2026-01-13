@@ -48,6 +48,7 @@ class DatasetConfig(BaseModel):
 
 
 class VectorDatabaseConfig(BaseModel):
+    api_type: Literal["local", "openai"] = Field(default="local", description="The type of the embedding api")
     embedding_model_name_or_path: str = Field(..., description="The embedding model name or path")
     use_qwen3_embedding: bool = Field(default=False, description="Whether to use Qwen3 embedding")
     local_files_only: bool = Field(default=False, description="Whether to use local files only")
@@ -167,6 +168,7 @@ class Config:
         # vector database config
         vector_database_config = config.get("vector_database", {})
         vector_database_settings = {
+            "api_type": vector_database_config.get("api_type", "local"),
             "embedding_model_name_or_path": vector_database_config.get("embedding_model_name_or_path"),
             "store_root_path": vector_database_config.get("store_root_path", WORKSPACE_ROOT / "vector_store"),
             "use_qwen3_embedding": vector_database_config.get("use_qwen3_embedding", False),

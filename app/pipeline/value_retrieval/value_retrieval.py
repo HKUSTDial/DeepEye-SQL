@@ -44,6 +44,7 @@ class ValueRetrievalRunner:
                 name=db_id,
                 embedding_function=get_embedding_function(
                     model_name_or_path=config.vector_database_config.embedding_model_name_or_path,
+                    api_type=config.vector_database_config.api_type,
                     use_qwen3_embedding=config.vector_database_config.use_qwen3_embedding,
                     local_files_only=config.vector_database_config.local_files_only,
                     normalize_embeddings=config.vector_database_config.normalize_embeddings,
