@@ -32,6 +32,7 @@ class DatasetConfig(BaseModel):
     split: Literal["dev", "test"] = Field(..., description="The split of the dataset")
     root_path: Optional[str] = Field(..., description="The root path of the dataset")
     save_path: str = Field(default=WORKSPACE_ROOT / "dataset" / f"{type}" / f"{split}.pkl", description="The save path of the dataset")
+    max_samples: Optional[int] = Field(default=None, description="The maximum number of samples to load")
     
     @model_validator(mode="after")
     def validate_split(self):
@@ -57,6 +58,7 @@ class VectorDatabaseConfig(BaseModel):
     api_key: Optional[str] = Field(default=None, description="The api key of the embedding model service")
     store_root_path: str = Field(default=WORKSPACE_ROOT / "vector_store", description="The root path of the vector database")
     max_value_length: int = Field(default=100, description="The maximum length of the value")
+    batch_size: int = Field(default=1024, description="The batch size for adding documents to the vector database")
     lower_meta_data: bool = Field(default=True, description="Whether to lower the meta data")
 
 
@@ -163,6 +165,7 @@ class Config:
             "split": dataset_config.get("split"),
             "root_path": dataset_config.get("root_path"),
             "save_path": dataset_config.get("save_path", WORKSPACE_ROOT / "dataset" / f"{dataset_config.get('type')}" / f"{dataset_config.get('split')}.pkl"),
+            "max_samples": dataset_config.get("max_samples", None),
         }
         
         # vector database config
@@ -176,6 +179,7 @@ class Config:
             "normalize_embeddings": vector_database_config.get("normalize_embeddings", False),
             "base_url": vector_database_config.get("base_url", None),
             "api_key": vector_database_config.get("api_key", None),
+            "batch_size": vector_database_config.get("batch_size", 1024),
         }
         
         # value retrieval config

@@ -66,14 +66,14 @@ def get_embedding_function(
         raise ValueError(f"Unsupported embedding api_type: {api_type}")
 
 
-def make_vector_db(db_path: str, vector_db_path: str, max_value_length: int = 100, lower_meta_data=True, embedding_function=None):
+def make_vector_db(db_path: str, vector_db_path: str, max_value_length: int = 100, batch_size: int = 1024, lower_meta_data=True, embedding_function=None):
     """
     Make a vector database from a database path.
     """
     if Path(vector_db_path).exists():
-        # shutil.rmtree(vector_db_path)
-        logger.info(f"Vector database already exists for {db_path}, skipping it...")
-        return True
+        shutil.rmtree(vector_db_path)
+        logger.info(f"Vector database already exists for {db_path}, cleaning it and making a new one...")
+    
     logger.info(f"Making vector database for {db_path}, vector database path: {vector_db_path}")
     db_id = Path(db_path).stem
     client = PersistentClient(path=vector_db_path)
@@ -112,8 +112,7 @@ def make_vector_db(db_path: str, vector_db_path: str, max_value_length: int = 10
                     continue
                 
                 # Process in batches to stay under ChromaDB's batch size limit
-                batch_size = 1024
-                for i in range(0, len(value_examples), batch_size):
+                for i in tqdm(range(0, len(value_examples), batch_size), desc=f"Adding batches for {column_name}", leave=False):
                     batch_examples = value_examples[i:i + batch_size]
                     collection.add(
                         ids=[str(j) for j in range(id_counter, id_counter + len(batch_examples))],

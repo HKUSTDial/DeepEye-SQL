@@ -112,6 +112,10 @@ class BirdDataset(BaseDataset):
         data_path = Path(self._config.root_path) / self._config.split / f"{self._config.split}.json"
         with open(data_path, "r") as f:
             data_list = json.load(f)
+        
+        if self._config.max_samples is not None:
+            data_list = data_list[:self._config.max_samples]
+            
         data = []
         for data_item in tqdm(data_list, desc="Loading data"):
             question_id = data_item.get("question_id")
@@ -155,6 +159,10 @@ class SpiderDataset(BaseDataset):
         
         with open(data_path, "r") as f:
             data_list = json.load(f)
+        
+        if self._config.max_samples is not None:
+            data_list = data_list[:self._config.max_samples]
+            
         data = []
         for question_id, data_item in tqdm(enumerate(data_list), desc="Loading data"):
             question = data_item.get("question")

@@ -26,6 +26,7 @@ def make_vector_db_for_db_id(db_path: str, vector_database_config: VectorDatabas
             db_path=db_path,
             vector_db_path=Path(vector_database_config.store_root_path) / db_id,
             max_value_length=vector_database_config.max_value_length,
+            batch_size=vector_database_config.batch_size,
             lower_meta_data=vector_database_config.lower_meta_data,
             embedding_function=embedding_function,
         )

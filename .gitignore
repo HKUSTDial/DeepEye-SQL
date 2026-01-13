@@ -15,6 +15,7 @@ wheels/
 # tests and workspace
 tests/
 workspace/
+bak_workspace/
 
 # data
 data/
