@@ -218,17 +218,6 @@ class SQLSelectionRunner:
             }
             return
         
-        # # using pair-wise comparison to select the best sql
-        # win_matrix = np.zeros((len(top_k_sql_candidates), len(top_k_sql_candidates), config.sql_selection_config.evaluator_sampling_budget))
-        # sql_to_idx = {sql[0]: idx for idx, sql in enumerate(top_k_sql_candidates)}
-        # pair_sqls_to_eval = self._get_pair_sqls_to_eval(top_k_sql_candidates)
-        # for sql_a, sql_b in pair_sqls_to_eval:
-        #     votes, token_usage = self._compare_sqls(sql_a[0], sql_a[1], sql_b[0], sql_b[1], data_item)
-        #     self._update_win_matrix(sql_to_idx[sql_a[0]], sql_to_idx[sql_b[0]], votes, win_matrix)
-        #     total_token_usage["prompt_tokens"] += token_usage["prompt_tokens"]
-        #     total_token_usage["completion_tokens"] += token_usage["completion_tokens"]
-        #     total_token_usage["total_tokens"] += token_usage["total_tokens"]
-        
         # using pair-wise comparison to select the best sql
         win_matrix = np.zeros((len(top_k_sql_candidates), len(top_k_sql_candidates), config.sql_selection_config.evaluator_sampling_budget))
         sql_to_idx = {sql[0]: idx for idx, sql in enumerate(top_k_sql_candidates)}
