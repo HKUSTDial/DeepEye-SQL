@@ -6,7 +6,7 @@ from app.config import config
 import time
 from app.logger import logger
 from tqdm import tqdm
-from typing import List
+from typing import List, Dict
 from pathlib import Path
 
 class SQLRevisionRunner:
@@ -37,6 +37,25 @@ class SQLRevisionRunner:
             ResultChecker(),
         ]
         
+    def _normalize_sql(self, sql: str) -> str:
+        """Simple normalization to handle whitespace and case differences."""
+        if not sql:
+            return ""
+        return " ".join(sql.split()).strip().lower()
+
+    def _revise_one_candidate(self, sql: str, data_item: DataItem) -> tuple[str, Dict[str, int]]:
+        """Run all checkers sequentially for a single SQL candidate."""
+        total_tokens = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        current_sql = sql
+        for checker in self._checkers:
+            current_sql, tokens = checker.check_and_revise(
+                current_sql, data_item, self._llm, config.sql_revision_config.checker_sampling_budget
+            )
+            total_tokens["prompt_tokens"] += tokens["prompt_tokens"]
+            total_tokens["completion_tokens"] += tokens["completion_tokens"]
+            total_tokens["total_tokens"] += tokens["total_tokens"]
+        return current_sql, total_tokens
+
     def _revise_sql(self, data_item: DataItem) -> None:
         start_time = time.time()
         
@@ -44,16 +63,50 @@ class SQLRevisionRunner:
         total_token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         
         sql_candidates = data_item.sql_candidates
-        revised_sql_candidates = []
-        for sql in sql_candidates:
-            for checker in self._checkers:
-                sql, tokens = checker.check_and_revise(sql, data_item, self._llm, config.sql_revision_config.checker_sampling_budget)
-                total_token_usage["prompt_tokens"] += tokens["prompt_tokens"]
-                total_token_usage["completion_tokens"] += tokens["completion_tokens"]
-                total_token_usage["total_tokens"] += tokens["total_tokens"]
-            revised_sql_candidates.append(sql)
         
-        data_item.sql_candidates_after_revision = revised_sql_candidates
+        # Deduplicate candidates using normalized SQL as key
+        # normalized_sql -> original_sql
+        unique_candidates_map = {}
+        for sql in sql_candidates:
+            norm_sql = self._normalize_sql(sql)
+            if norm_sql not in unique_candidates_map:
+                unique_candidates_map[norm_sql] = sql
+        
+        # Parallelize the revision of UNIQUE candidates only
+        unique_norms = list(unique_candidates_map.keys())
+        with ThreadPoolExecutor(max_workers=min(len(unique_norms), 8)) as executor:
+            future_to_norm = {
+                executor.submit(self._revise_one_candidate, unique_candidates_map[norm], data_item): norm 
+                for norm in unique_norms
+            }
+            
+            # normalized_sql -> (revised_sql, tokens)
+            norm_to_result = {}
+            
+            for future in tqdm(as_completed(future_to_norm), total=len(future_to_norm), desc=f"Revising unique candidates for item {data_item.question_id}", leave=False):
+                norm = future_to_norm[future]
+                try:
+                    revised_sql, tokens = future.result()
+                    norm_to_result[norm] = (revised_sql, tokens)
+                except Exception as e:
+                    logger.error(f"Error revising SQL candidate for item {data_item.question_id}: {e}")
+                    # Fallback to original SQL (from the map)
+                    norm_to_result[norm] = (unique_candidates_map[norm], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
+
+        # Map results back to the original candidates list (preserving order and duplicates)
+        final_revised_candidates = []
+        for sql in sql_candidates:
+            norm = self._normalize_sql(sql)
+            revised_sql, _ = norm_to_result[norm]
+            final_revised_candidates.append(revised_sql)
+            
+        # Accumulate tokens only from the actual unique API calls
+        for _, tokens in norm_to_result.values():
+            total_token_usage["prompt_tokens"] += tokens["prompt_tokens"]
+            total_token_usage["completion_tokens"] += tokens["completion_tokens"]
+            total_token_usage["total_tokens"] += tokens["total_tokens"]
+        
+        data_item.sql_candidates_after_revision = final_revised_candidates
         data_item.sql_revision_time = time.time() - start_time
         data_item.sql_revision_llm_cost = total_token_usage
         data_item.total_time += data_item.sql_revision_time
@@ -73,7 +126,7 @@ class SQLRevisionRunner:
             all_futures.append(future)
         for idx, future in tqdm(enumerate(as_completed(all_futures), start=1), total=len(all_futures), desc="Revising SQL"):
             future.result()
-            if idx % 20 == 0:
+            if idx % 5 == 0:
                 logger.info(f"Revising SQL {idx} / {len(all_futures)} completed")
                 self.save_result()
         logger.info("Revising SQL completed")

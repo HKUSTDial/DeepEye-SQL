@@ -39,23 +39,31 @@ class SQLGenerationRunner:
         # Track token usage for this specific data item
         total_token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         
-        # DC Generation
-        dc_sql_candidates, dc_tokens = self._dc_generator.generate(data_item, self._llm, config.sql_generation_config.dc_sampling_budget)
-        total_token_usage["prompt_tokens"] += dc_tokens["prompt_tokens"]
-        total_token_usage["completion_tokens"] += dc_tokens["completion_tokens"]
-        total_token_usage["total_tokens"] += dc_tokens["total_tokens"]
+        # Parallelize different generation methods within a single data item
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            generation_tasks = {
+                "dc": executor.submit(self._dc_generator.generate, data_item, self._llm, config.sql_generation_config.dc_sampling_budget),
+                "skeleton": executor.submit(self._skeleton_generator.generate, data_item, self._llm, config.sql_generation_config.skeleton_sampling_budget),
+                "icl": executor.submit(self._icl_generator.generate, data_item, self._llm, config.sql_generation_config.icl_sampling_budget)
+            }
+            
+            results = {}
+            for name, future in generation_tasks.items():
+                try:
+                    results[name] = future.result()
+                except Exception as e:
+                    logger.error(f"Error in {name} generation for item {data_item.question_id}: {e}")
+                    results[name] = ([], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
+
+        dc_sql_candidates, dc_tokens = results["dc"]
+        skeleton_sql_candidates, skeleton_tokens = results["skeleton"]
+        icl_sql_candidates, icl_tokens = results["icl"]
         
-        # Skeleton Generation
-        skeleton_sql_candidates, skeleton_tokens = self._skeleton_generator.generate(data_item, self._llm, config.sql_generation_config.skeleton_sampling_budget)
-        total_token_usage["prompt_tokens"] += skeleton_tokens["prompt_tokens"]
-        total_token_usage["completion_tokens"] += skeleton_tokens["completion_tokens"]
-        total_token_usage["total_tokens"] += skeleton_tokens["total_tokens"]
-        
-        # ICL Generation
-        icl_sql_candidates, icl_tokens = self._icl_generator.generate(data_item, self._llm, config.sql_generation_config.icl_sampling_budget)
-        total_token_usage["prompt_tokens"] += icl_tokens["prompt_tokens"]
-        total_token_usage["completion_tokens"] += icl_tokens["completion_tokens"]
-        total_token_usage["total_tokens"] += icl_tokens["total_tokens"]
+        # Accumulate token usage
+        for tokens in [dc_tokens, skeleton_tokens, icl_tokens]:
+            total_token_usage["prompt_tokens"] += tokens["prompt_tokens"]
+            total_token_usage["completion_tokens"] += tokens["completion_tokens"]
+            total_token_usage["total_tokens"] += tokens["total_tokens"]
         
         data_item.sql_candidates = dc_sql_candidates + skeleton_sql_candidates + icl_sql_candidates
         
@@ -79,7 +87,7 @@ class SQLGenerationRunner:
             all_futures.append(future)
         for idx, future in tqdm(enumerate(as_completed(all_futures), start=1), total=len(all_futures), desc="Generating SQL"):
             future.result()
-            if idx % 20 == 0:
+            if idx % 5 == 0:
                 logger.info(f"Generating SQL {idx} / {len(all_futures)} completed")
                 self.save_result()
         logger.info("Generating SQL completed")

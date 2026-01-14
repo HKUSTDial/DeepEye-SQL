@@ -54,8 +54,8 @@ class LLM:
         
     @retry(
         wait=wait_random_exponential(multiplier=1, max=60),
-        stop=stop_after_attempt(6),
-        retry=retry_if_exception_type((RateLimitError, APITimeoutError))
+        stop=stop_after_attempt(10),
+        retry=retry_if_exception_type((RateLimitError, APITimeoutError, OpenAIError))
     )
     def ask(self, messages: List[Dict[str, str]],
                   system_message: Optional[Dict[str, str]] = None,
@@ -76,6 +76,11 @@ class LLM:
             response = self._client.chat.completions.create(**request_params)
             if not response.choices:
                 raise OpenAIError(f"No response from the model: {response}")
+            
+            # Check if any choice has None content
+            for choice in response.choices:
+                if choice.message.content is None:
+                    raise OpenAIError(f"Model returned empty content (possibly filtered): {response}")
             
             # Calculate token usage for this specific request
             current_token_usage = {

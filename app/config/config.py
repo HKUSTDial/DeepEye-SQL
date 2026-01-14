@@ -59,6 +59,7 @@ class VectorDatabaseConfig(BaseModel):
     store_root_path: str = Field(default=WORKSPACE_ROOT / "vector_store", description="The root path of the vector database")
     max_value_length: int = Field(default=100, description="The maximum length of the value")
     batch_size: int = Field(default=1024, description="The batch size for adding documents to the vector database")
+    n_parallel: int = Field(default=1, description="The number of parallel threads to use for making vector database")
     lower_meta_data: bool = Field(default=True, description="Whether to lower the meta data")
 
 
@@ -180,6 +181,7 @@ class Config:
             "base_url": vector_database_config.get("base_url", None),
             "api_key": vector_database_config.get("api_key", None),
             "batch_size": vector_database_config.get("batch_size", 1024),
+            "n_parallel": vector_database_config.get("n_parallel", 1),
         }
         
         # value retrieval config

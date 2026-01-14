@@ -37,6 +37,7 @@ def make_vector_db_for_db_path(db_path: str, vector_database_config: VectorDatab
             vector_db_path=Path(vector_database_config.store_root_path) / db_id,
             max_value_length=vector_database_config.max_value_length,
             batch_size=vector_database_config.batch_size,
+            n_parallel=vector_database_config.n_parallel,
             lower_meta_data=vector_database_config.lower_meta_data,
             embedding_function=embedding_function,
         )
@@ -61,7 +62,7 @@ def make_vector_db_for_db_path(db_path: str, vector_database_config: VectorDatab
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("--n_parallel", type=int, default=4, help="Number of databases to process in parallel")
+    parser.add_argument("--n_parallel", type=int, default=config.vector_database_config.n_parallel, help="Number of databases to process in parallel")
     args = parser.parse_args()
 
     logger.info(f"Loading dataset from {config.dataset_config.save_path}")

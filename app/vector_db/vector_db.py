@@ -3,12 +3,14 @@ from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunct
 from pathlib import Path
 import shutil
 from tqdm import tqdm
-from typing import List
+from typing import List, Dict, Any
 from .qwen_embedding_function import QwenEmbeddingFunction
 from app.db_utils import load_table_names, load_column_names_and_types, execute_sql
 from app.logger import logger
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 import pandas as pd
+import uuid
 
 
 UUID_PATTERN = re.compile(
@@ -66,7 +68,52 @@ def get_embedding_function(
         raise ValueError(f"Unsupported embedding api_type: {api_type}")
 
 
-def make_vector_db(db_path: str, vector_db_path: str, max_value_length: int = 100, batch_size: int = 1024, lower_meta_data=True, embedding_function=None):
+def _process_one_column(
+    db_path: str, 
+    table_name: str, 
+    column_name: str, 
+    column_type: str, 
+    max_value_length: int, 
+    batch_size: int, 
+    lower_meta_data: bool, 
+    collection: Any, 
+    db_id: str
+):
+    if column_type.upper() != "TEXT" and not column_type.upper().startswith("VARCHAR") and not column_type.upper().startswith("CHAR"):
+        return
+    
+    query_sql = f"""
+    SELECT DISTINCT `{column_name}` FROM `{table_name}` 
+    WHERE `{column_name}` IS NOT NULL 
+    AND LENGTH(CAST(`{column_name}` AS TEXT)) <= {max_value_length};
+    """
+    result = execute_sql(db_path, query_sql, timeout=300)
+    if result.result_type in ["success", "empty_result"]:
+        value_examples = [str(row[0]) for row in result.result_rows]
+        
+        if len(value_examples) == 0:
+            return
+        
+        if _is_uuid_column(value_examples) or _is_number_column(value_examples):
+            return
+        
+        # Process in batches to stay under ChromaDB's batch size limit
+        for i in tqdm(range(0, len(value_examples), batch_size), desc=f"Adding batches for {column_name}", leave=False):
+            batch_examples = value_examples[i:i + batch_size]
+            collection.add(
+                ids=[str(uuid.uuid4()) for _ in range(len(batch_examples))],
+                documents=batch_examples,
+                metadatas=[
+                    {"db_id": db_id.lower(), "table_name": table_name.lower(), "column_name": column_name.lower()} 
+                    if lower_meta_data else {"db_id": db_id, "table_name": table_name, "column_name": column_name}
+                    for _ in range(len(batch_examples))
+                ],
+            )
+    else:
+        raise RuntimeError(f"Error executing SQL for {db_id}.{table_name}.{column_name}: {result.error_message}")
+
+
+def make_vector_db(db_path: str, vector_db_path: str, max_value_length: int = 100, batch_size: int = 1024, n_parallel: int = 1, lower_meta_data=True, embedding_function=None):
     """
     Make a vector database from a database path.
     """
@@ -82,66 +129,28 @@ def make_vector_db(db_path: str, vector_db_path: str, max_value_length: int = 10
         embedding_function=embedding_function,
         metadata={"hnsw:space": "cosine"}
     )
-    id_counter = 0
+    
+    all_column_tasks = []
     for table_name in load_table_names(db_path):
         column_names_and_types = load_column_names_and_types(db_path, table_name)
-        for column_name, column_type in tqdm(column_names_and_types, desc=f"Making vector database for {db_id}.{table_name}"):
-            if column_type.upper() != "TEXT" and not column_type.upper().startswith("VARCHAR") and not column_type.upper().startswith("CHAR"):
-                logger.info(f"Skipping {db_id}.{table_name}.{column_name} ({column_type}) because it is not a text column")
-                continue
-            else:
-                logger.info(f"Processing {db_id}.{table_name}.{column_name} ({column_type})...")
-            query_sql = f"""
-            SELECT DISTINCT `{column_name}` FROM `{table_name}` 
-            WHERE `{column_name}` IS NOT NULL 
-            AND LENGTH(CAST(`{column_name}` AS TEXT)) <= {max_value_length};
-            """
-            result = execute_sql(db_path, query_sql, timeout=300)
-            if result.result_type in ["success", "empty_result"]:
-                value_examples = [str(row[0]) for row in result.result_rows]
-                
-                if len(value_examples) == 0:
-                    logger.info(f"Skipping {db_id}.{table_name}.{column_name} because it has no value examples")
-                    continue
-                
-                if _is_uuid_column(value_examples):
-                    logger.info(f"Skipping {db_id}.{table_name}.{column_name} because it is a uuid column")
-                    continue
-                if _is_number_column(value_examples):
-                    logger.info(f"Skipping {db_id}.{table_name}.{column_name} because it is a number column")
-                    continue
-                
-                # Process in batches to stay under ChromaDB's batch size limit
-                for i in tqdm(range(0, len(value_examples), batch_size), desc=f"Adding batches for {column_name}", leave=False):
-                    batch_examples = value_examples[i:i + batch_size]
-                    collection.add(
-                        ids=[str(j) for j in range(id_counter, id_counter + len(batch_examples))],
-                        documents=batch_examples,
-                        metadatas=[
-                            {"db_id": db_id.lower(), "table_name": table_name.lower(), "column_name": column_name.lower()} 
-                            if lower_meta_data else {"db_id": db_id, "table_name": table_name, "column_name": column_name}
-                            for _ in range(len(batch_examples))
-                        ],
-                    )
-                    id_counter += len(batch_examples)
-            else:
-                logger.error(f"Error executing SQL for {db_id}.{table_name}.{column_name}: {result.error_message}")
-                # This database is failed to be processed, deleting the vector database
+        for column_name, column_type in column_names_and_types:
+            all_column_tasks.append((table_name, column_name, column_type))
+
+    with ThreadPoolExecutor(max_workers=n_parallel) as executor:
+        futures = []
+        for table_name, column_name, column_type in all_column_tasks:
+            futures.append(executor.submit(
+                _process_one_column,
+                db_path, table_name, column_name, column_type, 
+                max_value_length, batch_size, lower_meta_data, collection, db_id
+            ))
+        
+        for future in tqdm(as_completed(futures), total=len(futures), desc=f"Making vector database for {db_id}"):
+            try:
+                future.result()
+            except Exception as e:
+                logger.error(f"Failed to process column: {e}")
                 shutil.rmtree(vector_db_path)
                 return False
+                
     return True
-
-
-def query_vector_db(vector_db_path: str, table_name: str, column_name: str, queries: List[str], top_k: int = 5, lower_meta_data=True, embedding_function=None):
-    """
-    Query the vector database for the most relevant results.
-    """
-    db_id = Path(vector_db_path).stem
-    client = PersistentClient(path=vector_db_path)
-    collection = client.get_collection(name=db_id, embedding_function=embedding_function)
-    result = collection.query(
-        query_texts=queries,
-        where={"$and": [{"table_name": {"$eq": table_name.lower() if lower_meta_data else table_name}}, {"column_name": {"$eq": column_name.lower() if lower_meta_data else column_name}}]},
-        n_results=top_k,
-    )
-    return result

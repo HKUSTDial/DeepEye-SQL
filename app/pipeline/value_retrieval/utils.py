@@ -9,6 +9,14 @@ from app.logger import logger
 from app.config import config
 import time
 import threading
+from tenacity import(
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_random_exponential
+)
+from openai import RateLimitError, APITimeoutError
+from tqdm import tqdm
 
 
 def extract_keywords(question: str, evidence: str, llm: LLM, max_retry: int = 10) -> tuple[List[str], Dict[str, int]]:
@@ -53,8 +61,32 @@ def extract_keywords(question: str, evidence: str, llm: LLM, max_retry: int = 10
     return keywords_list, total_token_usage
 
 
+@retry(
+    wait=wait_random_exponential(multiplier=1, max=60),
+    stop=stop_after_attempt(10),
+    retry=retry_if_exception_type((RateLimitError, APITimeoutError))
+)
+def embed_keywords(keywords: List[str], embedding_function: Any) -> List[List[float]]:
+    """
+    Independently embed keywords with batching and retry logic.
+    """
+    if not keywords:
+        return []
+    
+    batch_size = config.vector_database_config.batch_size
+    all_embeddings = []
+    
+    # Manual batching to respect API limits (e.g., max 10 per request)
+    for i in range(0, len(keywords), batch_size):
+        batch = keywords[i : i + batch_size]
+        batch_embeddings = embedding_function(batch)
+        all_embeddings.extend(batch_embeddings)
+        
+    return all_embeddings
+
+
 def retrieve_values_for_one_column(
-    keywords: List[str],
+    query_embeddings: List[List[float]], # Changed from keywords: List[str]
     collection: Collection,
     table_name: str,
     column_name: str,
@@ -63,11 +95,14 @@ def retrieve_values_for_one_column(
 ) -> Dict[str, Any]:
     table_name = table_name.lower() if lower_meta_data else table_name
     column_name = column_name.lower() if lower_meta_data else column_name
+    
+    # We no longer need batching here because we already have the embeddings
     query_results = collection.query(
-        query_texts=keywords,
+        query_embeddings=query_embeddings, # Pass pre-computed embeddings
         where={"$and": [{"table_name": {"$eq": table_name}}, {"column_name": {"$eq": column_name}}]},
         n_results=n_results,
     )
+    
     values = []
     for documents, distances in zip(query_results["documents"], query_results["distances"]):
         for doc, dist in zip(documents, distances):

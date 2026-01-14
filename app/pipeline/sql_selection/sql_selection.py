@@ -218,16 +218,39 @@ class SQLSelectionRunner:
             }
             return
         
+        # # using pair-wise comparison to select the best sql
+        # win_matrix = np.zeros((len(top_k_sql_candidates), len(top_k_sql_candidates), config.sql_selection_config.evaluator_sampling_budget))
+        # sql_to_idx = {sql[0]: idx for idx, sql in enumerate(top_k_sql_candidates)}
+        # pair_sqls_to_eval = self._get_pair_sqls_to_eval(top_k_sql_candidates)
+        # for sql_a, sql_b in pair_sqls_to_eval:
+        #     votes, token_usage = self._compare_sqls(sql_a[0], sql_a[1], sql_b[0], sql_b[1], data_item)
+        #     self._update_win_matrix(sql_to_idx[sql_a[0]], sql_to_idx[sql_b[0]], votes, win_matrix)
+        #     total_token_usage["prompt_tokens"] += token_usage["prompt_tokens"]
+        #     total_token_usage["completion_tokens"] += token_usage["completion_tokens"]
+        #     total_token_usage["total_tokens"] += token_usage["total_tokens"]
+        
         # using pair-wise comparison to select the best sql
         win_matrix = np.zeros((len(top_k_sql_candidates), len(top_k_sql_candidates), config.sql_selection_config.evaluator_sampling_budget))
         sql_to_idx = {sql[0]: idx for idx, sql in enumerate(top_k_sql_candidates)}
         pair_sqls_to_eval = self._get_pair_sqls_to_eval(top_k_sql_candidates)
-        for sql_a, sql_b in pair_sqls_to_eval:
-            votes, token_usage = self._compare_sqls(sql_a[0], sql_a[1], sql_b[0], sql_b[1], data_item)
-            self._update_win_matrix(sql_to_idx[sql_a[0]], sql_to_idx[sql_b[0]], votes, win_matrix)
-            total_token_usage["prompt_tokens"] += token_usage["prompt_tokens"]
-            total_token_usage["completion_tokens"] += token_usage["completion_tokens"]
-            total_token_usage["total_tokens"] += token_usage["total_tokens"]
+        
+        # Parallelize the pairwise comparisons
+        with ThreadPoolExecutor(max_workers=min(len(pair_sqls_to_eval), 4)) as executor:
+            future_to_pair = {
+                executor.submit(self._compare_sqls, sql_a[0], sql_a[1], sql_b[0], sql_b[1], data_item): (sql_a, sql_b)
+                for sql_a, sql_b in pair_sqls_to_eval
+            }
+            
+            for future in as_completed(future_to_pair):
+                sql_a, sql_b = future_to_pair[future]
+                try:
+                    votes, token_usage = future.result()
+                    self._update_win_matrix(sql_to_idx[sql_a[0]], sql_to_idx[sql_b[0]], votes, win_matrix)
+                    total_token_usage["prompt_tokens"] += token_usage["prompt_tokens"]
+                    total_token_usage["completion_tokens"] += token_usage["completion_tokens"]
+                    total_token_usage["total_tokens"] += token_usage["total_tokens"]
+                except Exception as e:
+                    logger.error(f"Error comparing SQLs {sql_a[0]} and {sql_b[0]}: {e}")
         
         robust_win_matrix = self._compute_robust_win_matrix(win_matrix)
         ranking_scores = np.mean(robust_win_matrix, axis=1)
@@ -255,7 +278,7 @@ class SQLSelectionRunner:
             all_futures.append(future)
         for idx, future in tqdm(enumerate(as_completed(all_futures), start=1), total=len(all_futures), desc="Selecting Best SQL"):
             future.result()
-            if idx % 20 == 0:
+            if idx % 5 == 0:
                 logger.info(f"Selecting Best SQL {idx} / {len(all_futures)} completed")
                 self.save_result()
         logger.info("Selecting Best SQL completed")

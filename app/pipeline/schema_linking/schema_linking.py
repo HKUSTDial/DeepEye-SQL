@@ -41,25 +41,38 @@ class SchemaLinkingRunner:
         # Track token usage for this specific data item
         total_token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         
-        # Direct linking
-        direct_linked_tables_and_columns, direct_tokens = self._direct_linker.link(data_item, self._llm, config.schema_linking_config.direct_linking_sampling_budget)
-        total_token_usage["prompt_tokens"] += direct_tokens["prompt_tokens"]
-        total_token_usage["completion_tokens"] += direct_tokens["completion_tokens"]
-        total_token_usage["total_tokens"] += direct_tokens["total_tokens"]
+        # Parallelize different linking methods within a single data item
+        # We use a max_workers=3 because we have three independent linkers
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            linker_tasks = {
+                "direct": executor.submit(self._direct_linker.link, data_item, self._llm, config.schema_linking_config.direct_linking_sampling_budget),
+                "reversed": executor.submit(self._reversed_linker.link, data_item, self._llm, config.schema_linking_config.reversed_linking_sampling_budget),
+                "value": executor.submit(self._value_linker.link, data_item, self._llm)
+            }
+            
+            results = {}
+            for name, future in linker_tasks.items():
+                try:
+                    results[name] = future.result()
+                except Exception as e:
+                    logger.error(f"Error in {name} linking for item {data_item.question_id}: {e}")
+                    results[name] = ({}, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
+
+            direct_linked_tables_and_columns, direct_tokens = results["direct"]
+            reversed_linked_tables_and_columns, reversed_tokens = results["reversed"]
+            value_linked_tables_and_columns, value_tokens = results["value"]
+            
+        # Accumulate token usage
+        for tokens in [direct_tokens, reversed_tokens, value_tokens]:
+            total_token_usage["prompt_tokens"] += tokens["prompt_tokens"]
+            total_token_usage["completion_tokens"] += tokens["completion_tokens"]
+            total_token_usage["total_tokens"] += tokens["total_tokens"]
         
-        # Reversed linking
-        reversed_linked_tables_and_columns, reversed_tokens = self._reversed_linker.link(data_item, self._llm, config.schema_linking_config.reversed_linking_sampling_budget)
-        total_token_usage["prompt_tokens"] += reversed_tokens["prompt_tokens"]
-        total_token_usage["completion_tokens"] += reversed_tokens["completion_tokens"]
-        total_token_usage["total_tokens"] += reversed_tokens["total_tokens"]
-        
-        # Value linking (no LLM calls, so no tokens)
-        value_linked_tables_and_columns, value_tokens = self._value_linker.link(data_item, self._llm)
-        total_token_usage["prompt_tokens"] += value_tokens["prompt_tokens"]
-        total_token_usage["completion_tokens"] += value_tokens["completion_tokens"]
-        total_token_usage["total_tokens"] += value_tokens["total_tokens"]
-        
-        merged_linked_tables_and_columns = merge_schema_linking_results([direct_linked_tables_and_columns, reversed_linked_tables_and_columns, value_linked_tables_and_columns])
+        merged_linked_tables_and_columns = merge_schema_linking_results([
+            direct_linked_tables_and_columns, 
+            reversed_linked_tables_and_columns, 
+            value_linked_tables_and_columns
+        ])
         data_item.direct_linked_tables_and_columns = direct_linked_tables_and_columns
         data_item.reversed_linked_tables_and_columns = reversed_linked_tables_and_columns
         data_item.value_linked_tables_and_columns = value_linked_tables_and_columns
@@ -90,7 +103,7 @@ class SchemaLinkingRunner:
             all_futures.append(future)
         for idx, future in tqdm(enumerate(as_completed(all_futures), start=1), total=len(all_futures), desc="Linking tables and columns"):
             future.result()
-            if idx % 20 == 0:
+            if idx % 5 == 0:
                 logger.info(f"Linking tables and columns {idx} / {len(all_futures)} completed")
                 self.save_result()
         logger.info("Linking tables and columns completed")
