@@ -5,6 +5,7 @@ from app.llm import LLM
 from app.logger import logger
 from app.prompt import PromptFactory
 from app.config import config
+from app.llm_extractor import LLMExtractor
 from app.db_utils import get_database_schema_profile, map_lower_table_name_to_original_table_name, map_lower_column_name_to_original_column_name
 from typing import Dict, List, Optional, Any
 import re
@@ -27,29 +28,26 @@ class ReversedLinker(BaseSchemaLinker):
         
         database_schema_profile = get_database_schema_profile(data_item.database_schema_after_value_retrieval)
         few_shot_examples = self._few_shot_examples[str(data_item.question_id)]
-        # prompt = PromptFactory.format_dc_sql_generation_prompt(database_schema_profile, data_item.question, data_item.evidence).strip()
         prompt = PromptFactory.format_icl_sql_generation_prompt(few_shot_examples, database_schema_profile, data_item.question, data_item.evidence).strip()
-        total_token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         
-        all_selections = []
-        while len(all_selections) < sampling_budget:
-            # responses, token_usage = llm.ask([{"role": "user", "content": prompt}], n=sampling_budget - len(all_selections), stop=["</result>"])
-            responses, token_usage = llm.ask([{"role": "user", "content": prompt}], n=sampling_budget - len(all_selections))
-            for response in responses:
-                response = response.content.strip()
-                if not response.endswith("</result>") and config.schema_linking_config.llm.fix_end_token:
-                    response += "</result>"
-                try:
-                    parsed_sql_candidate = self._parse_llm_response(response)
-                    if parsed_sql_candidate:
-                        all_selections.append(self._extract_tables_and_columns(parsed_sql_candidate, data_item.database_schema_after_value_retrieval))
-                except Exception as e:
-                    logger.error(f"Error parsing LLM response: {e}")
-                    logger.debug(f"Response content: {response}")
-                    continue
-            total_token_usage["prompt_tokens"] += token_usage["prompt_tokens"]
-            total_token_usage["completion_tokens"] += token_usage["completion_tokens"]
-            total_token_usage["total_tokens"] += token_usage["total_tokens"]
+        # Define a combined parser that parses SQL then extracts tables/columns
+        def parse_and_extract(response: str, database_schema: Dict[str, Any] = None) -> Optional[Dict[str, List[str]]]:
+            parsed_sql = self._parse_llm_response(response)
+            if parsed_sql:
+                return self._extract_tables_and_columns(parsed_sql, database_schema)
+            return None
+        
+        extractor = LLMExtractor()
+        all_selections, total_token_usage = extractor.extract_with_retry(
+            llm=llm,
+            messages=[{"role": "user", "content": prompt}],
+            rule_parser=parse_and_extract,
+            parser_kwargs={"database_schema": data_item.database_schema_after_value_retrieval},
+            fix_end_token=config.schema_linking_config.llm.fix_end_token,
+            end_token="</result>",
+            n=sampling_budget
+        )
+        
         return merge_schema_linking_results(all_selections), total_token_usage
     
     def _parse_llm_response(self, response: str) -> Optional[Dict[str, List[str]]]:

@@ -3,6 +3,7 @@ from app.dataset import DataItem
 from app.llm import LLM
 from app.logger import logger
 from app.prompt import PromptFactory
+from app.llm_extractor import LLMExtractor
 from app.db_utils import execute_sql, get_database_schema_profile
 from app.config import config
 from typing import Dict, List, Any, Optional, Tuple
@@ -20,25 +21,17 @@ class ResultChecker(BaseChecker):
         else:
             database_schema_profile = get_database_schema_profile(data_item.database_schema_after_schema_linking)
             prompt = PromptFactory.format_execution_checker_prompt(database_schema_profile, data_item.question, data_item.evidence, sql, execution_result.result_table_str)
-            total_token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-            all_sql_candidates = []
-            while len(all_sql_candidates) < sampling_budget:
-                responses, token_usage = llm.ask([{"role": "user", "content": prompt}], n=sampling_budget - len(all_sql_candidates))
-                for response in responses:
-                    response = response.content.strip()
-                    if not response.endswith("</result>") and config.sql_revision_config.llm.fix_end_token:
-                        response += "</result>"
-                    try:
-                        parsed_sql_candidate = self._parse_llm_response(response)
-                        if parsed_sql_candidate:
-                            all_sql_candidates.append(parsed_sql_candidate)
-                    except Exception as e:
-                        logger.error(f"Error parsing LLM response: {e}")
-                        logger.debug(f"Response content: {response}")
-                        continue
-                total_token_usage["prompt_tokens"] += token_usage["prompt_tokens"]
-                total_token_usage["completion_tokens"] += token_usage["completion_tokens"]
-                total_token_usage["total_tokens"] += token_usage["total_tokens"]
+            
+            extractor = LLMExtractor()
+            all_sql_candidates, total_token_usage = extractor.extract_with_retry(
+                llm=llm,
+                messages=[{"role": "user", "content": prompt}],
+                rule_parser=self._parse_llm_response,
+                fix_end_token=config.sql_revision_config.llm.fix_end_token,
+                end_token="</result>",
+                n=sampling_budget
+            )
+            
             selected_sql_candidate = self._select_sql_candidate(all_sql_candidates, data_item)
             if selected_sql_candidate:
                 return selected_sql_candidate, total_token_usage

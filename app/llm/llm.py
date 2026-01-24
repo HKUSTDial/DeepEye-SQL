@@ -1,4 +1,3 @@
-import re
 from typing import Optional, List, Dict
 from tenacity import(
     retry,
@@ -6,7 +5,6 @@ from tenacity import(
     stop_after_attempt,
     wait_random_exponential
 )
-import threading
 from openai import (
     OpenAI,
     AzureOpenAI,
@@ -14,31 +12,27 @@ from openai import (
     AuthenticationError,
     RateLimitError,
     BadRequestError,
-    APITimeoutError
+    APITimeoutError,
+    APIConnectionError,
+    InternalServerError
 )
 from openai.types.chat import ChatCompletionMessage
 from app.config import config, LLMConfig
 from app.logger import logger
 
 
+class EmptyResponseError(Exception):
+    """Custom exception for empty LLM responses, used to trigger retry."""
+    pass
+
+
 class LLM:
-    _client: OpenAI | AzureOpenAI = None
-    _config: LLMConfig = None
-    _instances: Dict[str, "LLM"] = {}
-    _lock = threading.Lock()
-    
-    def __new__(cls, llm_config: LLMConfig):
-        if llm_config.model not in cls._instances:
-            with cls._lock:
-                if llm_config.model not in cls._instances:
-                    instance = super().__new__(cls)
-                    instance.__init__(llm_config)
-                    cls._instances[llm_config.model] = instance
-        return cls._instances[llm_config.model]
+    """LLM wrapper class. Each instance creates its own OpenAI client."""
     
     def __init__(self, llm_config: LLMConfig):
         self._config = llm_config
         self._client = self._create_client()
+        logger.debug(f"Created LLM instance: model={llm_config.model}, temperature={llm_config.temperature}, reasoning_effort={llm_config.reasoning_effort}")
     
     def _create_client(self):
         if self._config.api_type == "openai":
@@ -47,15 +41,13 @@ class LLM:
             return AzureOpenAI(api_key=self._config.api_key, base_url=self._config.base_url, api_version=self._config.api_version)
         else:
             raise ValueError(f"Unsupported api type: {self._config.api_type}")
-    
-    @staticmethod
-    def get_instances():
-        return LLM._instances
         
     @retry(
         wait=wait_random_exponential(multiplier=1, max=60),
-        stop=stop_after_attempt(10),
-        retry=retry_if_exception_type((RateLimitError, APITimeoutError, OpenAIError))
+        stop=stop_after_attempt(15),
+        # Retry on recoverable errors (including BadRequestError for provider-specific issues like "user location not supported")
+        # NOT on AuthenticationError (wrong API key won't fix itself)
+        retry=retry_if_exception_type((RateLimitError, APITimeoutError, APIConnectionError, InternalServerError, BadRequestError, EmptyResponseError))
     )
     def ask(self, messages: List[Dict[str, str]],
                   system_message: Optional[Dict[str, str]] = None,
@@ -71,16 +63,18 @@ class LLM:
                 "temperature": self._config.temperature,
                 "timeout": timeout,
             }
+            if self._config.reasoning_effort is not None:
+                request_params["reasoning_effort"] = self._config.reasoning_effort
             request_params.update(kwargs)
                 
             response = self._client.chat.completions.create(**request_params)
             if not response.choices:
-                raise OpenAIError(f"No response from the model: {response}")
+                raise EmptyResponseError(f"No response from the model: {response}")
             
-            # Check if any choice has None content
+            # Check if any choice has None or empty content
             for choice in response.choices:
-                if choice.message.content is None:
-                    raise OpenAIError(f"Model returned empty content (possibly filtered): {response}")
+                if choice.message.content is None or choice.message.content.strip() == "":
+                    raise EmptyResponseError(f"Model returned empty content (possibly filtered): {response}")
             
             # Calculate token usage for this specific request
             current_token_usage = {

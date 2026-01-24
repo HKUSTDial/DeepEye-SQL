@@ -38,4 +38,3 @@ class PromptFactory:
     @staticmethod
     def format_br_pair_selection_prompt(database_schema: str, question: str, hint: str, query_a: str, result_a: str, query_b: str, result_b: str) -> str:
         return BR_PAIR_SELECTION_PROMPT.format(DATABASE_SCHEMA=database_schema, QUESTION=question, HINT=hint, QUERY_A=query_a, RESULT_A=result_a, QUERY_B=query_b, RESULT_B=result_b)
-    

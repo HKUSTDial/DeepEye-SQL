@@ -1,8 +1,9 @@
-from typing import List
+from typing import List, Optional
 from app.llm import LLM
 from chromadb.types import Collection
 from typing import Dict, Any
 from app.prompt import PromptFactory
+from app.llm_extractor import LLMExtractor
 import re
 import json
 from app.logger import logger
@@ -19,34 +20,35 @@ from openai import RateLimitError, APITimeoutError
 from tqdm import tqdm
 
 
+def _parse_keywords_response(response: str) -> Optional[List[str]]:
+    """Parse keywords from LLM response."""
+    try:
+        raw_list = re.search(r"<result>(.*?)</result>", response, re.DOTALL).group(1)
+        keywords_list = json.loads(raw_list)
+        if isinstance(keywords_list, list):
+            return keywords_list
+        return None
+    except Exception as e:
+        logger.debug(f"Error parsing keywords: {e}")
+        return None
+
+
 def extract_keywords(question: str, evidence: str, llm: LLM, max_retry: int = 10) -> tuple[List[str], Dict[str, int]]:
     prompt = PromptFactory.format_keywords_extraction_prompt(question, evidence)
-    retry = 0
-    keywords_list = None
-    total_token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     
-    while retry < max_retry:
-        try:
-            response, token_usage = llm.ask([{"role": "user", "content": prompt}], n=1)
-            total_token_usage["prompt_tokens"] += token_usage["prompt_tokens"]
-            total_token_usage["completion_tokens"] += token_usage["completion_tokens"]
-            total_token_usage["total_tokens"] += token_usage["total_tokens"]
-            
-            content = response[0].content.strip()
-            
-            if not content.endswith("</result>") and config.value_retrieval_config.llm.fix_end_token:
-                content += "</result>"
-            
-            raw_list = re.search(r"<result>(.*?)</result>", content, re.DOTALL).group(1)
-            keywords_list = json.loads(raw_list)
-            if isinstance(keywords_list, list):
-                break
-        except Exception as e:
-            retry += 1
-            logger.error(f"Error extracting keywords: {e}")
-            logger.error(f"Response content: {content}")
+    extractor = LLMExtractor()
+    results, total_token_usage = extractor.extract_with_retry(
+        llm=llm,
+        messages=[{"role": "user", "content": prompt}],
+        rule_parser=_parse_keywords_response,
+        fix_end_token=config.value_retrieval_config.llm.fix_end_token,
+        end_token="</result>",
+        n=1
+    )
     
-    if keywords_list is None:
+    if results:
+        keywords_list = results[0]
+    else:
         logger.warning("Failed to extract keywords from LLM response, using default keywords splitting strategy")
         keywords_list = question.split(" ") + evidence.split(" ")
         

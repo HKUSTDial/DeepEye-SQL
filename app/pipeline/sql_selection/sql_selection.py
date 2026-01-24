@@ -4,7 +4,9 @@ from app.dataset import BaseDataset, load_dataset, save_dataset, DataItem
 from app.llm import LLM
 from app.logger import logger
 from app.prompt import PromptFactory
+from app.llm_extractor import LLMExtractor
 from app.db_utils import execute_sql, get_database_schema_profile, measure_execution_time
+from app.pipeline.validation import validate_pipeline_step
 from typing import Dict, List, Any, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from app.config import config
@@ -108,29 +110,19 @@ class SQLSelectionRunner:
         """
         Compare the two sqls.
         """
-        votes = []
-        total_token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-        
         database_schema_profile = get_database_schema_profile(data_item.database_schema_after_schema_linking)
         prompt = PromptFactory.format_br_pair_selection_prompt(database_schema_profile, data_item.question, data_item.evidence, sql_a, execution_result_table_str_a, sql_b, execution_result_table_str_b)
-        while len(votes) < config.sql_selection_config.evaluator_sampling_budget:
-            try:
-                responses, token_usage = self._llm.ask([{"role": "user", "content": prompt}], n=config.sql_selection_config.evaluator_sampling_budget - len(votes))
-                for response in responses:
-                    response = response.content.strip()
-                    if not response.endswith("</result>") and config.sql_selection_config.llm.fix_end_token:
-                        response += "</result>"
-                    
-                    parsed_response = self._parse_llm_response(response)
-                    if parsed_response:
-                        votes.append(parsed_response)
-                total_token_usage["prompt_tokens"] += token_usage["prompt_tokens"]
-                total_token_usage["completion_tokens"] += token_usage["completion_tokens"]
-                total_token_usage["total_tokens"] += token_usage["total_tokens"]
-            except Exception as e:
-                logger.error(f"Error parsing LLM response: {e}")
-                # logger.debug(f"Response content: {response}")
-                continue
+        
+        extractor = LLMExtractor()
+        votes, total_token_usage = extractor.extract_with_retry(
+            llm=self._llm,
+            messages=[{"role": "user", "content": prompt}],
+            rule_parser=self._parse_llm_response,
+            fix_end_token=config.sql_selection_config.llm.fix_end_token,
+            end_token="</result>",
+            n=config.sql_selection_config.evaluator_sampling_budget
+        )
+        
         return votes, total_token_usage
     
     def _update_win_matrix(self, sql_a_idx: int, sql_b_idx: int, votes: List[str], win_matrix: np.ndarray) -> None:
@@ -224,6 +216,7 @@ class SQLSelectionRunner:
         pair_sqls_to_eval = self._get_pair_sqls_to_eval(top_k_sql_candidates)
         
         # Parallelize the pairwise comparisons
+        has_failure = False
         with ThreadPoolExecutor(max_workers=min(len(pair_sqls_to_eval), 4)) as executor:
             future_to_pair = {
                 executor.submit(self._compare_sqls, sql_a[0], sql_a[1], sql_b[0], sql_b[1], data_item): (sql_a, sql_b)
@@ -240,13 +233,19 @@ class SQLSelectionRunner:
                     total_token_usage["total_tokens"] += token_usage["total_tokens"]
                 except Exception as e:
                     logger.error(f"Error comparing SQLs {sql_a[0]} and {sql_b[0]}: {e}")
+                    has_failure = True
         
-        robust_win_matrix = self._compute_robust_win_matrix(win_matrix)
-        ranking_scores = np.mean(robust_win_matrix, axis=1)
-        score_weights = np.array([sql[2] for sql in top_k_sql_candidates]) / np.sum(np.array([sql[2] for sql in top_k_sql_candidates]))
-        ranking_scores = ranking_scores * score_weights
-        ranking = np.argsort(-ranking_scores)
-        data_item.final_selected_sql = top_k_sql_candidates[ranking[0]][0]
+        # If any comparison failed, set result to None
+        if has_failure:
+            logger.error(f"Some SQL comparisons failed for item {data_item.question_id}, setting final_selected_sql to None")
+            data_item.final_selected_sql = None
+        else:
+            robust_win_matrix = self._compute_robust_win_matrix(win_matrix)
+            ranking_scores = np.mean(robust_win_matrix, axis=1)
+            score_weights = np.array([sql[2] for sql in top_k_sql_candidates]) / np.sum(np.array([sql[2] for sql in top_k_sql_candidates]))
+            ranking_scores = ranking_scores * score_weights
+            ranking = np.argsort(-ranking_scores)
+            data_item.final_selected_sql = top_k_sql_candidates[ranking[0]][0]
         
         data_item.sql_selection_time = time.time() - start_time
         data_item.sql_selection_llm_cost = total_token_usage
@@ -272,6 +271,10 @@ class SQLSelectionRunner:
                 self.save_result()
         logger.info("Selecting Best SQL completed")
         self.save_result()
+        
+        # Validate that all required fields are filled
+        validate_pipeline_step(self._dataset, "sql_selection")
+        
         self._clean_up()
 
     def save_result(self):

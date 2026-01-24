@@ -7,6 +7,7 @@ from app.config import config, ValueRetrievalConfig, LLMConfig
 from app.llm import LLM
 from app.vector_db import get_embedding_function
 from app.db_utils import map_lower_table_name_to_original_table_name, map_lower_column_name_to_original_column_name
+from app.pipeline.validation import validate_pipeline_step
 from chromadb.api import ClientAPI
 from chromadb import PersistentClient
 from chromadb.types import Collection
@@ -151,7 +152,7 @@ class ValueRetrievalRunner:
     def run(self):
         all_futures = []
         for data_item in self._dataset:
-            if hasattr(data_item, "retrieved_values") and data_item.retrieved_values is not None and hasattr(data_item, "database_schema_after_value_retrieval") and data_item.database_schema_after_value_retrieval is not None:
+            if hasattr(data_item, "database_schema_after_value_retrieval") and data_item.database_schema_after_value_retrieval is not None:
                 logger.info(f"Skipping data item {data_item.question_id} because it has already been retrieved")
                 continue
             
@@ -172,4 +173,8 @@ class ValueRetrievalRunner:
                 self.save_result()
             
         self.save_result()
+        
+        # Validate that all required fields are filled
+        validate_pipeline_step(self._dataset, "value_retrieval")
+        
         self._clean_up()

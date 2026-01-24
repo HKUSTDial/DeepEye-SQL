@@ -3,6 +3,7 @@ from app.llm import LLM
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from .checkers import BaseChecker, ResultChecker, SyntaxChecker, SelectChecker, MaxMinChecker, OrderByLimitChecker, OrderByNullChecker, JoinChecker, TimeChecker
 from app.config import config
+from app.pipeline.validation import validate_pipeline_step
 import time
 from app.logger import logger
 from tqdm import tqdm
@@ -64,6 +65,20 @@ class SQLRevisionRunner:
         
         sql_candidates = data_item.sql_candidates
         
+        # If sql_candidates is empty or None, skip revision and set result to None
+        if not sql_candidates:
+            logger.error(f"sql_candidates is empty or None for item {data_item.question_id}, setting sql_candidates_after_revision to None")
+            data_item.sql_candidates_after_revision = None
+            data_item.sql_revision_time = time.time() - start_time
+            data_item.sql_revision_llm_cost = total_token_usage
+            data_item.total_time += data_item.sql_revision_time
+            data_item.total_llm_cost = {
+                "prompt_tokens": data_item.total_llm_cost["prompt_tokens"] + data_item.sql_revision_llm_cost["prompt_tokens"],
+                "completion_tokens": data_item.total_llm_cost["completion_tokens"] + data_item.sql_revision_llm_cost["completion_tokens"],
+                "total_tokens": data_item.total_llm_cost["total_tokens"] + data_item.sql_revision_llm_cost["total_tokens"],
+            }
+            return
+        
         # Deduplicate candidates using normalized SQL as key
         # normalized_sql -> original_sql
         unique_candidates_map = {}
@@ -82,6 +97,7 @@ class SQLRevisionRunner:
             
             # normalized_sql -> (revised_sql, tokens)
             norm_to_result = {}
+            has_failure = False
             
             for future in tqdm(as_completed(future_to_norm), total=len(future_to_norm), desc=f"Revising unique candidates for item {data_item.question_id}", leave=False):
                 norm = future_to_norm[future]
@@ -90,23 +106,28 @@ class SQLRevisionRunner:
                     norm_to_result[norm] = (revised_sql, tokens)
                 except Exception as e:
                     logger.error(f"Error revising SQL candidate for item {data_item.question_id}: {e}")
-                    # Fallback to original SQL (from the map)
-                    norm_to_result[norm] = (unique_candidates_map[norm], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
+                    # Mark as failed instead of fallback
+                    norm_to_result[norm] = (None, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
+                    has_failure = True
 
-        # Map results back to the original candidates list (preserving order and duplicates)
-        final_revised_candidates = []
-        for sql in sql_candidates:
-            norm = self._normalize_sql(sql)
-            revised_sql, _ = norm_to_result[norm]
-            final_revised_candidates.append(revised_sql)
-            
         # Accumulate tokens only from the actual unique API calls
         for _, tokens in norm_to_result.values():
             total_token_usage["prompt_tokens"] += tokens["prompt_tokens"]
             total_token_usage["completion_tokens"] += tokens["completion_tokens"]
             total_token_usage["total_tokens"] += tokens["total_tokens"]
         
-        data_item.sql_candidates_after_revision = final_revised_candidates
+        # If any revision failed, set entire result to None
+        if has_failure:
+            logger.error(f"Some SQL revisions failed for item {data_item.question_id}, setting sql_candidates_after_revision to None")
+            data_item.sql_candidates_after_revision = None
+        else:
+            # Map results back to the original candidates list (preserving order and duplicates)
+            final_revised_candidates = []
+            for sql in sql_candidates:
+                norm = self._normalize_sql(sql)
+                revised_sql, _ = norm_to_result[norm]
+                final_revised_candidates.append(revised_sql)
+            data_item.sql_candidates_after_revision = final_revised_candidates
         data_item.sql_revision_time = time.time() - start_time
         data_item.sql_revision_llm_cost = total_token_usage
         data_item.total_time += data_item.sql_revision_time
@@ -131,6 +152,10 @@ class SQLRevisionRunner:
                 self.save_result()
         logger.info("Revising SQL completed")
         self.save_result()
+        
+        # Validate that all required fields are filled
+        validate_pipeline_step(self._dataset, "sql_revision")
+        
         self._clean_up()
         
     def save_result(self):

@@ -25,6 +25,7 @@ class LLMConfig(BaseModel):
     api_type: Literal["openai", "azure"] = Field(default="openai", description="The type of the api")
     api_version: Optional[str] = Field(default=None, description="The version of the Azure API")
     fix_end_token: bool = Field(default=False, description="Whether to fix the end token to the LLM response")
+    reasoning_effort: Optional[Literal["low", "medium", "high"]] = Field(default=None, description="The reasoning effort for the model (only for reasoning models like o1, o3)")
 
 
 class DatasetConfig(BaseModel):
@@ -105,6 +106,10 @@ class SQLSelectionConfig(BaseModel):
     shortcut_consistency_score_threshold: float = Field(default=0.8, description="The threshold of the consistency score to shortcut")
 
 
+class LLMExtractorConfig(BaseModel):
+    max_retry: int = Field(default=3, description="Maximum retry attempts for parsing LLM responses")
+
+
 class AppConfig(BaseModel):
     dataset: DatasetConfig = Field(default_factory=DatasetConfig, description="The config of the dataset")
     vector_database: VectorDatabaseConfig = Field(default_factory=VectorDatabaseConfig, description="The config of the vector database")
@@ -113,6 +118,7 @@ class AppConfig(BaseModel):
     sql_generation: SQLGenerationConfig = Field(default_factory=SQLGenerationConfig, description="The config of the sql generation")
     sql_revision: SQLRevisionConfig = Field(default_factory=SQLRevisionConfig, description="The config of the sql revision")
     sql_selection: SQLSelectionConfig = Field(default_factory=SQLSelectionConfig, description="The config of the sql selection")
+    llm_extractor: LLMExtractorConfig = Field(default_factory=LLMExtractorConfig, description="The config of the LLM extractor for fallback parsing")
     
     
 class Config:
@@ -236,6 +242,12 @@ class Config:
             "shortcut_consistency_score_threshold": sql_selection_config.get("shortcut_consistency_score_threshold", 0.8),
         }
         
+        # llm extractor config (retry settings for parsing)
+        llm_extractor_config = config.get("llm_extractor", {})
+        llm_extractor_settings = {
+            "max_retry": llm_extractor_config.get("max_retry", 3),
+        }
+        
         self._app_config = AppConfig(
             dataset=DatasetConfig(**dataset_settings),
             vector_database=VectorDatabaseConfig(**vector_database_settings),
@@ -243,7 +255,8 @@ class Config:
             schema_linking=SchemaLinkingConfig(**schema_linking_settings),
             sql_generation=SQLGenerationConfig(**sql_generation_settings),
             sql_revision=SQLRevisionConfig(**sql_revision_settings),
-            sql_selection=SQLSelectionConfig(**sql_selection_settings)
+            sql_selection=SQLSelectionConfig(**sql_selection_settings),
+            llm_extractor=LLMExtractorConfig(**llm_extractor_settings)
         )
 
     @property
@@ -277,6 +290,10 @@ class Config:
     @property
     def sql_selection_config(self):
         return self._app_config.sql_selection
+    
+    @property
+    def llm_extractor_config(self):
+        return self._app_config.llm_extractor
     
 # global config instance
 config = Config()

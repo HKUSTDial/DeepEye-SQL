@@ -1,11 +1,13 @@
 from .config import (
+    PROJECT_ROOT,
     WORKSPACE_ROOT,
     config,
     LLMConfig,
     DatasetConfig,
     VectorDatabaseConfig,
     AppConfig,
-    ValueRetrievalConfig
+    ValueRetrievalConfig,
+    LLMExtractorConfig
 )
 
-__all__ = ["WORKSPACE_ROOT", "config", "LLMConfig", "DatasetConfig", "VectorDatabaseConfig", "AppConfig", "ValueRetrievalConfig"]
+__all__ = ["PROJECT_ROOT", "WORKSPACE_ROOT", "config", "LLMConfig", "DatasetConfig", "VectorDatabaseConfig", "AppConfig", "ValueRetrievalConfig", "LLMExtractorConfig"]

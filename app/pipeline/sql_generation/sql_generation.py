@@ -3,6 +3,7 @@ from app.llm import LLM
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from .generators import DCGenerator, SkeletonGenerator, ICLGenerator
 from app.config import config
+from app.pipeline.validation import validate_pipeline_step
 import time
 from app.logger import logger
 from tqdm import tqdm
@@ -53,7 +54,8 @@ class SQLGenerationRunner:
                     results[name] = future.result()
                 except Exception as e:
                     logger.error(f"Error in {name} generation for item {data_item.question_id}: {e}")
-                    results[name] = ([], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
+                    # Set to None instead of empty list to indicate failure
+                    results[name] = (None, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
 
         dc_sql_candidates, dc_tokens = results["dc"]
         skeleton_sql_candidates, skeleton_tokens = results["skeleton"]
@@ -65,7 +67,19 @@ class SQLGenerationRunner:
             total_token_usage["completion_tokens"] += tokens["completion_tokens"]
             total_token_usage["total_tokens"] += tokens["total_tokens"]
         
-        data_item.sql_candidates = dc_sql_candidates + skeleton_sql_candidates + icl_sql_candidates
+        # Check if any generator failed (returned None)
+        if dc_sql_candidates is None or skeleton_sql_candidates is None or icl_sql_candidates is None:
+            failed_generators = []
+            if dc_sql_candidates is None:
+                failed_generators.append("dc")
+            if skeleton_sql_candidates is None:
+                failed_generators.append("skeleton")
+            if icl_sql_candidates is None:
+                failed_generators.append("icl")
+            logger.error(f"Generator(s) {failed_generators} failed for item {data_item.question_id}, setting sql_candidates to None")
+            data_item.sql_candidates = None
+        else:
+            data_item.sql_candidates = dc_sql_candidates + skeleton_sql_candidates + icl_sql_candidates
         
         end_time = time.time()
         data_item.sql_generation_time = end_time - start_time
@@ -92,6 +106,10 @@ class SQLGenerationRunner:
                 self.save_result()
         logger.info("Generating SQL completed")
         self.save_result()
+        
+        # Validate that all required fields are filled
+        validate_pipeline_step(self._dataset, "sql_generation")
+        
         self._clean_up()
         
     def save_result(self):
