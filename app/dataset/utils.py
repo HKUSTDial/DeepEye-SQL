@@ -17,6 +17,6 @@ def load_dataset(load_path: str) -> BaseDataset:
     if not load_path.exists():
         raise FileNotFoundError(f"Dataset file not found at {load_path}")
     with open(load_path, "rb") as f:
-        dataset = pickle.load(f)[:100]
+        dataset = pickle.load(f)
     logger.info(f"Dataset loaded from {load_path}")
     return dataset

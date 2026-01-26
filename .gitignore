@@ -29,3 +29,5 @@ config/config-spider.toml
 config/config-bird.toml
 config/config-gemini.toml
 config/config.toml
+config/config-bird-submission.toml
+config/config-spider2.toml
