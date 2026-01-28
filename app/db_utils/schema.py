@@ -276,34 +276,55 @@ def get_table_profile(table_schema_dict: Dict[str, Any]) -> str:
 def get_database_schema_profile(database_schema_dict: Dict[str, Any]) -> str:
     profile = ""
     db_id = database_schema_dict["db_id"]
+    db_type = database_schema_dict.get("db_type", "sqlite")
+    
     profile += f"Database ID: `{db_id}`\n"
+    
+    # Show database type for cloud databases
+    if db_type in ["bigquery", "snowflake"]:
+        profile += f"Database Type: {db_type.upper()}\n"
+    
     profile += f"Schema:\n"
-    for table_name, table_schema_dict in database_schema_dict["tables"].items():
-        profile += f"- Table: `{table_name}`\n"
+    for table_key, table_schema_dict in database_schema_dict["tables"].items():
+        # Use table_fullname if available (for cloud databases), otherwise use table_name
+        display_table_name = table_schema_dict.get("table_fullname", table_schema_dict.get("table_name", table_key))
+        profile += f"- Table: `{display_table_name}`\n"
         profile += f"[\n"
         column_profiles = []
         columns = list(table_schema_dict["columns"].items())
-        pk_columns = [(col_name, col_schema) for col_name, col_schema in columns if col_schema["primary_key"]]
-        non_pk_columns = [(col_name, col_schema) for col_name, col_schema in columns if not col_schema["primary_key"]]
+        
+        # Sort columns: primary keys first, then others
+        pk_columns = [(col_name, col_schema) for col_name, col_schema in columns if col_schema.get("primary_key", False)]
+        non_pk_columns = [(col_name, col_schema) for col_name, col_schema in columns if not col_schema.get("primary_key", False)]
         ordered_columns = pk_columns + non_pk_columns
+        
         for column_name, column_schema_dict in ordered_columns:
-            column_profile = f"`{column_name}`: {column_schema_dict["column_type"]}"
-            if column_schema_dict["primary_key"]:
+            column_profile = f"`{column_name}`: {column_schema_dict['column_type']}"
+            if column_schema_dict.get("primary_key", False):
                 column_profile += f" | Primary Key"
-            if column_schema_dict["description"]:
-                column_profile += f" | {column_schema_dict["description"]}"
-            if column_schema_dict["value_statistics"]:
-                column_profile += f" | Value Statistics: {column_schema_dict["value_statistics"]["null_count"]} NULL values, {column_schema_dict["value_statistics"]["distinct_count"]} distinct values, {column_schema_dict["value_statistics"]["total_count"]} total values"
-            if column_schema_dict["value_examples"]:
-                column_profile += f" | Value Examples: {column_schema_dict["value_examples"]}"
+            if column_schema_dict.get("description"):
+                column_profile += f" | {column_schema_dict['description']}"
+            if column_schema_dict.get("value_statistics"):
+                stats = column_schema_dict["value_statistics"]
+                column_profile += f" | Value Statistics: {stats['null_count']} NULL values, {stats['distinct_count']} distinct values, {stats['total_count']} total values"
+            if column_schema_dict.get("value_examples"):
+                column_profile += f" | Value Examples: {column_schema_dict['value_examples']}"
             column_profiles.append(f"({column_profile})")
         profile += f"{',\n'.join(column_profiles)}\n"
         profile += f"]\n"
+        
+        # Add nested columns section for BigQuery tables
+        nested_columns = table_schema_dict.get("nested_columns", {})
+        if nested_columns:
+            profile += "Nested Fields (accessible via UNNEST):\n"
+            for nested_col_name, nested_col_info in nested_columns.items():
+                profile += f"  - {nested_col_name}: {nested_col_info['column_type']}\n"
 
+    # Foreign keys section (mainly for SQLite databases)
     all_foreign_keys = []
     for table_name, table_schema_dict in database_schema_dict["tables"].items():
         for column_name, column_schema_dict in table_schema_dict["columns"].items():
-            for target_table_name, target_column_name in column_schema_dict["foreign_keys"]:
+            for target_table_name, target_column_name in column_schema_dict.get("foreign_keys", []):
                 # Check if both tables and columns exist
                 if (target_table_name in database_schema_dict["tables"] and 
                     target_column_name in database_schema_dict["tables"][target_table_name]["columns"]):
@@ -311,6 +332,14 @@ def get_database_schema_profile(database_schema_dict: Dict[str, Any]) -> str:
     if all_foreign_keys:
         profile += "Foreign Keys:\n"
         profile += f"{'\n'.join(all_foreign_keys)}"
+    
+    # Add database-specific notes for cloud databases
+    if db_type == "bigquery":
+        profile += "\nNote: This is a BigQuery database. For nested/repeated fields (ARRAY, STRUCT), use UNNEST() to access nested data.\n"
+        profile += "Example: SELECT ep.key, ep.value.string_value FROM `table`, UNNEST(event_params) AS ep\n"
+    elif db_type == "snowflake":
+        profile += "\nNote: This is a Snowflake database. Use Snowflake SQL syntax.\n"
+    
     return profile
 
 

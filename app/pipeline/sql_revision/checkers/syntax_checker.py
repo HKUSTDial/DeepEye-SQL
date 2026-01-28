@@ -4,7 +4,7 @@ from app.llm import LLM
 from app.logger import logger
 from app.prompt import PromptFactory
 from app.llm_extractor import LLMExtractor
-from app.db_utils import execute_sql, get_database_schema_profile
+from app.db_utils import execute_sql, execute_sql_for_data_item, get_database_schema_profile
 from app.config import config
 from typing import Dict, List, Any, Optional, Tuple
 import re
@@ -14,8 +14,8 @@ from collections import Counter
 class SyntaxChecker(BaseChecker):
     
     def check_and_revise(self, sql: str, data_item: DataItem, llm: LLM, sampling_budget: int = 1) -> Tuple[str, Dict[str, int]]:
-        # execute the sql
-        execution_result = execute_sql(data_item.database_path, sql)
+        # Execute the sql - use execute_sql_for_data_item to support cloud databases
+        execution_result = execute_sql_for_data_item(data_item, sql)
         if execution_result.result_type in ["success", "empty_result", "all_null_result"]:
             return sql, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         else:
@@ -41,7 +41,8 @@ class SyntaxChecker(BaseChecker):
     def _select_sql_candidate(self, all_sql_candidates: List[str], data_item: DataItem) -> str:
         valid_sql_candidates = []
         for sql_candidate in all_sql_candidates:
-            execution_result = execute_sql(data_item.database_path, sql_candidate)
+            # Use execute_sql_for_data_item to support cloud databases
+            execution_result = execute_sql_for_data_item(data_item, sql_candidate)
             if execution_result.result_type in ["success", "empty_result", "all_null_result"]:
                 valid_sql_candidates.append((sql_candidate, frozenset(execution_result.result_rows)))
         

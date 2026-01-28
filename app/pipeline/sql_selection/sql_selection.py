@@ -5,7 +5,7 @@ from app.llm import LLM
 from app.logger import logger
 from app.prompt import PromptFactory
 from app.llm_extractor import LLMExtractor
-from app.db_utils import execute_sql, get_database_schema_profile, measure_execution_time
+from app.db_utils import execute_sql, execute_sql_for_data_item, get_database_schema_profile, measure_execution_time
 from app.pipeline.validation import validate_pipeline_step
 from typing import Dict, List, Any, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -62,7 +62,8 @@ class SQLSelectionRunner:
         valid_sql_candidates = []
         sql_map_to_result_str = {}
         for sql_candidate in data_item.sql_candidates_after_revision:
-            execution_result = execute_sql(data_item.database_path, sql_candidate)
+            # Use execute_sql_for_data_item to support cloud databases
+            execution_result = execute_sql_for_data_item(data_item, sql_candidate)
             if execution_result.result_rows is not None and len(execution_result.result_rows) > 0:
                 valid_sql_candidates.append((sql_candidate, frozenset(execution_result.result_rows)))
                 sql_map_to_result_str[sql_candidate] = execution_result.result_table_str
@@ -70,7 +71,8 @@ class SQLSelectionRunner:
         if len(valid_sql_candidates) == 0:
             logger.warning("No successful SQL candidates, backing to SQL candidates with not none result_rows")
             for sql_candidate in data_item.sql_candidates_after_revision:
-                execution_result = execute_sql(data_item.database_path, sql_candidate)
+                # Use execute_sql_for_data_item to support cloud databases
+                execution_result = execute_sql_for_data_item(data_item, sql_candidate)
                 if execution_result.result_rows is not None:
                     valid_sql_candidates.append((sql_candidate, frozenset(execution_result.result_rows)))
                     sql_map_to_result_str[sql_candidate] = execution_result.result_table_str

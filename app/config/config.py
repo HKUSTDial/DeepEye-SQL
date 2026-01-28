@@ -29,11 +29,15 @@ class LLMConfig(BaseModel):
 
 
 class DatasetConfig(BaseModel):
-    type: Literal["spider", "bird"] = Field(..., description="The type of the dataset")
-    split: Literal["dev", "test"] = Field(..., description="The split of the dataset")
+    type: Literal["spider", "bird", "spider2-lite", "spider2-snow"] = Field(..., description="The type of the dataset")
+    split: Optional[str] = Field(default="", description="The split of the dataset (not used for spider2)")
     root_path: Optional[str] = Field(..., description="The root path of the dataset")
     save_path: str = Field(default=WORKSPACE_ROOT / "dataset" / f"{type}" / f"{split}.pkl", description="The save path of the dataset")
     max_samples: Optional[int] = Field(default=None, description="The maximum number of samples to load")
+    
+    # Spider2 specific configurations
+    snowflake_credential_path: Optional[str] = Field(default=None, description="Path to Snowflake credential JSON file")
+    bigquery_credential_path: Optional[str] = Field(default=None, description="Path to BigQuery credential JSON file")
     
     @model_validator(mode="after")
     def validate_split(self):
@@ -44,6 +48,9 @@ class DatasetConfig(BaseModel):
             # only dev split is supported for bird dataset
             if self.split not in ["dev"]:
                 raise ValueError(f"Invalid split: {self.split}")
+        elif self.type in ["spider2-lite", "spider2-snow"]:
+            # Spider2 datasets don't use traditional splits
+            pass
         else:
             raise ValueError(f"Invalid dataset type: {self.type}")
         return self
@@ -167,12 +174,17 @@ class Config:
         
         # dataset config
         dataset_config = config.get("dataset", {})
+        dataset_type = dataset_config.get("type")
+        dataset_split = dataset_config.get("split", "")
         dataset_settings = {
-            "type": dataset_config.get("type"),
-            "split": dataset_config.get("split"),
+            "type": dataset_type,
+            "split": dataset_split,
             "root_path": dataset_config.get("root_path"),
-            "save_path": dataset_config.get("save_path", WORKSPACE_ROOT / "dataset" / f"{dataset_config.get('type')}" / f"{dataset_config.get('split')}.pkl"),
+            "save_path": dataset_config.get("save_path", WORKSPACE_ROOT / "dataset" / f"{dataset_type}" / f"{dataset_split}.pkl"),
             "max_samples": dataset_config.get("max_samples", None),
+            # Spider2 specific configurations
+            "snowflake_credential_path": dataset_config.get("snowflake_credential_path", None),
+            "bigquery_credential_path": dataset_config.get("bigquery_credential_path", None),
         }
         
         # vector database config

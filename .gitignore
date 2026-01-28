@@ -31,3 +31,10 @@ config/config-gemini.toml
 config/config.toml
 config/config-bird-submission.toml
 config/config-spider2.toml
+
+# credentials
+bigquery_credential.json
+snowflake_credential.json
+
+# docs
+docs/

@@ -179,3 +179,87 @@ def measure_execution_time(db_path: str, sql: str, timeout: int = 30, repeat: in
     # exclude outliers
     execution_times = [t for t in execution_times if t > mean - 3 * std and t < mean + 3 * std]
     return float(np.mean(execution_times))
+
+
+def execute_sql_for_data_item(data_item, sql: str, timeout: int = 60) -> SQLExecutionResult:
+    """
+    Execute SQL based on the data item's database type.
+    Automatically handles SQLite, BigQuery, and Snowflake databases.
+    
+    Args:
+        data_item: DataItem or Spider2DataItem with database information.
+        sql: SQL query to execute.
+        timeout: Query timeout in seconds.
+        
+    Returns:
+        SQLExecutionResult with query results.
+    """
+    # Check if it's a Spider2 data item with db_type
+    db_type = getattr(data_item, "db_type", None)
+    
+    if db_type is None or db_type == "sqlite":
+        # Standard SQLite execution
+        return execute_sql(data_item.database_path, sql, timeout=timeout)
+    
+    # Cloud database execution
+    from .cloud_execution import execute_cloud_sql
+    from app.config import config
+    
+    # Get credential path from config
+    credential_path = None
+    if db_type == "bigquery":
+        credential_path = config.dataset_config.bigquery_credential_path
+    elif db_type == "snowflake":
+        credential_path = config.dataset_config.snowflake_credential_path
+    
+    # Execute on cloud and convert result format
+    cloud_result = execute_cloud_sql(sql, db_type, credential_path, timeout)
+    
+    # Convert cloud result to standard SQLExecutionResult format
+    if cloud_result.result_type == "success":
+        result_rows = cloud_result.result_rows
+        result_cols = cloud_result.result_columns
+        
+        if result_rows is not None and len(result_rows) == 0:
+            return SQLExecutionResult(
+                result_type="empty_result",
+                db_path=data_item.database_path,
+                sql=sql,
+                result_cols=result_cols,
+                result_rows=result_rows,
+                error_message="The SQL query returned an empty result table."
+            )
+        
+        if result_rows is not None and not any(any(val is not None for val in row) for row in result_rows):
+            return SQLExecutionResult(
+                result_type="all_null_result",
+                db_path=data_item.database_path,
+                sql=sql,
+                result_cols=result_cols,
+                result_rows=result_rows,
+                error_message="The SQL query returned a result table with all null values."
+            )
+        
+        return SQLExecutionResult(
+            result_type="success",
+            db_path=data_item.database_path,
+            sql=sql,
+            result_cols=result_cols,
+            result_rows=result_rows
+        )
+    elif cloud_result.result_type == "empty_result":
+        return SQLExecutionResult(
+            result_type="empty_result",
+            db_path=data_item.database_path,
+            sql=sql,
+            result_cols=cloud_result.result_columns,
+            result_rows=[],
+            error_message="The SQL query returned an empty result table."
+        )
+    else:
+        return SQLExecutionResult(
+            result_type="execution_error",
+            db_path=data_item.database_path,
+            sql=sql,
+            error_message=cloud_result.error_message
+        )
