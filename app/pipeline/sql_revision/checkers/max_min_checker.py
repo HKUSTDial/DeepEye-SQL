@@ -17,7 +17,8 @@ class MaxMinChecker(BaseChecker):
         if max_min_suggestion:
             logger.info(f"[MaxMinChecker] Found max-min errors in SQL: {sql}")
             database_schema_profile = get_database_schema_profile(data_item.database_schema_after_schema_linking)
-            prompt = PromptFactory.format_common_checker_prompt(database_schema_profile, data_item.question, data_item.evidence, sql, max_min_suggestion)
+            db_type = getattr(data_item, "db_type", None)
+            prompt = PromptFactory.format_common_checker_prompt(database_schema_profile, data_item.question, data_item.evidence, sql, max_min_suggestion, db_type=db_type)
             
             extractor = LLMExtractor()
             results, total_token_usage = extractor.extract_with_retry(

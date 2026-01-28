@@ -28,7 +28,8 @@ class ReversedLinker(BaseSchemaLinker):
         
         database_schema_profile = get_database_schema_profile(data_item.database_schema_after_value_retrieval)
         few_shot_examples = self._few_shot_examples[str(data_item.question_id)]
-        prompt = PromptFactory.format_icl_sql_generation_prompt(few_shot_examples, database_schema_profile, data_item.question, data_item.evidence).strip()
+        db_type = getattr(data_item, "db_type", None)
+        prompt = PromptFactory.format_icl_sql_generation_prompt(few_shot_examples, database_schema_profile, data_item.question, data_item.evidence, db_type=db_type).strip()
         
         # Define a combined parser that parses SQL then extracts tables/columns
         def parse_and_extract(response: str, database_schema: Dict[str, Any] = None) -> Optional[Dict[str, List[str]]]:

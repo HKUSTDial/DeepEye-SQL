@@ -5,7 +5,7 @@ from app.llm import LLM
 from app.logger import logger
 from app.prompt import PromptFactory
 from app.llm_extractor import LLMExtractor
-from app.db_utils import execute_sql, execute_sql_for_data_item, get_database_schema_profile, measure_execution_time
+from app.db_utils import execute_sql, execute_sql_for_data_item, get_database_schema_profile, measure_execution_time_for_data_item
 from app.pipeline.validation import validate_pipeline_step
 from typing import Dict, List, Any, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -86,7 +86,7 @@ class SQLSelectionRunner:
         seen_result_set = set()
         for sql_candidate, execution_result in valid_sql_candidates:
             if execution_result not in seen_result_set:
-                execution_time = measure_execution_time(data_item.database_path, sql_candidate)
+                execution_time = measure_execution_time_for_data_item(data_item, sql_candidate)
                 deduplicated_valid_sql_candidates.append((sql_candidate, sql_map_to_result_str[sql_candidate], counter[execution_result] / len(valid_sql_candidates), execution_time))
                 seen_result_set.add(execution_result)
         valid_sql_candidates = deduplicated_valid_sql_candidates
@@ -113,7 +113,8 @@ class SQLSelectionRunner:
         Compare the two sqls.
         """
         database_schema_profile = get_database_schema_profile(data_item.database_schema_after_schema_linking)
-        prompt = PromptFactory.format_br_pair_selection_prompt(database_schema_profile, data_item.question, data_item.evidence, sql_a, execution_result_table_str_a, sql_b, execution_result_table_str_b)
+        db_type = getattr(data_item, "db_type", None)
+        prompt = PromptFactory.format_br_pair_selection_prompt(database_schema_profile, data_item.question, data_item.evidence, sql_a, execution_result_table_str_a, sql_b, execution_result_table_str_b, db_type=db_type)
         
         extractor = LLMExtractor()
         votes, total_token_usage = extractor.extract_with_retry(

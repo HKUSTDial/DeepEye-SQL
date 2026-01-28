@@ -19,6 +19,12 @@ from collections import defaultdict
 from app.logger import logger
 
 
+def _is_cloud_database(data_item: DataItem) -> bool:
+    """Check if the data item uses a cloud database (BigQuery/Snowflake)."""
+    db_type = getattr(data_item, "db_type", None)
+    return db_type is not None and db_type in ("bigquery", "snowflake")
+
+
 class ValueRetrievalRunner:
     
     _llm: LLM = None
@@ -149,16 +155,44 @@ class ValueRetrievalRunner:
     def save_result(self):
         save_dataset(self._dataset, config.value_retrieval_config.save_path)
     
+    def _skip_cloud_database_item(self, data_item: DataItem):
+        """
+        Handle cloud database items by skipping value retrieval.
+        Cloud databases (BigQuery/Snowflake) don't support Vector DB creation.
+        """
+        # Set empty values for value retrieval fields
+        data_item.question_keywords = []
+        data_item.value_retrieval_llm_cost = {"input_tokens": 0, "output_tokens": 0}
+        data_item.retrieved_values = {}
+        data_item.value_retrieval_time = 0.0
+        
+        # Copy original schema as-is (no value retrieval enhancement)
+        data_item.database_schema_after_value_retrieval = copy.deepcopy(data_item.database_schema)
+        
+        db_type = getattr(data_item, "db_type", "unknown")
+        logger.info(f"Skipping value retrieval for cloud database item {data_item.question_id} (db_type: {db_type})")
+
     def run(self):
         all_futures = []
+        skipped_cloud_count = 0
+        
         for data_item in self._dataset:
             if hasattr(data_item, "database_schema_after_value_retrieval") and data_item.database_schema_after_value_retrieval is not None:
                 logger.info(f"Skipping data item {data_item.question_id} because it has already been retrieved")
                 continue
             
-            # Submit each item to the thread pool
+            # Skip cloud databases - Vector DB not supported
+            if _is_cloud_database(data_item):
+                self._skip_cloud_database_item(data_item)
+                skipped_cloud_count += 1
+                continue
+            
+            # Submit each item to the thread pool (SQLite only)
             future = self._thread_pool_executor.submit(self._retrieve_values_for_item, data_item)
             all_futures.append(future)
+        
+        if skipped_cloud_count > 0:
+            logger.info(f"Skipped {skipped_cloud_count} cloud database items (Value Retrieval not supported)")
             
         for idx, future in tqdm(enumerate(as_completed(all_futures), start=1), total=len(all_futures), desc="Value Retrieval"):
             try:

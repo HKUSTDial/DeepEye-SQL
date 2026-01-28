@@ -5,7 +5,7 @@ from app.dataset import load_dataset, BaseDataset
 from app.config import config
 import json
 from app.logger import logger
-from app.db_utils import execute_sql, measure_execution_time
+from app.db_utils import execute_sql_for_data_item, measure_execution_time_for_data_item
 from collections import Counter
 from typing import List, Tuple, Optional
 
@@ -23,7 +23,7 @@ def get_best_sql_via_sc(data_item, candidates: List[str]) -> Optional[str]:
         if sql_candidate is None:
             continue
         try:
-            execution_result = execute_sql(data_item.database_path, sql_candidate)
+            execution_result = execute_sql_for_data_item(data_item, sql_candidate)
             if execution_result.result_rows is not None and len(execution_result.result_rows) > 0:
                 valid_sql_candidates.append((sql_candidate, frozenset(execution_result.result_rows)))
                 sql_map_to_result_str[sql_candidate] = execution_result.result_table_str
@@ -38,7 +38,7 @@ def get_best_sql_via_sc(data_item, candidates: List[str]) -> Optional[str]:
             if sql_candidate is None:
                 continue
             try:
-                execution_result = execute_sql(data_item.database_path, sql_candidate)
+                execution_result = execute_sql_for_data_item(data_item, sql_candidate)
                 if execution_result.result_rows is not None:
                     valid_sql_candidates.append((sql_candidate, frozenset(execution_result.result_rows)))
                     sql_map_to_result_str[sql_candidate] = execution_result.result_table_str
@@ -55,7 +55,7 @@ def get_best_sql_via_sc(data_item, candidates: List[str]) -> Optional[str]:
     for sql_candidate, execution_result in valid_sql_candidates:
         if execution_result not in seen_result_set:
             try:
-                execution_time = measure_execution_time(data_item.database_path, sql_candidate)
+                execution_time = measure_execution_time_for_data_item(data_item, sql_candidate)
                 deduplicated_valid_sql_candidates.append((sql_candidate, sql_map_to_result_str.get(sql_candidate, ""), counter[execution_result] / len(valid_sql_candidates), execution_time))
                 seen_result_set.add(execution_result)
             except Exception:

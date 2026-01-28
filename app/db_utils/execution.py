@@ -165,6 +165,18 @@ def execute_sql_without_cache(db_path: str, sql: str, timeout: int = 30) -> SQLE
     
 
 def measure_execution_time(db_path: str, sql: str, timeout: int = 30, repeat: int = 10) -> float:
+    """
+    Measure SQL execution time for SQLite databases.
+    
+    Args:
+        db_path: Path to SQLite database.
+        sql: SQL query to execute.
+        timeout: Query timeout in seconds.
+        repeat: Number of times to repeat execution for averaging.
+        
+    Returns:
+        Average execution time in seconds, or np.inf if execution fails.
+    """
     execution_times = []
     for _ in range(repeat):
         start_time = time.time()
@@ -179,6 +191,35 @@ def measure_execution_time(db_path: str, sql: str, timeout: int = 30, repeat: in
     # exclude outliers
     execution_times = [t for t in execution_times if t > mean - 3 * std and t < mean + 3 * std]
     return float(np.mean(execution_times))
+
+
+def measure_execution_time_for_data_item(data_item, sql: str, timeout: int = 30, repeat: int = 10) -> float:
+    """
+    Measure SQL execution time based on the data item's database type.
+    
+    For SQLite databases, measures actual execution time.
+    For cloud databases (BigQuery/Snowflake), returns np.inf as execution time
+    measurement is not supported (and would be costly).
+    
+    Args:
+        data_item: DataItem or Spider2DataItem with database information.
+        sql: SQL query to execute.
+        timeout: Query timeout in seconds.
+        repeat: Number of times to repeat execution for averaging.
+        
+    Returns:
+        Average execution time in seconds, or np.inf for cloud databases or if execution fails.
+    """
+    # Check if it's a cloud database
+    db_type = getattr(data_item, "db_type", None)
+    
+    if db_type is not None and db_type in ("bigquery", "snowflake"):
+        # Cloud databases: execution time measurement not supported
+        # Return np.inf to indicate unknown execution time
+        return np.inf
+    
+    # SQLite: use standard execution time measurement
+    return measure_execution_time(data_item.database_path, sql, timeout, repeat)
 
 
 def execute_sql_for_data_item(data_item, sql: str, timeout: int = 60) -> SQLExecutionResult:

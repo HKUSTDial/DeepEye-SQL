@@ -20,6 +20,7 @@ __all__ = [
     "execute_sql_without_cache",
     "execute_sql_for_data_item",
     "measure_execution_time",
+    "measure_execution_time_for_data_item",
     "SQLExecutionResult",
     # Cloud schema utilities (Spider2)
     "load_cloud_database_schema_dict",

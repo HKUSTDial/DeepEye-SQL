@@ -27,7 +27,8 @@ class ICLGenerator(BaseSQLGenerator):
         
         database_schema_profile = get_database_schema_profile(data_item.database_schema_after_schema_linking)
         few_shot_examples = self._few_shot_examples[str(data_item.question_id)]
-        prompt = PromptFactory.format_icl_sql_generation_prompt(few_shot_examples, database_schema_profile, data_item.question, data_item.evidence).strip()
+        db_type = getattr(data_item, "db_type", None)
+        prompt = PromptFactory.format_icl_sql_generation_prompt(few_shot_examples, database_schema_profile, data_item.question, data_item.evidence, db_type=db_type).strip()
         
         extractor = LLMExtractor()
         all_sql_candidates, total_token_usage = extractor.extract_with_retry(

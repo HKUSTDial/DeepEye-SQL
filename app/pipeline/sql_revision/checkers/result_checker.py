@@ -20,7 +20,8 @@ class ResultChecker(BaseChecker):
             return sql, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         else:
             database_schema_profile = get_database_schema_profile(data_item.database_schema_after_schema_linking)
-            prompt = PromptFactory.format_execution_checker_prompt(database_schema_profile, data_item.question, data_item.evidence, sql, execution_result.result_table_str)
+            db_type = getattr(data_item, "db_type", None)
+            prompt = PromptFactory.format_execution_checker_prompt(database_schema_profile, data_item.question, data_item.evidence, sql, execution_result.result_table_str, db_type=db_type)
             
             extractor = LLMExtractor()
             all_sql_candidates, total_token_usage = extractor.extract_with_retry(
