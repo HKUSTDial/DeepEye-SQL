@@ -314,6 +314,33 @@ def _group_tables_by_schema(database_schema_dict: Dict[str, Any]) -> Dict[str, L
     return signature_to_tables
 
 
+def get_identical_schema_table_groups(database_schema_dict: Dict[str, Any]) -> Dict[str, List[str]]:
+    """
+    Get groups of tables that have identical schema structures.
+    
+    Args:
+        database_schema_dict: The database schema dictionary.
+    
+    Returns:
+        A dict mapping each table_key to the list of all table_keys with identical schema.
+        Only tables that have at least one other table with the same schema are included.
+        
+    Example:
+        If tables A, B, C have identical schemas, returns:
+        {"A": ["A", "B", "C"], "B": ["A", "B", "C"], "C": ["A", "B", "C"]}
+    """
+    signature_to_tables = _group_tables_by_schema(database_schema_dict)
+    
+    # Build reverse mapping: table_key -> all tables with same schema
+    table_to_group = {}
+    for signature, table_keys in signature_to_tables.items():
+        if len(table_keys) > 1:  # Only groups with multiple tables
+            for table_key in table_keys:
+                table_to_group[table_key] = table_keys
+    
+    return table_to_group
+
+
 def _format_single_table_profile(table_schema_dict: Dict[str, Any], display_table_name: str) -> str:
     """Format the profile for a single table."""
     profile = f"- Table: `{display_table_name}`\n"

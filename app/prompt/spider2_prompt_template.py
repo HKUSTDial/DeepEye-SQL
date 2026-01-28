@@ -20,6 +20,9 @@ For each of the selected tables and columns, explain why exactly it is necessary
 3. If a column contains values that are related to the current question (check the "Value Examples"), you MUST include this column in your selection.
 4. For BigQuery/Snowflake databases, tables may not have explicit foreign key constraints. You need to identify JOIN relationships based on column names, descriptions, and logical relationships (e.g., columns with similar names like `user_id` in different tables likely represent a join relationship).
 5. Pay attention to nested/repeated fields (for BigQuery) which may require UNNEST() to access.
+6. **Tables with identical schema**: Some databases have multiple tables with the exact same structure (marked in schema as "IDENTICAL schema structure"). If you need to query such tables, **just select ONE representative table** - we will automatically include all tables in the group. In the final SQL, these can be queried using:
+   - BigQuery: Wildcard table syntax like `project.dataset.table_prefix_*` with `_TABLE_SUFFIX`
+   - Snowflake: UNION ALL or dynamic SQL patterns
 
 # Output Format:
 Please respond with XML code structured as follows:
@@ -113,6 +116,11 @@ Here is a high level description of the steps.
 13. **Nested/Repeated Fields:**
     - For BigQuery: Use UNNEST() to flatten ARRAY fields before accessing nested data
     - For Snowflake: Use FLATTEN() or LATERAL FLATTEN() for VARIANT/ARRAY data
+14. **Wildcard Table Queries (Tables with identical schema):**
+    - Some databases have multiple tables with the exact same structure (e.g., per-date tables, per-region tables)
+    - For BigQuery: Use wildcard table syntax `project.dataset.table_prefix_*` with `_TABLE_SUFFIX` filter
+      * Example: `FROM \`project.dataset.ga_sessions_*\` WHERE _TABLE_SUFFIX BETWEEN '20170101' AND '20170131'`
+    - For Snowflake: Use UNION ALL across tables or dynamic SQL with table functions
 
 # Output Format:
 Please respond with XML code structured as follows.

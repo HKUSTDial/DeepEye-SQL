@@ -15,6 +15,7 @@ __all__ = [
     "map_lower_table_name_to_original_table_name",
     "map_lower_column_name_to_original_column_name",
     "filter_used_database_schema",
+    "get_identical_schema_table_groups",
     # SQLite execution utilities
     "execute_sql",
     "execute_sql_without_cache",

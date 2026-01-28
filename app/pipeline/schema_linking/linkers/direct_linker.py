@@ -6,7 +6,7 @@ from app.llm import LLM
 from app.logger import logger
 from app.prompt import PromptFactory
 from app.llm_extractor import LLMExtractor
-from app.db_utils import get_database_schema_profile, map_lower_table_name_to_original_table_name, map_lower_column_name_to_original_column_name
+from app.db_utils import get_database_schema_profile, map_lower_table_name_to_original_table_name, map_lower_column_name_to_original_column_name, get_identical_schema_table_groups
 from typing import Dict, List, Optional, Any
 import re
 import json
@@ -66,7 +66,8 @@ class DirectLinker(BaseSchemaLinker):
                     result[original_table_name].append(original_column_name)
             
             if result:
-                # logger.info(f"Successfully parsed selection: {len(result)} tables selected")
+                # Expand tables with identical schema (for Spider2 cloud databases)
+                result = self._expand_identical_schema_tables(result, database_schema)
                 return result
             else:
                 logger.warning("No valid table-column selections found")
@@ -76,5 +77,34 @@ class DirectLinker(BaseSchemaLinker):
             logger.warning(f"Error parsing LLM response: {e}")
             logger.warning(f"Response content: {response}")
             return None
-
-            
+    
+    def _expand_identical_schema_tables(self, result: Dict[str, List[str]], database_schema: Dict[str, Any]) -> Dict[str, List[str]]:
+        """
+        Expand the selection to include all tables with identical schema.
+        
+        If the LLM selects one table from a group of tables with identical schema,
+        automatically include all tables in that group with the same column selection.
+        This supports BigQuery/Snowflake wildcard table patterns.
+        """
+        # Get groups of tables with identical schema
+        table_groups = get_identical_schema_table_groups(database_schema)
+        
+        if not table_groups:
+            return result
+        
+        expanded_result = dict(result)
+        
+        # For each selected table, check if it belongs to a group
+        for table_name, columns in list(result.items()):
+            if table_name in table_groups:
+                # Add all tables in the group with the same columns
+                for group_table in table_groups[table_name]:
+                    if group_table not in expanded_result:
+                        # Map columns to the group table (they have identical schema)
+                        expanded_result[group_table] = list(columns)
+                        logger.debug(f"Auto-expanded identical schema table: {group_table}")
+        
+        if len(expanded_result) > len(result):
+            logger.info(f"Expanded {len(result)} tables to {len(expanded_result)} tables (identical schema groups)")
+        
+        return expanded_result
