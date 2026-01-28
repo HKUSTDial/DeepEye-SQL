@@ -87,6 +87,14 @@ def test_spider2_lite_loading(max_samples: int = None, compute_stats: bool = Tru
         schema_tokens = []
         combined_tokens = []  # question + evidence + schema
         
+        # Compression statistics
+        compression_stats = {
+            "samples_with_savings": 0,
+            "total_savings": 0,
+            "uncompressed_total": 0,
+            "compressed_total": 0
+        }
+        
         # Statistics by db_type
         db_type_stats = {}
         
@@ -103,13 +111,16 @@ def test_spider2_lite_loading(max_samples: int = None, compute_stats: bool = Tru
                 print(f"  schema tables: {len(item.database_schema.get('tables', {}))}")
             
             if compute_stats:
-                # Get schema profile
-                schema_profile = get_database_schema_profile(item.database_schema) if item.database_schema.get('tables') else ""
+                # Get schema profile (with compression)
+                schema_profile_compressed = get_database_schema_profile(item.database_schema, compress_identical_schemas=True) if item.database_schema.get('tables') else ""
+                # Get schema profile (without compression)
+                schema_profile_uncompressed = get_database_schema_profile(item.database_schema, compress_identical_schemas=False) if item.database_schema.get('tables') else ""
                 
                 # Count tokens
                 q_tokens = count_tokens(item.question)
                 e_tokens = count_tokens(item.evidence or "")
-                s_tokens = count_tokens(schema_profile)
+                s_tokens = count_tokens(schema_profile_compressed)
+                s_tokens_uncompressed = count_tokens(schema_profile_uncompressed)
                 total_tokens = q_tokens + e_tokens + s_tokens
                 
                 question_tokens.append(q_tokens)
@@ -117,15 +128,25 @@ def test_spider2_lite_loading(max_samples: int = None, compute_stats: bool = Tru
                 schema_tokens.append(s_tokens)
                 combined_tokens.append(total_tokens)
                 
+                # Track compression savings
+                compression_savings = s_tokens_uncompressed - s_tokens
+                if compression_savings > 0:
+                    compression_stats["samples_with_savings"] += 1
+                    compression_stats["total_savings"] += compression_savings
+                    compression_stats["uncompressed_total"] += s_tokens_uncompressed
+                    compression_stats["compressed_total"] += s_tokens
+                
                 # Collect by db_type
                 db_type = item.db_type or "unknown"
                 if db_type not in db_type_stats:
                     db_type_stats[db_type] = {
-                        "question": [], "evidence": [], "schema": [], "combined": []
+                        "question": [], "evidence": [], "schema": [], "combined": [],
+                        "schema_uncompressed": []
                     }
                 db_type_stats[db_type]["question"].append(q_tokens)
                 db_type_stats[db_type]["evidence"].append(e_tokens)
                 db_type_stats[db_type]["schema"].append(s_tokens)
+                db_type_stats[db_type]["schema_uncompressed"].append(s_tokens_uncompressed)
                 db_type_stats[db_type]["combined"].append(total_tokens)
         
         # Print token statistics
@@ -136,8 +157,21 @@ def test_spider2_lite_loading(max_samples: int = None, compute_stats: bool = Tru
             
             print_token_stats("Question", compute_token_stats(question_tokens))
             print_token_stats("Evidence", compute_token_stats(evidence_tokens))
-            print_token_stats("Schema Profile", compute_token_stats(schema_tokens))
+            print_token_stats("Schema Profile (compressed)", compute_token_stats(schema_tokens))
             print_token_stats("Combined (Q+E+S)", compute_token_stats(combined_tokens))
+            
+            # Print compression statistics
+            if compression_stats["samples_with_savings"] > 0:
+                print("\n" + "-"*40)
+                print("Schema Compression Statistics:")
+                print("-"*40)
+                print(f"  Samples benefiting from compression: {compression_stats['samples_with_savings']}/{len(dataset)}")
+                print(f"  Total tokens saved: {compression_stats['total_savings']}")
+                print(f"  Uncompressed total: {compression_stats['uncompressed_total']}")
+                print(f"  Compressed total: {compression_stats['compressed_total']}")
+                if compression_stats['uncompressed_total'] > 0:
+                    reduction_pct = 100 * compression_stats['total_savings'] / compression_stats['uncompressed_total']
+                    print(f"  Reduction: {reduction_pct:.1f}%")
             
             # Print by db_type
             print("\n" + "-"*40)
@@ -145,7 +179,13 @@ def test_spider2_lite_loading(max_samples: int = None, compute_stats: bool = Tru
             print("-"*40)
             for db_type, stats in sorted(db_type_stats.items()):
                 print(f"\n  [{db_type.upper()}] ({len(stats['question'])} samples)")
-                print(f"    Schema:   min={min(stats['schema']):>6}, max={max(stats['schema']):>6}, avg={sum(stats['schema'])/len(stats['schema']):>8.1f}")
+                print(f"    Schema (compressed):   min={min(stats['schema']):>6}, max={max(stats['schema']):>6}, avg={sum(stats['schema'])/len(stats['schema']):>8.1f}")
+                if stats.get('schema_uncompressed'):
+                    print(f"    Schema (uncompressed): min={min(stats['schema_uncompressed']):>6}, max={max(stats['schema_uncompressed']):>6}, avg={sum(stats['schema_uncompressed'])/len(stats['schema_uncompressed']):>8.1f}")
+                    savings = sum(stats['schema_uncompressed']) - sum(stats['schema'])
+                    if savings > 0:
+                        pct = 100 * savings / sum(stats['schema_uncompressed'])
+                        print(f"    Compression savings: {savings} tokens ({pct:.1f}%)")
                 print(f"    Combined: min={min(stats['combined']):>6}, max={max(stats['combined']):>6}, avg={sum(stats['combined'])/len(stats['combined']):>8.1f}")
         
         return True
@@ -188,6 +228,14 @@ def test_spider2_snow_loading(max_samples: int = None, compute_stats: bool = Tru
         schema_tokens = []
         combined_tokens = []  # question + evidence + schema
         
+        # Compression statistics
+        compression_stats = {
+            "samples_with_savings": 0,
+            "total_savings": 0,
+            "uncompressed_total": 0,
+            "compressed_total": 0
+        }
+        
         # Check items
         for i, item in enumerate(dataset):
             # Print first 3 items for verification
@@ -201,19 +249,30 @@ def test_spider2_snow_loading(max_samples: int = None, compute_stats: bool = Tru
                 print(f"  schema tables: {len(item.database_schema.get('tables', {}))}")
             
             if compute_stats:
-                # Get schema profile
-                schema_profile = get_database_schema_profile(item.database_schema) if item.database_schema.get('tables') else ""
+                # Get schema profile (with compression)
+                schema_profile_compressed = get_database_schema_profile(item.database_schema, compress_identical_schemas=True) if item.database_schema.get('tables') else ""
+                # Get schema profile (without compression)
+                schema_profile_uncompressed = get_database_schema_profile(item.database_schema, compress_identical_schemas=False) if item.database_schema.get('tables') else ""
                 
                 # Count tokens
                 q_tokens = count_tokens(item.question)
                 e_tokens = count_tokens(item.evidence or "")
-                s_tokens = count_tokens(schema_profile)
+                s_tokens = count_tokens(schema_profile_compressed)
+                s_tokens_uncompressed = count_tokens(schema_profile_uncompressed)
                 total_tokens = q_tokens + e_tokens + s_tokens
                 
                 question_tokens.append(q_tokens)
                 evidence_tokens.append(e_tokens)
                 schema_tokens.append(s_tokens)
                 combined_tokens.append(total_tokens)
+                
+                # Track compression savings
+                compression_savings = s_tokens_uncompressed - s_tokens
+                if compression_savings > 0:
+                    compression_stats["samples_with_savings"] += 1
+                    compression_stats["total_savings"] += compression_savings
+                    compression_stats["uncompressed_total"] += s_tokens_uncompressed
+                    compression_stats["compressed_total"] += s_tokens
         
         # Print token statistics
         if compute_stats and len(dataset) > 0:
@@ -223,8 +282,21 @@ def test_spider2_snow_loading(max_samples: int = None, compute_stats: bool = Tru
             
             print_token_stats("Question", compute_token_stats(question_tokens))
             print_token_stats("Evidence", compute_token_stats(evidence_tokens))
-            print_token_stats("Schema Profile", compute_token_stats(schema_tokens))
+            print_token_stats("Schema Profile (compressed)", compute_token_stats(schema_tokens))
             print_token_stats("Combined (Q+E+S)", compute_token_stats(combined_tokens))
+            
+            # Print compression statistics
+            if compression_stats["samples_with_savings"] > 0:
+                print("\n" + "-"*40)
+                print("Schema Compression Statistics:")
+                print("-"*40)
+                print(f"  Samples benefiting from compression: {compression_stats['samples_with_savings']}/{len(dataset)}")
+                print(f"  Total tokens saved: {compression_stats['total_savings']}")
+                print(f"  Uncompressed total: {compression_stats['uncompressed_total']}")
+                print(f"  Compressed total: {compression_stats['compressed_total']}")
+                if compression_stats['uncompressed_total'] > 0:
+                    reduction_pct = 100 * compression_stats['total_savings'] / compression_stats['uncompressed_total']
+                    print(f"  Reduction: {reduction_pct:.1f}%")
         
         return True
     except Exception as e:
