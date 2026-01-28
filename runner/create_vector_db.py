@@ -56,6 +56,12 @@ if __name__ == "__main__":
     from app.config import config
     # dataset = load_dataset(config.dataset_config.save_path)
     # for db_path in dataset.get_all_database_paths():
+    
+    # Check if the database is a local SQLite file
+    if not args.db_path.endswith(".sqlite") or not Path(args.db_path).exists():
+        logger.warning(f"Database {args.db_path} is not a local SQLite file or does not exist. Skipping vector DB creation.")
+        sys.exit(0)
+        
     logger.info(f"Making vector database for {args.db_path}")
     make_vector_db_for_db_id(args.db_path, config.vector_database_config)
     logger.info(f"Successfully made vector database for {args.db_path}")

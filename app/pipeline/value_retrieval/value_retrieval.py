@@ -5,7 +5,7 @@ from .utils import extract_keywords, retrieve_values_for_one_column, embed_keywo
 from app.dataset import BaseDataset, load_dataset, save_dataset, DataItem
 from app.config import config, ValueRetrievalConfig, LLMConfig
 from app.llm import LLM
-from app.vector_db import get_embedding_function
+from app.vector_db import get_embedding_function, get_collection_name
 from app.db_utils import map_lower_table_name_to_original_table_name, map_lower_column_name_to_original_column_name
 from app.pipeline.validation import validate_pipeline_step
 from chromadb.api import ClientAPI
@@ -19,10 +19,9 @@ from collections import defaultdict
 from app.logger import logger
 
 
-def _is_cloud_database(data_item: DataItem) -> bool:
-    """Check if the data item uses a cloud database (BigQuery/Snowflake)."""
-    db_type = getattr(data_item, "db_type", None)
-    return db_type is not None and db_type in ("bigquery", "snowflake")
+def _is_spider2_item(data_item: DataItem) -> bool:
+    """Check if the data item belongs to a Spider2 series dataset."""
+    return hasattr(data_item, "instance_id")
 
 
 class ValueRetrievalRunner:
@@ -44,16 +43,20 @@ class ValueRetrievalRunner:
             logger.info(f"Loading dataset from {config.dataset_config.save_path}")
             self._dataset = load_dataset(config.dataset_config.save_path)
         
-        # Initialize the shared embedding function once
-        self._embedding_function = get_embedding_function(
-            model_name_or_path=config.vector_database_config.embedding_model_name_or_path,
-            api_type=config.vector_database_config.api_type,
-            use_qwen3_embedding=config.vector_database_config.use_qwen3_embedding,
-            local_files_only=config.vector_database_config.local_files_only,
-            normalize_embeddings=config.vector_database_config.normalize_embeddings,
-            base_url=config.vector_database_config.base_url,
-            api_key=config.vector_database_config.api_key,
-        )
+        # Initialize the shared embedding function once - ONLY if not Spider2
+        if not config.dataset_config.type.startswith("spider2"):
+            self._embedding_function = get_embedding_function(
+                model_name_or_path=config.vector_database_config.embedding_model_name_or_path,
+                api_type=config.vector_database_config.api_type,
+                use_qwen3_embedding=config.vector_database_config.use_qwen3_embedding,
+                local_files_only=config.vector_database_config.local_files_only,
+                normalize_embeddings=config.vector_database_config.normalize_embeddings,
+                base_url=config.vector_database_config.base_url,
+                api_key=config.vector_database_config.api_key,
+            )
+        else:
+            logger.info("Skipping embedding function initialization for Spider2 dataset")
+            self._embedding_function = None
         
         self._thread_pool_executor = ThreadPoolExecutor(max_workers=config.value_retrieval_config.n_parallel)
     
@@ -65,7 +68,7 @@ class ValueRetrievalRunner:
                 client = PersistentClient(path=vector_db_path)
                 self._vector_db_client_dict[db_id] = client
                 self._vector_db_collection_dict[db_id] = client.get_collection(
-                    name=db_id,
+                    name=get_collection_name(db_id),
                     embedding_function=self._embedding_function # Use shared instance
                 )
             return self._vector_db_collection_dict[db_id]
@@ -155,44 +158,44 @@ class ValueRetrievalRunner:
     def save_result(self):
         save_dataset(self._dataset, config.value_retrieval_config.save_path)
     
-    def _skip_cloud_database_item(self, data_item: DataItem):
+    def _skip_value_retrieval_for_item(self, data_item: DataItem):
         """
-        Handle cloud database items by skipping value retrieval.
-        Cloud databases (BigQuery/Snowflake) don't support Vector DB creation.
+        Handle items by skipping value retrieval.
+        Used for Spider2 datasets where value retrieval is not required.
         """
         # Set empty values for value retrieval fields
         data_item.question_keywords = []
-        data_item.value_retrieval_llm_cost = {"input_tokens": 0, "output_tokens": 0}
+        data_item.value_retrieval_llm_cost = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         data_item.retrieved_values = {}
         data_item.value_retrieval_time = 0.0
-        
+        data_item.total_time = 0.0
+        data_item.total_llm_cost = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         # Copy original schema as-is (no value retrieval enhancement)
         data_item.database_schema_after_value_retrieval = copy.deepcopy(data_item.database_schema)
         
-        db_type = getattr(data_item, "db_type", "unknown")
-        logger.info(f"Skipping value retrieval for cloud database item {data_item.question_id} (db_type: {db_type})")
+        logger.info(f"Skipping value retrieval for item {data_item.question_id}")
 
     def run(self):
         all_futures = []
-        skipped_cloud_count = 0
+        skipped_spider2_count = 0
         
         for data_item in self._dataset:
             if hasattr(data_item, "database_schema_after_value_retrieval") and data_item.database_schema_after_value_retrieval is not None:
                 logger.info(f"Skipping data item {data_item.question_id} because it has already been retrieved")
                 continue
             
-            # Skip cloud databases - Vector DB not supported
-            if _is_cloud_database(data_item):
-                self._skip_cloud_database_item(data_item)
-                skipped_cloud_count += 1
+            # Skip Spider2 datasets - Vector DB and Value Retrieval not needed
+            if _is_spider2_item(data_item):
+                self._skip_value_retrieval_for_item(data_item)
+                skipped_spider2_count += 1
                 continue
             
             # Submit each item to the thread pool (SQLite only)
             future = self._thread_pool_executor.submit(self._retrieve_values_for_item, data_item)
             all_futures.append(future)
         
-        if skipped_cloud_count > 0:
-            logger.info(f"Skipped {skipped_cloud_count} cloud database items (Value Retrieval not supported)")
+        if skipped_spider2_count > 0:
+            logger.info(f"Skipped {skipped_spider2_count} Spider2 items (Value Retrieval not required)")
             
         for idx, future in tqdm(enumerate(as_completed(all_futures), start=1), total=len(all_futures), desc="Value Retrieval"):
             try:

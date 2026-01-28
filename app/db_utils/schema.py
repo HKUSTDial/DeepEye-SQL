@@ -90,6 +90,9 @@ def load_foreign_keys(db_path: Path, table_name: str) -> List[Tuple[str, str, st
 
 
 def load_value_examples(db_path: str, table_name: str, column_name: str, max_num_examples: int = 3, max_example_length: int = 100) -> List[str]:
+    from app.config import config
+    if config.dataset_config is not None:
+        max_example_length = config.dataset_config.max_value_example_length
     # Query the values not NULL and not empty
     result = execute_sql(db_path, f"SELECT DISTINCT `{column_name}` FROM `{table_name}` WHERE `{column_name}` IS NOT NULL AND `{column_name}` != '' AND length(cast(`{column_name}` as text)) <= {max_example_length} LIMIT {max_num_examples};")
     if result.result_type != "success" and result.result_type != "empty_result":
@@ -275,27 +278,21 @@ def get_table_profile(table_schema_dict: Dict[str, Any]) -> str:
 
 def _compute_table_schema_signature(table_schema_dict: Dict[str, Any]) -> str:
     """
-    Compute a signature for a table's schema structure (column names, types, descriptions).
-    This is used to identify tables with identical schema structures.
+    Compute a signature for a table's schema structure based on column names.
+    This is used to identify tables with identical schema structures for prompt compression.
     """
     columns = table_schema_dict.get("columns", {})
-    # Sort by column name for consistent signature
-    sorted_columns = sorted(columns.items(), key=lambda x: x[0].lower())
+    # Only use sorted column names for the signature.
+    # This is stable and sufficient to identify partitioned/sharded tables.
+    sorted_col_names = sorted([col_name.lower() for col_name in columns.keys()])
     
-    signature_parts = []
-    for col_name, col_schema in sorted_columns:
-        col_type = col_schema.get("column_type", "")
-        col_desc = col_schema.get("description", "")
-        is_pk = col_schema.get("primary_key", False)
-        signature_parts.append(f"{col_name.lower()}|{col_type.upper()}|{col_desc}|{is_pk}")
+    signature_parts = sorted_col_names
     
-    # Also include nested columns for BigQuery tables
+    # Also include nested column names for BigQuery tables to be safe
     nested_columns = table_schema_dict.get("nested_columns", {})
     if nested_columns:
-        sorted_nested = sorted(nested_columns.items(), key=lambda x: x[0].lower())
-        for nested_name, nested_info in sorted_nested:
-            nested_type = nested_info.get("column_type", "")
-            signature_parts.append(f"NESTED:{nested_name.lower()}|{nested_type.upper()}")
+        sorted_nested_names = sorted([f"NESTED:{n.lower()}" for n in nested_columns.keys()])
+        signature_parts.extend(sorted_nested_names)
     
     return "||".join(signature_parts)
 
@@ -341,8 +338,15 @@ def get_identical_schema_table_groups(database_schema_dict: Dict[str, Any]) -> D
     return table_to_group
 
 
-def _format_single_table_profile(table_schema_dict: Dict[str, Any], display_table_name: str) -> str:
-    """Format the profile for a single table."""
+def _format_single_table_profile(
+    table_schema_dict: Dict[str, Any], 
+    display_table_name: str,
+    include_description: bool = True,
+    include_value_statistics: bool = True,
+    include_value_examples: bool = True,
+    include_nested_columns: bool = True
+) -> str:
+    """Format the profile for a single table with optional components."""
     profile = f"- Table: `{display_table_name}`\n"
     profile += f"[\n"
     column_profiles = []
@@ -357,40 +361,50 @@ def _format_single_table_profile(table_schema_dict: Dict[str, Any], display_tabl
         column_profile = f"`{column_name}`: {column_schema_dict['column_type']}"
         if column_schema_dict.get("primary_key", False):
             column_profile += f" | Primary Key"
-        if column_schema_dict.get("description"):
+        
+        if include_description and column_schema_dict.get("description"):
             column_profile += f" | {column_schema_dict['description']}"
-        if column_schema_dict.get("value_statistics"):
+            
+        if include_value_statistics and column_schema_dict.get("value_statistics"):
             stats = column_schema_dict["value_statistics"]
             column_profile += f" | Value Statistics: {stats['null_count']} NULL values, {stats['distinct_count']} distinct values, {stats['total_count']} total values"
-        if column_schema_dict.get("value_examples"):
+            
+        if include_value_examples and column_schema_dict.get("value_examples"):
             column_profile += f" | Value Examples: {column_schema_dict['value_examples']}"
+            
         column_profiles.append(f"({column_profile})")
     profile += f"{',\n'.join(column_profiles)}\n"
     profile += f"]\n"
     
     # Add nested columns section for BigQuery tables
-    nested_columns = table_schema_dict.get("nested_columns", {})
-    if nested_columns:
-        profile += "Nested Fields (accessible via UNNEST):\n"
-        for nested_col_name, nested_col_info in nested_columns.items():
-            profile += f"  - {nested_col_name}: {nested_col_info['column_type']}\n"
+    if include_nested_columns:
+        nested_columns = table_schema_dict.get("nested_columns", {})
+        if nested_columns:
+            profile += "Nested Fields (accessible via UNNEST):\n"
+            for nested_col_name, nested_col_info in nested_columns.items():
+                profile += f"  - {nested_col_name}: {nested_col_info['column_type']}\n"
     
     return profile
 
 
-def get_database_schema_profile(database_schema_dict: Dict[str, Any], compress_identical_schemas: bool = True) -> str:
+def get_database_schema_profile(
+    database_schema_dict: Dict[str, Any], 
+    compress_identical_schemas: bool = True,
+    include_description: bool = True,
+    include_value_statistics: bool = True,
+    include_value_examples: bool = True,
+    include_nested_columns: bool = True
+) -> str:
     """
     Generate a human-readable schema profile for the database.
     
     Args:
         database_schema_dict: The database schema dictionary.
-        compress_identical_schemas: If True, tables with identical schema structures
-            will be compressed - only one representative table is shown with full schema,
-            and other tables with the same structure are listed by name only.
-            This significantly reduces token usage for databases with many similar tables.
-    
-    Returns:
-        A formatted string representation of the database schema.
+        compress_identical_schemas: If True, tables with identical schema structures are compressed.
+        include_description: Whether to include column descriptions.
+        include_value_statistics: Whether to include value statistics.
+        include_value_examples: Whether to include value examples.
+        include_nested_columns: Whether to include nested column information.
     """
     profile = ""
     db_id = database_schema_dict["db_id"]
@@ -415,11 +429,14 @@ def get_database_schema_profile(database_schema_dict: Dict[str, Any], compress_i
                 table_key = table_keys[0]
                 table_schema_dict = database_schema_dict["tables"][table_key]
                 display_table_name = table_schema_dict.get("table_fullname", table_schema_dict.get("table_name", table_key))
-                profile += _format_single_table_profile(table_schema_dict, display_table_name)
+                profile += _format_single_table_profile(
+                    table_schema_dict, display_table_name,
+                    include_description, include_value_statistics,
+                    include_value_examples, include_nested_columns
+                )
                 processed_tables.add(table_key)
             else:
                 # Multiple tables with identical schema - compress them
-                # Use the first table as the representative
                 representative_key = table_keys[0]
                 representative_table = database_schema_dict["tables"][representative_key]
                 representative_name = representative_table.get("table_fullname", representative_table.get("table_name", representative_key))
@@ -432,20 +449,26 @@ def get_database_schema_profile(database_schema_dict: Dict[str, Any], compress_i
                     other_table_names.append(other_name)
                 
                 # Display representative table with full schema
-                profile += _format_single_table_profile(representative_table, representative_name)
+                profile += _format_single_table_profile(
+                    representative_table, representative_name,
+                    include_description, include_value_statistics,
+                    include_value_examples, include_nested_columns
+                )
                 
                 # Add note about other tables with identical schema
                 profile += f"  [Note: The following {len(other_table_names)} tables have IDENTICAL schema structure as `{representative_name}` above:\n"
-                # List other tables with simple comma separation
                 profile += "  " + ", ".join([f"`{name}`" for name in other_table_names])
                 profile += "\n  You can query any of these tables using the same column structure.]\n\n"
-                
                 processed_tables.update(table_keys)
     else:
         # No compression - display all tables normally
         for table_key, table_schema_dict in database_schema_dict["tables"].items():
             display_table_name = table_schema_dict.get("table_fullname", table_schema_dict.get("table_name", table_key))
-            profile += _format_single_table_profile(table_schema_dict, display_table_name)
+            profile += _format_single_table_profile(
+                table_schema_dict, display_table_name,
+                include_description, include_value_statistics,
+                include_value_examples, include_nested_columns
+            )
 
     # Foreign keys section (mainly for SQLite databases)
     all_foreign_keys = []
@@ -471,19 +494,51 @@ def get_database_schema_profile(database_schema_dict: Dict[str, Any], compress_i
 
 
 def map_lower_table_name_to_original_table_name(table_name: str, database_schema_dict: Dict[str, Any]) -> Optional[str]:
-    for table_schema_dict in database_schema_dict["tables"].values():
-        if table_schema_dict["table_name"].lower() == table_name.lower():
-            return table_schema_dict["table_name"]
-    # logger.warning(f"Mapping lower table name to original table name failed: {table_name}")
+    # 1. Try exact match with keys in the dictionary first (case-insensitive)
+    for table_key in database_schema_dict["tables"]:
+        if table_key.lower() == table_name.lower():
+            return table_key
+            
+    # 2. Try wildcard match (if table_name contains *)
+    if "*" in table_name:
+        try:
+            import re
+            # Convert glob-style wildcard to regex (e.g., "ga_sessions_*" -> "ga_sessions_.*")
+            pattern = re.escape(table_name.lower()).replace(r"\*", ".*")
+            for table_key in database_schema_dict["tables"]:
+                if re.fullmatch(pattern, table_key.lower()):
+                    return table_key
+        except Exception:
+            pass
+            
+    # 3. Then try matching table_name and table_fullname within table schema
+    for table_key, table_schema_dict in database_schema_dict["tables"].items():
+        if table_schema_dict.get("table_name", "").lower() == table_name.lower():
+            return table_key
+        if table_schema_dict.get("table_fullname", "").lower() == table_name.lower():
+            return table_key
+            
+    logger.warning(f"Mapping lower table name to original table name failed: {table_name}")
     return None
 
 
 def map_lower_column_name_to_original_column_name(table_name: str, column_name: str, database_schema_dict: Dict[str, Any]) -> Optional[str]:
+    # Use the table_name (which might be a key or name) to find the table first
+    if table_name in database_schema_dict["tables"]:
+        table_schema_dict = database_schema_dict["tables"][table_name]
+        # Only match against top-level columns as per user instruction
+        for col_name in table_schema_dict["columns"]:
+            if col_name.lower() == column_name.lower():
+                return col_name
+                
+    # Fallback to searching all tables
     for table_schema_dict in database_schema_dict["tables"].values():
-        if table_schema_dict["table_name"].lower() == table_name.lower():
-            for column_schema_dict in table_schema_dict["columns"].values():
-                if column_schema_dict["column_name"].lower() == column_name.lower():
-                    return column_schema_dict["column_name"]
+        if table_schema_dict.get("table_name", "").lower() == table_name.lower() or \
+           table_schema_dict.get("table_fullname", "").lower() == table_name.lower():
+            for col_name in table_schema_dict["columns"]:
+                if col_name.lower() == column_name.lower():
+                    return col_name
+                    
     # logger.warning(f"Mapping lower column name to original column name failed: {column_name}")
     return None
 
@@ -496,13 +551,35 @@ def filter_used_database_schema(database_schema_dict: Dict[str, Any], linked_tab
     }
 
     for table_name in linked_tables_and_columns.keys():
+        if table_name not in database_schema_dict["tables"]:
+            logger.warning(f"Table {table_name} not found in database schema, skipping...")
+            continue
+            
         table_dict = database_schema_dict["tables"][table_name]
         filtered_table_dict = {
             "table_name": table_dict["table_name"],
             "columns": {}
         }
+        
+        # Preserve table_fullname and other metadata if they exist
+        for key in ["table_fullname", "db_type"]:
+            if key in table_dict:
+                filtered_table_dict[key] = table_dict[key]
+                
         for column_name in linked_tables_and_columns[table_name]:
-            filtered_table_dict["columns"][column_name] = table_dict["columns"][column_name].copy()
+            if column_name in table_dict["columns"]:
+                filtered_table_dict["columns"][column_name] = table_dict["columns"][column_name].copy()
+                
+                # IMPORTANT: Automatically include all nested columns that belong to this top-level column.
+                # If LLM selects 'totals', we must include 'totals.pageviews', etc., for SQL generation.
+                if "nested_columns" in table_dict:
+                    if "nested_columns" not in filtered_table_dict:
+                        filtered_table_dict["nested_columns"] = {}
+                    for nested_name, nested_info in table_dict["nested_columns"].items():
+                        if nested_name.lower().startswith(f"{column_name.lower()}."):
+                            filtered_table_dict["nested_columns"][nested_name] = nested_info.copy()
+            else:
+                logger.warning(f"Column {column_name} not found in table {table_name}, skipping...")
         
         if len(filtered_table_dict["columns"]) > 0:
             filtered_database_schema_dict["tables"][table_name] = filtered_table_dict

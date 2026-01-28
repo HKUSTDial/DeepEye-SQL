@@ -68,8 +68,24 @@ if __name__ == "__main__":
 
     logger.info(f"Loading dataset from {config.dataset_config.save_path}")
     dataset = load_dataset(config.dataset_config.save_path)
+    
+    # Skip for Spider2 datasets as requested
+    if config.dataset_config.type.startswith("spider2"):
+        logger.info(f"Skipping vector database creation for Spider2 dataset: {config.dataset_config.type}")
+        sys.exit(0)
+        
     db_paths = dataset.get_all_database_paths()
     logger.info(f"Found {len(db_paths)} unique databases in the dataset.")
+
+    # Filter out cloud databases - Vector DB creation only supported for SQLite
+    sqlite_db_paths = []
+    for db_path in db_paths:
+        if db_path.endswith(".sqlite") and Path(db_path).exists():
+            sqlite_db_paths.append(db_path)
+    
+    if len(sqlite_db_paths) < len(db_paths):
+        logger.info(f"Skipping {len(db_paths) - len(sqlite_db_paths)} non-SQLite/cloud databases (Vector DB not supported)")
+        db_paths = sqlite_db_paths
 
     with ThreadPoolExecutor(max_workers=args.n_parallel) as executor:
         futures = {executor.submit(make_vector_db_for_db_path, db_path, config.vector_database_config): db_path for db_path in db_paths}

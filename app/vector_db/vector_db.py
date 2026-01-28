@@ -29,6 +29,28 @@ def _is_number_column(column_values: List[str]) -> bool:
     return all(NUMBER_PATTERN.match(value) for value in column_values)
 
 
+def get_collection_name(db_id: str) -> str:
+    """
+    Get a valid ChromaDB collection name from a database ID.
+    ChromaDB requires 3-512 characters from [a-zA-Z0-9._-], 
+    starting and ending with a character in [a-zA-Z0-9].
+    """
+    # Replace any invalid characters with underscore
+    name = re.sub(r'[^a-zA-Z0-9._-]', '_', db_id)
+    
+    # Ensure it starts and ends with alphanumeric
+    if not re.match(r'^[a-zA-Z0-9]', name):
+        name = "db_" + name
+    if not re.match(r'.*[a-zA-Z0-9]$', name):
+        name = name + "_db"
+        
+    # Ensure length is at least 3
+    while len(name) < 3:
+        name = "db_" + name
+        
+    return name
+
+
 def get_embedding_function(
     model_name_or_path: str, 
     api_type: str = "local",
@@ -125,7 +147,7 @@ def make_vector_db(db_path: str, vector_db_path: str, max_value_length: int = 10
     db_id = Path(db_path).stem
     client = PersistentClient(path=vector_db_path)
     collection = client.create_collection(
-        name=db_id,
+        name=get_collection_name(db_id),
         embedding_function=embedding_function,
         metadata={"hnsw:space": "cosine"}
     )
@@ -136,6 +158,7 @@ def make_vector_db(db_path: str, vector_db_path: str, max_value_length: int = 10
         for column_name, column_type in column_names_and_types:
             all_column_tasks.append((table_name, column_name, column_type))
 
+    failed = False
     with ThreadPoolExecutor(max_workers=n_parallel) as executor:
         futures = []
         for table_name, column_name, column_type in all_column_tasks:
@@ -150,7 +173,15 @@ def make_vector_db(db_path: str, vector_db_path: str, max_value_length: int = 10
                 future.result()
             except Exception as e:
                 logger.error(f"Failed to process column: {e}")
-                shutil.rmtree(vector_db_path)
-                return False
+                # Cancel all other pending tasks
+                for f in futures:
+                    f.cancel()
+                failed = True
+                break
                 
+    if failed:
+        if Path(vector_db_path).exists():
+            shutil.rmtree(vector_db_path)
+        return False
+        
     return True

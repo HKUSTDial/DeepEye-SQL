@@ -1,11 +1,11 @@
 """
-Spider2 specific prompt templates for BigQuery and Snowflake databases.
-These prompts are designed to handle cloud database SQL dialects.
+Spider2 specific prompt templates for BigQuery, Snowflake, and SQLite databases.
+These prompts are designed to handle various SQL dialects used in Spider2.
 """
 
 SPIDER2_DIRECT_LINKING_PROMPT = """
 # Task:
-You are an expert and very smart data analyst working with cloud data warehouses.
+You are an expert and very smart data analyst.
 Your task is to examine the provided database schema, understand the posed question, and use the hint to **pinpoint the specific tables and columns** that are essential for crafting a SQL query to answer the question.
 
 # Instructions:
@@ -18,11 +18,13 @@ For each of the selected tables and columns, explain why exactly it is necessary
 1. For key phrases mentioned in the question, we have provided the most similar values within the columns (TEXT-TYPE columns) denoted by "Value Examples". **This is a critical hint to identify the tables/columns that will be used in the SQL query.**
 2. If you are not sure whether a column is needed or not, it's better to include it in your selection. **It's safer to select more columns than to miss necessary ones.**
 3. If a column contains values that are related to the current question (check the "Value Examples"), you MUST include this column in your selection.
-4. For BigQuery/Snowflake databases, tables may not have explicit foreign key constraints. You need to identify JOIN relationships based on column names, descriptions, and logical relationships (e.g., columns with similar names like `user_id` in different tables likely represent a join relationship).
+4. For {DATABASE_ENGINE} databases, tables may not have explicit foreign key constraints. You need to identify JOIN relationships based on column names, descriptions, and logical relationships (e.g., columns with similar names like `user_id` in different tables likely represent a join relationship).
 5. Pay attention to nested/repeated fields (for BigQuery) which may require UNNEST() to access.
 6. **Tables with identical schema**: Some databases have multiple tables with the exact same structure (marked in schema as "IDENTICAL schema structure"). If you need to query such tables, **just select ONE representative table** - we will automatically include all tables in the group. In the final SQL, these can be queried using:
    - BigQuery: Wildcard table syntax like `project.dataset.table_prefix_*` with `_TABLE_SUFFIX`
    - Snowflake: UNION ALL or dynamic SQL patterns
+7. **Column name format**: When selecting a column, use the **exact column name** as it appears in the schema. Do **NOT** include table names or dots (e.g., use `column_name`, not `table_name.column_name`).
+8. **Nested columns (BigQuery/Snowflake)**: For nested or semi-structured fields (e.g., `totals.pageviews` in BigQuery or VARIANT in Snowflake), you only need to select the **top-level column name** (e.g., `totals`). You do not need to list individual fields within the nested structure.
 
 # Output Format:
 Please respond with XML code structured as follows:
@@ -42,6 +44,9 @@ Please respond with XML code structured as follows:
 </result>
 
 # Input:
+## Database Engine:
+{DATABASE_ENGINE}
+
 ## Database Schema:
 {DATABASE_SCHEMA}
 
@@ -58,7 +63,7 @@ Only output the XML code following the output format as your response.
 
 SPIDER2_DC_SQL_GENERATION_PROMPT = """
 # Task:
-You are an experienced database expert working with cloud data warehouses.
+You are an experienced database expert.
 You will be given details about the database schema and you need understand the tables and columns.
 Then you need to generate a SQL query given the database information, a question and some additional information.
 
@@ -91,7 +96,7 @@ Here is a high level description of the steps.
 8. **JOIN Preference:**
     - Prioritize `INNER JOIN` over nested `SELECT` statements.
 9. **Database Dialect (CRITICAL):**
-    - Check the "Database Type" in the schema profile (BIGQUERY or SNOWFLAKE).
+    - Use the specified Database Engine (BIGQUERY, SNOWFLAKE, or SQLITE).
     - For BigQuery:
       * Use backticks for fully qualified table names (e.g., `project.dataset.table`)
       * Use EXTRACT() for date parts: EXTRACT(YEAR FROM date_column)
@@ -106,6 +111,9 @@ Here is a high level description of the steps.
       * Use TRY_TO_NUMBER(), TRY_TO_DATE() for safe type conversion
       * Use FLATTEN() to access nested/semi-structured data (VARIANT, ARRAY, OBJECT)
       * String functions: STARTSWITH(), ENDSWITH(), CONTAINS()
+    - For SQLite:
+      * Use standard SQLite syntax
+      * Use date() or datetime() for date operations
 10. **Date Processing:**
     - Use database-appropriate date functions based on the Database Type shown in the schema.
 11. **Schema Syntax:**
@@ -118,8 +126,11 @@ Here is a high level description of the steps.
     - For Snowflake: Use FLATTEN() or LATERAL FLATTEN() for VARIANT/ARRAY data
 14. **Wildcard Table Queries (Tables with identical schema):**
     - Some databases have multiple tables with the exact same structure (e.g., per-date tables, per-region tables)
-    - For BigQuery: Use wildcard table syntax `project.dataset.table_prefix_*` with `_TABLE_SUFFIX` filter
-      * Example: `FROM \`project.dataset.ga_sessions_*\` WHERE _TABLE_SUFFIX BETWEEN '20170101' AND '20170131'`
+    - For BigQuery: Use wildcard table syntax `project.dataset.table_prefix_*` with `_TABLE_SUFFIX` filter. 
+      * **CRITICAL**: The `_TABLE_SUFFIX` contains ONLY the part matched by the asterisk `*`.
+      * **Best Practice**: Use a broad prefix and filter with the full string.
+      * **Example**: `FROM `project.dataset.events_*` WHERE _TABLE_SUFFIX BETWEEN '20210101' AND '20210107'` (Correct)
+      * **Avoid**: `FROM `project.dataset.events_2021*` WHERE _TABLE_SUFFIX BETWEEN '20210101' AND ...` (Incorrect logic, as suffix would only be '0101')
     - For Snowflake: Use UNION ALL across tables or dynamic SQL with table functions
 
 # Output Format:
@@ -128,11 +139,14 @@ Please respond with XML code structured as follows.
     Your detailed reasoning for the SQL query generation, with Recursive Divide-and-Conquer approach.
 </reasoning>
 <result>
-    The final SQL query that answers the question and can be executed on the target database (BigQuery or Snowflake as indicated in the schema), ensure there is not any comment and not any other explanation text in the SQL query.
+    The final SQL query that answers the question and can be executed on the target database (BigQuery, Snowflake, or SQLite as indicated in the engine), ensure there is not any comment and not any other explanation text in the SQL query.
     The SQL query must not include XML-specific characters (e.g., `&lt;`, `&gt;`, `&amp;`); only SQL-valid characters are allowed.
 </result>
 
 # Input:
+## Database Engine:
+{DATABASE_ENGINE}
+
 ## Database Schema:
 {DATABASE_SCHEMA}
 
@@ -149,7 +163,7 @@ Repeating the question and hint, and generating the SQL with Recursive Divide-an
 
 SPIDER2_ICL_SQL_GENERATION_PROMPT = """
 # Task:
-You are an experienced database expert specializing in cross-domain SQL generation for cloud data warehouses.
+You are an experienced database expert specializing in cross-domain SQL generation for databases.
 You will be given a target database schema, a question, and several similar examples from different databases (cross-domain few-shot examples).
 Your task is to generate a SQL query for the target question by learning from the provided examples.
 
@@ -175,17 +189,22 @@ Your task is to generate a SQL query for the target question by learning from th
 2. **Column Mapping**: Pay attention to how similar concepts are represented in different schemas
 3. **Query Structure**: Follow the structural patterns from examples (JOIN types, subquery usage, etc.)
 4. **Database Dialect (CRITICAL)**: 
-   - Check the "Database Type" in the target schema profile (BIGQUERY or SNOWFLAKE)
+   - Use the specified Database Engine (BIGQUERY, SNOWFLAKE, or SQLITE)
    - Examples may use SQLite syntax; you MUST adapt to the target database's syntax
-   - For BigQuery: Use EXTRACT() instead of STRFTIME(), backticks for table names, UNNEST() for arrays
+   - For BigQuery: Use EXTRACT() instead of STRFTIME(), backticks for table names, UNNEST() for arrays.
+     * **CRITICAL**: `_TABLE_SUFFIX` filter MUST match the asterisk `*` in the `FROM` clause. Use `events_*` with `BETWEEN '20210101' AND '20210107'` for full dates.
    - For Snowflake: Use TO_DATE()/DATEADD() for dates, uppercase table names, FLATTEN() for arrays
+   - For SQLite: Use standard SQLite syntax and date functions
 5. **Exact Column Names**: Use the exact column and table names from the target schema
 6. **Logical Consistency**: Ensure the generated query logically answers the target question
 7. **Nested/Repeated Fields**: If the schema mentions nested fields, use appropriate functions (UNNEST for BigQuery, FLATTEN for Snowflake)
 8. **Wildcard Table Queries (Tables with identical schema):**
    - Some databases have multiple tables with the exact same structure (e.g., per-date tables, per-region tables)
-   - For BigQuery: Use wildcard table syntax `project.dataset.table_prefix_*` with `_TABLE_SUFFIX` filter
-     * Example: `FROM \`project.dataset.ga_sessions_*\` WHERE _TABLE_SUFFIX BETWEEN '20170101' AND '20170131'`
+    - For BigQuery: Use wildcard table syntax `project.dataset.table_prefix_*` with `_TABLE_SUFFIX` filter. 
+      * **CRITICAL**: The `_TABLE_SUFFIX` contains ONLY the part matched by the asterisk `*`.
+      * **Best Practice**: Use a broad prefix and filter with the full string.
+      * **Example**: `FROM `project.dataset.events_*` WHERE _TABLE_SUFFIX BETWEEN '20210101' AND '20210107'` (Correct)
+      * **Avoid**: `FROM `project.dataset.events_2021*` WHERE _TABLE_SUFFIX BETWEEN '20210101' AND ...` (Incorrect logic, as suffix would only be '0101')
    - For Snowflake: Use UNION ALL across tables or dynamic SQL with table functions
 
 # Output Format:
@@ -194,13 +213,16 @@ Please respond with XML code structured as follows:
     Your analysis of the examples and reasoning for the SQL generation.
 </reasoning>
 <result>
-    The final SQL query that answers the target question and can be executed on the target database (BigQuery or Snowflake as indicated), ensure there is not any comment and not any other explanation text in the SQL query.
+    The final SQL query that answers the target question and can be executed on the target database (BigQuery, Snowflake, or SQLite as indicated), ensure there is not any comment and not any other explanation text in the SQL query.
     The SQL query must not include XML-specific characters (e.g., `&lt;`, `&gt;`, `&amp;`); only SQL-valid characters are allowed.
 </result>
 
 # Input:
 ## Few-Shot Examples:
 {FEW_SHOT_EXAMPLES}
+
+## Database Engine:
+{DATABASE_ENGINE}
 
 ## Target Database Schema:
 {DATABASE_SCHEMA}
@@ -216,7 +238,7 @@ Please respond with XML code structured as follows:
 
 SPIDER2_SKELETON_SQL_GENERATION_PROMPT = """
 # Task:
-You are an expert SQL developer who uses a systematic approach to generate complex SQL queries for cloud data warehouses.
+You are an expert SQL developer who uses a systematic approach to generate complex SQL queries for databases.
 Your task is to analyze the given question and database schema, then generate a SQL query using a three-step process:
 1. **Plan**: Identify the required SQL components and logical structure
 2. **Skeleton**: Create a structured SQL skeleton with placeholders
@@ -248,15 +270,17 @@ Create a SQL skeleton with:
 Fill in the skeleton with:
 - Exact table and column names from the schema
 - Specific values and conditions from the question
-- Proper syntax for the target database (BigQuery or Snowflake)
+- Proper syntax for the target database (BigQuery, Snowflake, or SQLite)
 - Final validation of the query logic
 
 # Important Rules:
 1. **Schema Accuracy**: Use exact table and column names from the provided schema
 2. **Database Dialect (CRITICAL)**: 
-   - Check the "Database Type" in the schema (BIGQUERY or SNOWFLAKE)
-   - For BigQuery: Use backticks, EXTRACT(), UNNEST(), FORMAT_DATE()
+   - Use the specified Database Engine (BIGQUERY, SNOWFLAKE, or SQLITE)
+   - For BigQuery: Use backticks, EXTRACT(), UNNEST(), FORMAT_DATE().
+     * **CRITICAL**: `_TABLE_SUFFIX` filter MUST match the asterisk `*` in the `FROM` clause. Use `events_*` with `BETWEEN '20210101' AND '20210107'` for full dates.
    - For Snowflake: Use uppercase tables, TO_DATE(), DATEADD(), FLATTEN()
+   - For SQLite: Use standard SQLite syntax, date() or datetime() for dates
 3. **Logical Flow**: Ensure the query logic matches the question requirements
 4. **Performance**: Prefer efficient JOIN patterns over nested subqueries when possible
 5. **Readability**: Use clear aliases and proper formatting
@@ -264,8 +288,11 @@ Fill in the skeleton with:
 7. **Nested Fields**: For BigQuery use UNNEST(), for Snowflake use FLATTEN()
 8. **Wildcard Table Queries (Tables with identical schema):**
    - Some databases have multiple tables with the exact same structure (e.g., per-date tables, per-region tables)
-   - For BigQuery: Use wildcard table syntax `project.dataset.table_prefix_*` with `_TABLE_SUFFIX` filter
-     * Example: `FROM \`project.dataset.ga_sessions_*\` WHERE _TABLE_SUFFIX BETWEEN '20170101' AND '20170131'`
+    - For BigQuery: Use wildcard table syntax `project.dataset.table_prefix_*` with `_TABLE_SUFFIX` filter. 
+      * **CRITICAL**: The `_TABLE_SUFFIX` contains ONLY the part matched by the asterisk `*`.
+      * **Best Practice**: Use a broad prefix and filter with the full string.
+      * **Example**: `FROM `project.dataset.events_*` WHERE _TABLE_SUFFIX BETWEEN '20210101' AND '20210107'` (Correct)
+      * **Avoid**: `FROM `project.dataset.events_2021*` WHERE _TABLE_SUFFIX BETWEEN '20210101' AND ...` (Incorrect logic, as suffix would only be '0101')
    - For Snowflake: Use UNION ALL across tables or dynamic SQL with table functions
 
 
@@ -275,11 +302,14 @@ Please respond with XML code structured as follows:
     Your comprehensive analysis and planning for the SQL query generation and the SQL skeleton with placeholders.
 </reasoning>
 <result>
-    The final SQL query that answers the target question and can be executed on the target database (BigQuery or Snowflake), ensure there is not any comment and not any other explanation text in the SQL query.
+    The final SQL query that answers the target question and can be executed on the target database (BigQuery, Snowflake, or SQLite), ensure there is not any comment and not any other explanation text in the SQL query.
     The SQL query must not include XML-specific characters (e.g., `&lt;`, `&gt;`, `&amp;`); only SQL-valid characters are allowed.
 </result>
 
 # Input:
+## Database Engine:
+{DATABASE_ENGINE}
+
 ## Database Schema:
 {DATABASE_SCHEMA}
 
@@ -294,12 +324,12 @@ Please respond with XML code structured as follows:
 
 SPIDER2_EXECUTION_CHECKER_PROMPT = """
 # Task:
-You are an SQL database expert tasked with correcting a SQL query for a cloud data warehouse (BigQuery or Snowflake). A previous attempt to run a query did not yield the correct results, either due to errors in execution or because the result returned was empty or unexpected. Your role is to analyze the error based on the provided database schema and the details of the failed execution, and then provide a corrected version of the SQL query.
+You are an SQL database expert tasked with correcting a SQL query for a database (BigQuery, Snowflake, or SQLite). A previous attempt to run a query did not yield the correct results, either due to errors in execution or because the result returned was empty or unexpected. Your role is to analyze the error based on the provided database schema and the details of the failed execution, and then provide a corrected version of the SQL query.
 
 # Instructions:
 1. Review Database Schema:
     - Examine the database schema to understand the database structure.
-    - Note the Database Type (BIGQUERY or SNOWFLAKE) shown in the schema.
+    - Note the specified Database Engine (BIGQUERY, SNOWFLAKE, or SQLITE).
 2. Analyze Query Requirements:
     - Original Question: Consider what information the query is supposed to retrieve.
     - Hint: Use the provided hints to understand the relationships and conditions relevant to the query.
@@ -308,7 +338,7 @@ You are an SQL database expert tasked with correcting a SQL query for a cloud da
 3. Correct the Query: 
     - Modify the SQL query to address the identified issues, ensuring it correctly fetches the requested data according to the database schema and query requirements.
     - Use the retrieved values to help write more accurate conditions when appropriate.
-    - Ensure the SQL syntax matches the target database dialect (BigQuery or Snowflake).
+    - Ensure the SQL syntax matches the target database dialect (BigQuery, Snowflake, or SQLite).
 
 [IMPORTANT]
 - For key phrases mentioned in the question, we have provided the most similar values within the columns (TEXT-TYPE columns) denoted by "Value Examples". **This is a critical hint to identify the tables/columns that will be used in the SQL query.**
@@ -320,11 +350,14 @@ Please respond with XML code structured as follows.
     Your detailed reasoning for the SQL query revision, including the detailed analysis of the previous query and the database schema, and try to fix the failed query.
 </reasoning>
 <result>
-    The final revised SQL query that answers the question and can be executed on the target database (BigQuery or Snowflake), ensure there is not any comment and not any other explanation text in the SQL query.
+    The final revised SQL query that answers the question and can be executed on the target database (BigQuery, Snowflake, or SQLite), ensure there is not any comment and not any other explanation text in the SQL query.
     The SQL query must not include XML-specific characters (e.g., `&lt;`, `&gt;`, `&amp;`); only SQL-valid characters are allowed.
 </result>
 
 # Input:
+## Database Engine:
+{DATABASE_ENGINE}
+
 ## Database Schema:
 {DATABASE_SCHEMA}
 
@@ -347,12 +380,12 @@ Based on the question, table schemas, the previous query, and the execution resu
 
 SPIDER2_COMMON_CHECKER_PROMPT = """
 # Task:
-You are an SQL database expert tasked with correcting a SQL query for a cloud data warehouse (BigQuery or Snowflake). An external SQL checker tool has checked the SQL query and provided some suggestions to correct. Your role is to analyze the suggestions from the checker tool, and then based on the provided database schema provide a corrected version of the SQL query.
+You are an SQL database expert tasked with correcting a SQL query for a database (BigQuery, Snowflake, or SQLite). An external SQL checker tool has checked the SQL query and provided some suggestions to correct. Your role is to analyze the suggestions from the checker tool, and then based on the provided database schema provide a corrected version of the SQL query.
 
 # Instructions:
 1. Review Database Schema:
     - Examine the database schema to understand the database structure.
-    - Note the Database Type (BIGQUERY or SNOWFLAKE) shown in the schema.
+    - Note the specified Database Engine (BIGQUERY, SNOWFLAKE, or SQLITE).
 2. Analyze Query Requirements:
     - Original Question: Consider what information the query is supposed to retrieve.
     - Hint: Use the provided hints to understand the relationships and conditions relevant to the query.
@@ -360,7 +393,7 @@ You are an SQL database expert tasked with correcting a SQL query for a cloud da
     - Modification Suggestions: Review the suggestions provided by the external checker, and think how to modify the SQL to meet the suggestions.
 3. Correct the Query: 
     - Modify the SQL query based the given Modification Suggestions, ensuring it correctly meet the expected suggestions.
-    - Ensure the SQL syntax matches the target database dialect (BigQuery or Snowflake).
+    - Ensure the SQL syntax matches the target database dialect (BigQuery, Snowflake, or SQLite).
 
 [IMPORTANT]
 Your are NOT ALLOWED to do any other modifications which are not listed in given suggestions.
@@ -371,11 +404,14 @@ Please respond with XML code structured as follows.
     Your detailed reasoning for the SQL query revision, including understanding the given suggestions, analyzing of the previous query and database schema, and then try to fix the query.
 </reasoning>
 <result>
-    The final revised SQL query that answers the question and can be executed on the target database (BigQuery or Snowflake), ensure there is not any comment and not any other explanation text in the SQL query.
+    The final revised SQL query that answers the question and can be executed on the target database (BigQuery, Snowflake, or SQLite), ensure there is not any comment and not any other explanation text in the SQL query.
     The SQL query must not include XML-specific characters (e.g., `&lt;`, `&gt;`, `&amp;`); only SQL-valid characters are allowed.
 </result>
 
 # Input:
+## Database Engine:
+{DATABASE_ENGINE}
+
 ## Database Schema:
 {DATABASE_SCHEMA}
 
@@ -398,7 +434,7 @@ Based on the question, database schemas, previous SQL query and modification sug
 
 SPIDER2_BR_PAIR_SELECTION_PROMPT = """
 # Task:
-Given the DB info and question, there are two candidate queries for a cloud data warehouse (BigQuery or Snowflake). There is correct one and incorrect one, compare the two candidate answers, analyze the differences of the query and the result. Based on the original question and the provided database info, choose the correct one.
+Given the DB info and question, there are two candidate queries for a database (BigQuery, Snowflake, or SQLite). There is correct one and incorrect one, compare the two candidate answers, analyze the differences of the query and the result. Based on the original question and the provided database info, choose the correct one.
 
 # Important Context:
 - SQL Candidate A (Top-1) has higher confidence than SQL Candidate B (Top-2)
@@ -406,7 +442,7 @@ Given the DB info and question, there are two candidate queries for a cloud data
 - You should only choose SQL Candidate B if there is clear evidence that it is superior to SQL Candidate A, or if SQL Candidate A has obvious errors
 - The default preference should be SQL Candidate A unless there are compelling reasons to choose SQL Candidate B
 - If you cannot determine which SQL is better, or if both SQLs have significant issues, you should choose SQL Candidate A by default
-- Consider database-specific syntax correctness (BigQuery or Snowflake as indicated in the schema)
+- Consider database-specific syntax correctness for the specified Database Engine ({DATABASE_ENGINE})
 
 # Instructions:
 - Carefully analyze the user question, database schema, and both candidate SQL queries
@@ -425,6 +461,9 @@ Please respond with XML code structured as follows:
 </result>
 
 # Input:
+## Database Engine:
+{DATABASE_ENGINE}
+
 ## Database Schema:
 {DATABASE_SCHEMA}
 

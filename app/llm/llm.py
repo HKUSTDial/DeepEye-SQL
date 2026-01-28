@@ -34,6 +34,11 @@ class LLM:
         self._client = self._create_client()
         logger.debug(f"Created LLM instance: model={llm_config.model}, temperature={llm_config.temperature}, reasoning_effort={llm_config.reasoning_effort}")
     
+    @property
+    def llm_config(self) -> LLMConfig:
+        """Get the LLM configuration."""
+        return self._config
+    
     def _create_client(self):
         if self._config.api_type == "openai":
             return OpenAI(api_key=self._config.api_key, base_url=self._config.base_url)

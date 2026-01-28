@@ -104,10 +104,10 @@ class LLMExtractor:
                             logger.debug(f"Rule parsing succeeded")
                         else:
                             logger.warning(f"Rule parsing returned None for response")
-                            logger.debug(f"Response content: {content[:500]}...")
+                            logger.debug(f"Response content: {content}")
                     except Exception as e:
                         logger.warning(f"Rule parsing failed with exception: {e}")
-                        logger.debug(f"Response content: {content[:500]}...")
+                        logger.debug(f"Response content: {content}")
                         
             except Exception as e:
                 logger.warning(f"Error during LLM call (retry {retry_count + 1}/{max_retry}): {e}")

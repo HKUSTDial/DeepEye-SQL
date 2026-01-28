@@ -1,17 +1,26 @@
 import sys
+import os
 import tomllib
 from pathlib import Path
 from loguru import logger as _logger
 
-from app.config import PROJECT_ROOT
 
-
-_print_level = "INFO"
+# Get project root to avoid circular dependency with app.config
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 def _load_logger_config():
-    """Load logger configuration from config.toml."""
-    config_path = PROJECT_ROOT / "config" / "config.toml"
+    """Load logger configuration from the config file."""
+    # Respect CONFIG_PATH environment variable if set
+    env_config_path = os.environ.get("CONFIG_PATH")
+    if env_config_path:
+        config_path = Path(env_config_path)
+        # If relative, make it relative to project root
+        if not config_path.is_absolute():
+            config_path = PROJECT_ROOT / config_path
+    else:
+        config_path = PROJECT_ROOT / "config" / "config.toml"
+        
     if config_path.exists():
         try:
             with open(config_path, "rb") as f:
@@ -24,10 +33,7 @@ def _load_logger_config():
 
 
 def define_log_level(print_level="INFO"):
-    """Adjust the log level to above level"""
-    global _print_level
-    _print_level = print_level
-
+    """Adjust the log level to the specified level."""
     _logger.remove()
     _logger.add(sys.stderr, level=print_level)
     return _logger

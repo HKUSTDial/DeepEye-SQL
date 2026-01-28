@@ -1,3 +1,7 @@
+########## Logger configuration ##########
+[logger]
+print_level = "DEBUG"      # Console log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+
 ########## Dataset configuration ##########
 [dataset]
 type = "spider2-lite"
@@ -9,15 +13,19 @@ save_path = "workspace/dataset/spider2-lite/spider2-lite.pkl"
 snowflake_credential_path = "snowflake_credential.json"
 bigquery_credential_path = "bigquery_credential.json"
 
+max_value_example_length = 50
+
 ########## Vector database configuration ##########
 [vector_database]
-embedding_model_name_or_path = "Qwen/Qwen3-Embedding-0.6B"
-use_qwen3_embedding = true
-local_files_only = false
-normalize_embeddings = false
+api_type = "openai"
+embedding_model_name_or_path = "Qwen3-Embedding-0.6B"
+base_url = "http://0.0.0.0:8000/v1"
+api_key = "dummy"
 store_root_path = "workspace/vector_database/spider2-lite"
-max_value_length = 100
+max_value_length = 50
 lower_meta_data = true
+batch_size = 512
+n_parallel = 8
 
 ########## Value retrieval configuration ##########
 [value_retrieval]
@@ -37,8 +45,8 @@ api_type = "openai"
 [schema_linking]
 n_parallel = 16
 save_path = "workspace/schema_linking/spider2-lite/spider2-lite.pkl"
-direct_linking_sampling_budget = 8
-reversed_linking_sampling_budget = 8
+direct_linking_sampling_budget = 4
+reversed_linking_sampling_budget = 4
 value_distance_threshold = 0.02
 
 [schema_linking.llm]
@@ -48,16 +56,17 @@ api_key = "dummy"
 max_tokens = 4096
 temperature = 0.7
 api_type = "openai"
+max_model_len = 131072
 
 ########## SQL generation configuration ##########
 [sql_generation]
 n_parallel = 16
 save_path = "workspace/sql_generation/spider2-lite/spider2-lite.pkl"
-dc_sampling_budget = 8
-skeleton_sampling_budget = 8
-icl_sampling_budget = 8
-# Note: Spider2 may need different few-shot examples
-icl_few_shot_examples_path = "data/spider2-lite/few_shots.json"
+dc_sampling_budget = 4
+skeleton_sampling_budget = 4
+icl_sampling_budget = 0
+# Note: Spider2 may need different few-shot examples, but we don't have them for Spider2
+# icl_few_shot_examples_path = "data/spider2-lite/few_shots.json"
 
 [sql_generation.llm]
 model = "Qwen3-Coder-30B-A3B-Instruct"
@@ -66,6 +75,7 @@ api_key = "dummy"
 max_tokens = 4096
 temperature = 0.7
 api_type = "openai"
+max_model_len = 131072
 
 ########## SQL revision configuration ##########
 [sql_revision]
@@ -80,6 +90,7 @@ api_key = "dummy"
 max_tokens = 4096
 temperature = 0.7
 api_type = "openai"
+max_model_len = 131072
 
 ########## SQL selection configuration ##########
 [sql_selection]
@@ -96,3 +107,4 @@ api_key = "dummy"
 max_tokens = 4096
 temperature = 0.7
 api_type = "openai"
+max_model_len = 131072

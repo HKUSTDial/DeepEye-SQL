@@ -26,6 +26,10 @@ def _get_value_examples_from_sample_rows(sample_rows: List[Dict], column_name: s
     if not sample_rows:
         return []
     
+    from app.config import config
+    if config.dataset_config is not None:
+        max_length = config.dataset_config.max_value_example_length
+    
     examples = []
     for row in sample_rows:
         if column_name not in row:

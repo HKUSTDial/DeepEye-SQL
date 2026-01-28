@@ -26,6 +26,7 @@ class LLMConfig(BaseModel):
     api_version: Optional[str] = Field(default=None, description="The version of the Azure API")
     fix_end_token: bool = Field(default=False, description="Whether to fix the end token to the LLM response")
     reasoning_effort: Optional[Literal["low", "medium", "high"]] = Field(default=None, description="The reasoning effort for the model (only for reasoning models like o1, o3)")
+    max_model_len: int = Field(default=128000, description="The maximum context length of the model")
 
 
 class DatasetConfig(BaseModel):
@@ -38,6 +39,8 @@ class DatasetConfig(BaseModel):
     # Spider2 specific configurations
     snowflake_credential_path: Optional[str] = Field(default=None, description="Path to Snowflake credential JSON file")
     bigquery_credential_path: Optional[str] = Field(default=None, description="Path to BigQuery credential JSON file")
+    
+    max_value_example_length: int = Field(default=100, description="The maximum length of the value examples in the schema")
     
     @model_validator(mode="after")
     def validate_split(self):
@@ -94,7 +97,7 @@ class SQLGenerationConfig(BaseModel):
     dc_sampling_budget: int = Field(default=5, description="The sampling budget of the dc generation")
     skeleton_sampling_budget: int = Field(default=5, description="The sampling budget of the skeleton generation")
     icl_sampling_budget: int = Field(default=5, description="The sampling budget of the icl generation")
-    icl_few_shot_examples_path: str = Field(..., description="The path of the icl few shot examples")
+    icl_few_shot_examples_path: Optional[str] = Field(default=None, description="The path of the icl few shot examples")
 
 
 class SQLRevisionConfig(BaseModel):
@@ -117,6 +120,10 @@ class LLMExtractorConfig(BaseModel):
     max_retry: int = Field(default=3, description="Maximum retry attempts for parsing LLM responses")
 
 
+class LoggerConfig(BaseModel):
+    print_level: str = Field(default="INFO", description="The log level for the console")
+
+
 class AppConfig(BaseModel):
     dataset: DatasetConfig = Field(default_factory=DatasetConfig, description="The config of the dataset")
     vector_database: VectorDatabaseConfig = Field(default_factory=VectorDatabaseConfig, description="The config of the vector database")
@@ -126,6 +133,7 @@ class AppConfig(BaseModel):
     sql_revision: SQLRevisionConfig = Field(default_factory=SQLRevisionConfig, description="The config of the sql revision")
     sql_selection: SQLSelectionConfig = Field(default_factory=SQLSelectionConfig, description="The config of the sql selection")
     llm_extractor: LLMExtractorConfig = Field(default_factory=LLMExtractorConfig, description="The config of the LLM extractor for fallback parsing")
+    logger: LoggerConfig = Field(default_factory=LoggerConfig, description="The config of the logger")
     
     
 class Config:
@@ -193,6 +201,7 @@ class Config:
             # Spider2 specific configurations
             "snowflake_credential_path": dataset_config.get("snowflake_credential_path", None),
             "bigquery_credential_path": dataset_config.get("bigquery_credential_path", None),
+            "max_value_example_length": dataset_config.get("max_value_example_length", 100),
         }
         
         # vector database config
@@ -239,7 +248,7 @@ class Config:
             "dc_sampling_budget": sql_generation_config.get("dc_sampling_budget", 5),
             "skeleton_sampling_budget": sql_generation_config.get("skeleton_sampling_budget", 5),
             "icl_sampling_budget": sql_generation_config.get("icl_sampling_budget", 5),
-            "icl_few_shot_examples_path": sql_generation_config.get("icl_few_shot_examples_path"),
+            "icl_few_shot_examples_path": sql_generation_config.get("icl_few_shot_examples_path", None),
         }
         
         # sql revision config
@@ -268,6 +277,12 @@ class Config:
             "max_retry": llm_extractor_config.get("max_retry", 3),
         }
         
+        # logger config
+        logger_config = config.get("logger", {})
+        logger_settings = {
+            "print_level": logger_config.get("print_level", "INFO"),
+        }
+        
         self._app_config = AppConfig(
             dataset=DatasetConfig(**dataset_settings),
             vector_database=VectorDatabaseConfig(**vector_database_settings),
@@ -276,7 +291,8 @@ class Config:
             sql_generation=SQLGenerationConfig(**sql_generation_settings),
             sql_revision=SQLRevisionConfig(**sql_revision_settings),
             sql_selection=SQLSelectionConfig(**sql_selection_settings),
-            llm_extractor=LLMExtractorConfig(**llm_extractor_settings)
+            llm_extractor=LLMExtractorConfig(**llm_extractor_settings),
+            logger=LoggerConfig(**logger_settings)
         )
 
     @property
@@ -314,6 +330,10 @@ class Config:
     @property
     def llm_extractor_config(self):
         return self._app_config.llm_extractor
+    
+    @property
+    def logger_config(self):
+        return self._app_config.logger
     
 # global config instance
 config = Config()

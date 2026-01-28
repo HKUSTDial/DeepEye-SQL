@@ -6,7 +6,7 @@ from app.llm import LLM
 from app.logger import logger
 from app.prompt import PromptFactory
 from app.llm_extractor import LLMExtractor
-from app.db_utils import get_database_schema_profile, map_lower_table_name_to_original_table_name, map_lower_column_name_to_original_column_name, get_identical_schema_table_groups
+from app.db_utils import get_database_schema_profile, map_lower_table_name_to_original_table_name, map_lower_column_name_to_original_column_name
 from typing import Dict, List, Optional, Any
 import re
 import json
@@ -18,14 +18,54 @@ class DirectLinker(BaseSchemaLinker):
         if sampling_budget == 0:
             return {}, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         
-        database_schema_profile = get_database_schema_profile(data_item.database_schema_after_value_retrieval)
         db_type = getattr(data_item, "db_type", None)
-        prompt = PromptFactory.format_direct_linking_prompt(database_schema_profile, data_item.question, data_item.evidence, db_type=db_type).strip()
         
+        # Define progressive stripping levels
+        # Order: 
+        # 0. Full (all included)
+        # 1. Remove Value Examples & Value Statistics
+        # 2. Remove Nested Columns
+        # 3. Remove Description
+        stripping_levels = [
+            {"include_description": True, "include_value_statistics": True, "include_value_examples": True, "include_nested_columns": True},
+            {"include_description": True, "include_value_statistics": False, "include_value_examples": False, "include_nested_columns": True},
+            {"include_description": True, "include_value_statistics": False, "include_value_examples": False, "include_nested_columns": False},
+            {"include_description": False, "include_value_statistics": False, "include_value_examples": False, "include_nested_columns": False},
+        ]
+        
+        import tiktoken
+        try:
+            encoding = tiktoken.encoding_for_model(llm.llm_config.model)
+        except Exception:
+            encoding = tiktoken.get_encoding("cl100k_base")
+            
+        max_prompt_len = llm.llm_config.max_model_len - llm.llm_config.max_tokens
+        
+        final_prompt = None
+        for level_idx, levels in enumerate(stripping_levels):
+            database_schema_profile = get_database_schema_profile(
+                data_item.database_schema_after_value_retrieval, 
+                **levels
+            )
+            prompt = PromptFactory.format_direct_linking_prompt(database_schema_profile, data_item.question, data_item.evidence, db_type=db_type).strip()
+            
+            token_count = len(encoding.encode(prompt))
+            if token_count <= max_prompt_len:
+                final_prompt = prompt
+                if level_idx > 0:
+                    logger.warning(f"Prompt for item {data_item.question_id} was too large. Compressed using level {level_idx} (tokens: {token_count})")
+                break
+            else:
+                logger.info(f"Level {level_idx} prompt for item {data_item.question_id} too large ({token_count} tokens). Trying next level...")
+                
+        if final_prompt is None:
+            logger.error(f"CRITICAL: Even minimal prompt for item {data_item.question_id} exceeds token limit ({token_count} tokens). Returning empty result.")
+            return {}, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
         extractor = LLMExtractor()
         all_selections, total_token_usage = extractor.extract_with_retry(
             llm=llm,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": final_prompt}],
             rule_parser=self._parse_llm_response,
             parser_kwargs={"database_schema": data_item.database_schema_after_value_retrieval},
             fix_end_token=config.schema_linking_config.llm.fix_end_token,
@@ -48,20 +88,27 @@ class DirectLinker(BaseSchemaLinker):
             
             result = {}
             
-            table_matches = re.findall(r'<table\s+table_name="([^"]+)"[^>]*>(.*?)</table>', answer_content, re.DOTALL)
+            # More robust regex for table tags: handles spaces and single/double quotes
+            table_matches = re.findall(r'<table\s+table_name\s*=\s*["\']([^"\']+)["\'][^>]*>(.*?)</table>', answer_content, re.DOTALL)
+            
+            if not table_matches:
+                logger.warning(f"No <table> tags found in <result> content: {answer_content[:200]}...")
             
             for table_name, table_content in table_matches:
                 original_table_name = map_lower_table_name_to_original_table_name(table_name, database_schema)
                 if original_table_name is None:
+                    logger.warning(f"Could not map table name: {table_name}")
                     continue
                 
                 result[original_table_name] = []
                 
-                column_matches = re.findall(r'<column\s+column_name="([^"]+)"[^>]*/?>', table_content)
+                # More robust regex for column tags
+                column_matches = re.findall(r'<column\s+column_name\s*=\s*["\']([^"\']+)["\']\s*/?>', table_content)
                 
                 for column_name in column_matches:
                     original_column_name = map_lower_column_name_to_original_column_name(original_table_name, column_name, database_schema)
                     if original_column_name is None:
+                        logger.warning(f"Could not map column name: {column_name} in table {original_table_name}")
                         continue
                     result[original_table_name].append(original_column_name)
             
@@ -77,34 +124,3 @@ class DirectLinker(BaseSchemaLinker):
             logger.warning(f"Error parsing LLM response: {e}")
             logger.warning(f"Response content: {response}")
             return None
-    
-    def _expand_identical_schema_tables(self, result: Dict[str, List[str]], database_schema: Dict[str, Any]) -> Dict[str, List[str]]:
-        """
-        Expand the selection to include all tables with identical schema.
-        
-        If the LLM selects one table from a group of tables with identical schema,
-        automatically include all tables in that group with the same column selection.
-        This supports BigQuery/Snowflake wildcard table patterns.
-        """
-        # Get groups of tables with identical schema
-        table_groups = get_identical_schema_table_groups(database_schema)
-        
-        if not table_groups:
-            return result
-        
-        expanded_result = dict(result)
-        
-        # For each selected table, check if it belongs to a group
-        for table_name, columns in list(result.items()):
-            if table_name in table_groups:
-                # Add all tables in the group with the same columns
-                for group_table in table_groups[table_name]:
-                    if group_table not in expanded_result:
-                        # Map columns to the group table (they have identical schema)
-                        expanded_result[group_table] = list(columns)
-                        logger.debug(f"Auto-expanded identical schema table: {group_table}")
-        
-        if len(expanded_result) > len(result):
-            logger.info(f"Expanded {len(result)} tables to {len(expanded_result)} tables (identical schema groups)")
-        
-        return expanded_result

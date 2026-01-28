@@ -6,7 +6,7 @@ from app.logger import logger
 from app.prompt import PromptFactory
 from app.config import config
 from app.llm_extractor import LLMExtractor
-from app.db_utils import get_database_schema_profile, map_lower_table_name_to_original_table_name, map_lower_column_name_to_original_column_name, get_identical_schema_table_groups
+from app.db_utils import get_database_schema_profile, map_lower_table_name_to_original_table_name, map_lower_column_name_to_original_column_name
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 import re
@@ -64,8 +64,6 @@ class ReversedLinker(BaseSchemaLinker):
             logger.info(f"No few-shot examples available for {getattr(data_item, 'instance_id', data_item.question_id)}, falling back to DC-based SQL generation")
             return self._link_with_dc_fallback(data_item, llm, sampling_budget)
         
-        database_schema_profile = get_database_schema_profile(data_item.database_schema_after_value_retrieval)
-        
         # Get few-shot examples by question_id or instance_id
         question_id = str(data_item.question_id) if hasattr(data_item, 'question_id') else None
         instance_id = str(data_item.instance_id) if hasattr(data_item, 'instance_id') else None
@@ -79,9 +77,51 @@ class ReversedLinker(BaseSchemaLinker):
         if not few_shot_examples:
             logger.warning(f"Few-shot examples not found, falling back to DC-based SQL generation")
             return self._link_with_dc_fallback(data_item, llm, sampling_budget)
-        
+            
         db_type = getattr(data_item, "db_type", None)
-        prompt = PromptFactory.format_icl_sql_generation_prompt(few_shot_examples, database_schema_profile, data_item.question, data_item.evidence, db_type=db_type).strip()
+
+        # Define progressive stripping levels
+        stripping_levels = [
+            {"include_description": True, "include_value_statistics": True, "include_value_examples": True, "include_nested_columns": True},
+            {"include_description": True, "include_value_statistics": False, "include_value_examples": False, "include_nested_columns": True},
+            {"include_description": True, "include_value_statistics": False, "include_value_examples": False, "include_nested_columns": False},
+            {"include_description": False, "include_value_statistics": False, "include_value_examples": False, "include_nested_columns": False},
+        ]
+        
+        import tiktoken
+        try:
+            encoding = tiktoken.encoding_for_model(llm.llm_config.model)
+        except Exception:
+            encoding = tiktoken.get_encoding("cl100k_base")
+            
+        max_prompt_len = llm.llm_config.max_model_len - llm.llm_config.max_tokens
+        
+        final_prompt = None
+        for level_idx, levels in enumerate(stripping_levels):
+            database_schema_profile = get_database_schema_profile(
+                data_item.database_schema_after_value_retrieval, 
+                **levels
+            )
+            prompt = PromptFactory.format_icl_sql_generation_prompt(
+                few_shot_examples, 
+                database_schema_profile, 
+                data_item.question, 
+                data_item.evidence, 
+                db_type=db_type
+            ).strip()
+            
+            token_count = len(encoding.encode(prompt))
+            if token_count <= max_prompt_len:
+                final_prompt = prompt
+                if level_idx > 0:
+                    logger.warning(f"Reversed Prompt for item {data_item.question_id} was too large. Compressed using level {level_idx} (tokens: {token_count})")
+                break
+            else:
+                logger.info(f"Level {level_idx} reversed prompt for item {data_item.question_id} too large ({token_count} tokens). Trying next level...")
+                
+        if final_prompt is None:
+            logger.error(f"CRITICAL: Even minimal reversed prompt for item {data_item.question_id} exceeds token limit ({token_count} tokens). Returning empty result.")
+            return {}, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         
         # Define a combined parser that parses SQL then extracts tables/columns
         def parse_and_extract(response: str, database_schema: Dict[str, Any] = None) -> Optional[Dict[str, List[str]]]:
@@ -93,7 +133,7 @@ class ReversedLinker(BaseSchemaLinker):
         extractor = LLMExtractor()
         all_selections, total_token_usage = extractor.extract_with_retry(
             llm=llm,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": final_prompt}],
             rule_parser=parse_and_extract,
             parser_kwargs={"database_schema": data_item.database_schema_after_value_retrieval},
             fix_end_token=config.schema_linking_config.llm.fix_end_token,
@@ -102,22 +142,55 @@ class ReversedLinker(BaseSchemaLinker):
         )
         
         return merge_schema_linking_results(all_selections), total_token_usage
-    
+
     def _link_with_dc_fallback(self, data_item: DataItem, llm: LLM, sampling_budget: int) -> tuple[Dict[str, List[str]], Dict[str, int]]:
         """
         Fallback to DC-based SQL generation when few-shot examples are not available.
         This is particularly useful for Spider2 datasets that don't have training data.
         """
-        database_schema_profile = get_database_schema_profile(data_item.database_schema_after_value_retrieval)
         db_type = getattr(data_item, "db_type", None)
+
+        # Define progressive stripping levels
+        stripping_levels = [
+            {"include_description": True, "include_value_statistics": True, "include_value_examples": True, "include_nested_columns": True},
+            {"include_description": True, "include_value_statistics": False, "include_value_examples": False, "include_nested_columns": True},
+            {"include_description": True, "include_value_statistics": False, "include_value_examples": False, "include_nested_columns": False},
+            {"include_description": False, "include_value_statistics": False, "include_value_examples": False, "include_nested_columns": False},
+        ]
         
-        # Use DC SQL generation prompt instead of ICL
-        prompt = PromptFactory.format_dc_sql_generation_prompt(
-            database_schema_profile, 
-            data_item.question, 
-            data_item.evidence,
-            db_type=db_type
-        ).strip()
+        import tiktoken
+        try:
+            encoding = tiktoken.encoding_for_model(llm.llm_config.model)
+        except Exception:
+            encoding = tiktoken.get_encoding("cl100k_base")
+            
+        max_prompt_len = llm.llm_config.max_model_len - llm.llm_config.max_tokens
+        
+        final_prompt = None
+        for level_idx, levels in enumerate(stripping_levels):
+            database_schema_profile = get_database_schema_profile(
+                data_item.database_schema_after_value_retrieval, 
+                **levels
+            )
+            prompt = PromptFactory.format_dc_sql_generation_prompt(
+                database_schema_profile, 
+                data_item.question, 
+                data_item.evidence,
+                db_type=db_type
+            ).strip()
+            
+            token_count = len(encoding.encode(prompt))
+            if token_count <= max_prompt_len:
+                final_prompt = prompt
+                if level_idx > 0:
+                    logger.warning(f"DC Fallback Prompt for item {data_item.question_id} was too large. Compressed using level {level_idx} (tokens: {token_count})")
+                break
+            else:
+                logger.info(f"Level {level_idx} DC fallback prompt for item {data_item.question_id} too large ({token_count} tokens). Trying next level...")
+                
+        if final_prompt is None:
+            logger.error(f"CRITICAL: Even minimal DC fallback prompt for item {data_item.question_id} exceeds token limit ({token_count} tokens). Returning empty result.")
+            return {}, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         
         # Define a combined parser that parses SQL then extracts tables/columns
         def parse_and_extract(response: str, database_schema: Dict[str, Any] = None) -> Optional[Dict[str, List[str]]]:
@@ -129,7 +202,7 @@ class ReversedLinker(BaseSchemaLinker):
         extractor = LLMExtractor()
         all_selections, total_token_usage = extractor.extract_with_retry(
             llm=llm,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": final_prompt}],
             rule_parser=parse_and_extract,
             parser_kwargs={"database_schema": data_item.database_schema_after_value_retrieval},
             fix_end_token=config.schema_linking_config.llm.fix_end_token,
@@ -139,65 +212,76 @@ class ReversedLinker(BaseSchemaLinker):
         
         return merge_schema_linking_results(all_selections), total_token_usage
     
-    def _parse_llm_response(self, response: str) -> Optional[Dict[str, List[str]]]:
+    def _parse_llm_response(self, response: str) -> Optional[str]:
         try:
             answer_match = re.search(r"<result>(.*?)</result>", response, re.DOTALL)
             if not answer_match:
                 logger.warning("No <result> tag found in LLM response")
-                logger.warning(f"Response content: {response}")
+                logger.debug(f"Response content: {response}")
                 return None
             answer_content = answer_match.group(1).strip()
             # strip ```sql```
             if answer_content.startswith("```sql") and answer_content.endswith("```"):
                 answer_content = answer_content[len("```sql"):-len("```")].strip()
+            
+            logger.debug(f"Parsed SQL from LLM: {answer_content}")
             return answer_content
         except Exception as e:
             logger.error(f"Error parsing LLM response: {e}")
             return None
     
     def _extract_tables_and_columns(self, sql_candidate: str, database_schema: Dict[str, Any]) -> Dict[str, List[str]]:
-        all_table_names = [table_name for table_name in database_schema["tables"].keys()]
-        all_column_names = [column_name for table_name in all_table_names for column_name in database_schema["tables"][table_name]["columns"].keys()]
-        all_table_names = list(set(all_table_names))
-        all_column_names = list(set(all_column_names))
-        table_names = list(set([table_name.lower() for table_name in all_table_names if table_name.lower() in sql_candidate.lower()]))
-        column_names = list(set([column_name.lower() for column_name in all_column_names if column_name.lower() in sql_candidate.lower()]))
+        import re
+        
+        # 1. Extract potential table names from SQL using regex
+        potential_table_names = []
+        # Find backticked names
+        potential_table_names.extend(re.findall(r'`([^`]+)`', sql_candidate))
+        # Find double quoted names
+        potential_table_names.extend(re.findall(r'"([^"]+)"', sql_candidate))
+        # Find names after FROM/JOIN
+        from_join_matches = re.findall(r'(?:FROM|JOIN|UPDATE|INTO)\s+([a-zA-Z0-9._*%-]+)', sql_candidate, re.IGNORECASE)
+        potential_table_names.extend(from_join_matches)
+        
+        # Deduplicate and normalize
+        potential_table_names = list(set([name.strip() for name in potential_table_names if name.strip()]))
+        logger.debug(f"Potential table names extracted from SQL: {potential_table_names}")
+
+        # 2. Use the robust mapping function for each potential table name
+        mapped_tables = []
+        for p_name in potential_table_names:
+            original_table_name = map_lower_table_name_to_original_table_name(p_name, database_schema)
+            if original_table_name:
+                mapped_tables.append(original_table_name)
+        
+        mapped_tables = list(set(mapped_tables))
+        logger.debug(f"Successfully mapped tables: {mapped_tables}")
+
+        # 3. Handle Columns
+        all_table_names_in_schema = list(database_schema["tables"].keys())
+        all_column_names_in_schema = []
+        for t_name in all_table_names_in_schema:
+            all_column_names_in_schema.extend(database_schema["tables"][t_name]["columns"].keys())
+        all_column_names_in_schema = list(set(all_column_names_in_schema))
+        
+        found_column_names = list(set([col.lower() for col in all_column_names_in_schema if col.lower() in sql_candidate.lower()]))
+        logger.debug(f"Candidate columns found in SQL: {found_column_names}")
+        
         used_tables_and_columns = {}
-        for table_name in table_names:
-            table_name = map_lower_table_name_to_original_table_name(table_name, database_schema)
-            if table_name is None:
-                continue
-            used_tables_and_columns[table_name] = []
-            for column_name in column_names:
-                column_name = map_lower_column_name_to_original_column_name(table_name, column_name, database_schema)
-                if column_name is None:
-                    continue
-                used_tables_and_columns[table_name].append(column_name)
+        for original_table_name in mapped_tables:
+            used_tables_and_columns[original_table_name] = []
+            for col_name in found_column_names:
+                original_column_name = map_lower_column_name_to_original_column_name(original_table_name, col_name, database_schema)
+                if original_column_name:
+                    used_tables_and_columns[original_table_name].append(original_column_name)
+            
+            if not used_tables_and_columns[original_table_name]:
+                logger.debug(f"No valid columns mapped for table: {original_table_name}")
+        
+        if not used_tables_and_columns:
+            logger.warning("No tables/columns could be extracted from the generated SQL")
         
         # Expand tables with identical schema (for Spider2 cloud databases)
         used_tables_and_columns = self._expand_identical_schema_tables(used_tables_and_columns, database_schema)
         
         return used_tables_and_columns
-    
-    def _expand_identical_schema_tables(self, result: Dict[str, List[str]], database_schema: Dict[str, Any]) -> Dict[str, List[str]]:
-        """
-        Expand the selection to include all tables with identical schema.
-        """
-        table_groups = get_identical_schema_table_groups(database_schema)
-        
-        if not table_groups:
-            return result
-        
-        expanded_result = dict(result)
-        
-        for table_name, columns in list(result.items()):
-            if table_name in table_groups:
-                for group_table in table_groups[table_name]:
-                    if group_table not in expanded_result:
-                        expanded_result[group_table] = list(columns)
-                        logger.debug(f"Auto-expanded identical schema table: {group_table}")
-        
-        if len(expanded_result) > len(result):
-            logger.info(f"Expanded {len(result)} tables to {len(expanded_result)} tables (identical schema groups)")
-        
-        return expanded_result
