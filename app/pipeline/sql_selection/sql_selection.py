@@ -59,10 +59,23 @@ class SQLSelectionRunner:
             return None
         
     def _get_top_k_sql_candidates(self, data_item: DataItem) -> List[Tuple[str, str]]:
+        # Check if it's a Spider2 cloud database
+        db_type = getattr(data_item, "db_type", None)
+        is_cloud_db = db_type is not None and db_type in ("bigquery", "snowflake")
+        
+        if is_cloud_db:
+            return self._get_top_k_sql_candidates_for_spider2(data_item)
+        else:
+            return self._get_top_k_sql_candidates_for_bird(data_item)
+    
+    def _get_top_k_sql_candidates_for_bird(self, data_item: DataItem) -> List[Tuple[str, str]]:
+        """
+        Get top-k SQL candidates for BIRD/Spider datasets.
+        Uses execution result grouping based on set equality (EX metric).
+        """
         valid_sql_candidates = []
         sql_map_to_result_str = {}
         for sql_candidate in data_item.sql_candidates_after_revision:
-            # Use execute_sql_for_data_item to support cloud databases
             execution_result = execute_sql_for_data_item(data_item, sql_candidate)
             if execution_result.result_rows is not None and len(execution_result.result_rows) > 0:
                 valid_sql_candidates.append((sql_candidate, frozenset(execution_result.result_rows)))
@@ -71,7 +84,6 @@ class SQLSelectionRunner:
         if len(valid_sql_candidates) == 0:
             logger.warning("No successful SQL candidates, backing to SQL candidates with not none result_rows")
             for sql_candidate in data_item.sql_candidates_after_revision:
-                # Use execute_sql_for_data_item to support cloud databases
                 execution_result = execute_sql_for_data_item(data_item, sql_candidate)
                 if execution_result.result_rows is not None:
                     valid_sql_candidates.append((sql_candidate, frozenset(execution_result.result_rows)))
@@ -92,6 +104,72 @@ class SQLSelectionRunner:
         valid_sql_candidates = deduplicated_valid_sql_candidates
         
         top_k_sql_candidates = sorted(valid_sql_candidates, key=lambda x: (x[2], -x[3]), reverse=True)[:config.sql_selection_config.filter_top_k_sql]
+        
+        return top_k_sql_candidates
+    
+    def _get_top_k_sql_candidates_for_spider2(self, data_item: DataItem) -> List[Tuple[str, str]]:
+        """
+        Get top-k SQL candidates for Spider2 datasets (BigQuery/Snowflake).
+        
+        Spider2 evaluation uses more complex comparison logic (numeric tolerance, 
+        NULL handling, optional column/row ordering), so we cannot simply group 
+        by frozenset(result_rows). Instead, we:
+        1. Collect all successfully executed SQL candidates
+        2. Deduplicate by exact SQL string (not by result)
+        3. Assign equal weight to all candidates (no consistency-based weighting)
+        4. Return top-k for pairwise LLM comparison
+        
+        This avoids costly repeated cloud executions and lets the LLM judge
+        semantic correctness through pairwise comparison.
+        """
+        valid_sql_candidates = []
+        sql_map_to_result_str = {}
+        seen_sqls = set()  # Deduplicate by SQL string
+        
+        for sql_candidate in data_item.sql_candidates_after_revision:
+            # Skip duplicate SQL strings
+            sql_normalized = sql_candidate.strip().lower()
+            if sql_normalized in seen_sqls:
+                continue
+            
+            execution_result = execute_sql_for_data_item(data_item, sql_candidate)
+            if execution_result.result_rows is not None and len(execution_result.result_rows) > 0:
+                seen_sqls.add(sql_normalized)
+                # For Spider2: equal weight (1.0) for all valid candidates, no execution time measurement
+                valid_sql_candidates.append((
+                    sql_candidate, 
+                    execution_result.result_table_str, 
+                    1.0,  # Equal weight - let LLM judge
+                    np.inf  # No execution time for cloud DBs
+                ))
+                sql_map_to_result_str[sql_candidate] = execution_result.result_table_str
+        
+        # Fallback: include candidates with empty results
+        if len(valid_sql_candidates) == 0:
+            logger.warning("No successful SQL candidates for Spider2, backing to candidates with any valid result")
+            for sql_candidate in data_item.sql_candidates_after_revision:
+                sql_normalized = sql_candidate.strip().lower()
+                if sql_normalized in seen_sqls:
+                    continue
+                
+                execution_result = execute_sql_for_data_item(data_item, sql_candidate)
+                if execution_result.result_rows is not None:
+                    seen_sqls.add(sql_normalized)
+                    valid_sql_candidates.append((
+                        sql_candidate,
+                        execution_result.result_table_str,
+                        1.0,
+                        np.inf
+                    ))
+                    sql_map_to_result_str[sql_candidate] = execution_result.result_table_str
+        
+        if len(valid_sql_candidates) == 0:
+            return []
+        
+        # Return top-k (no sorting by consistency since all have equal weight)
+        top_k_sql_candidates = valid_sql_candidates[:config.sql_selection_config.filter_top_k_sql]
+        
+        logger.info(f"Spider2 SQL Selection: {len(valid_sql_candidates)} valid candidates, returning top {len(top_k_sql_candidates)}")
         
         return top_k_sql_candidates
     
