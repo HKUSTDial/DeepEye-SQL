@@ -182,6 +182,11 @@ Your task is to generate a SQL query for the target question by learning from th
 5. **Exact Column Names**: Use the exact column and table names from the target schema
 6. **Logical Consistency**: Ensure the generated query logically answers the target question
 7. **Nested/Repeated Fields**: If the schema mentions nested fields, use appropriate functions (UNNEST for BigQuery, FLATTEN for Snowflake)
+8. **Wildcard Table Queries (Tables with identical schema):**
+   - Some databases have multiple tables with the exact same structure (e.g., per-date tables, per-region tables)
+   - For BigQuery: Use wildcard table syntax `project.dataset.table_prefix_*` with `_TABLE_SUFFIX` filter
+     * Example: `FROM \`project.dataset.ga_sessions_*\` WHERE _TABLE_SUFFIX BETWEEN '20170101' AND '20170131'`
+   - For Snowflake: Use UNION ALL across tables or dynamic SQL with table functions
 
 # Output Format:
 Please respond with XML code structured as follows:
@@ -257,6 +262,11 @@ Fill in the skeleton with:
 5. **Readability**: Use clear aliases and proper formatting
 6. **Completeness**: Address all aspects mentioned in the question and hint
 7. **Nested Fields**: For BigQuery use UNNEST(), for Snowflake use FLATTEN()
+8. **Wildcard Table Queries (Tables with identical schema):**
+   - Some databases have multiple tables with the exact same structure (e.g., per-date tables, per-region tables)
+   - For BigQuery: Use wildcard table syntax `project.dataset.table_prefix_*` with `_TABLE_SUFFIX` filter
+     * Example: `FROM \`project.dataset.ga_sessions_*\` WHERE _TABLE_SUFFIX BETWEEN '20170101' AND '20170131'`
+   - For Snowflake: Use UNION ALL across tables or dynamic SQL with table functions
 
 
 # Output Format:
