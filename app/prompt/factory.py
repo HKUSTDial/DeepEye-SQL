@@ -15,7 +15,9 @@ class PromptFactory:
         return KEYWORDS_EXTRACTION_PROMPT.format(QUESTION=question, HINT=hint)
     
     @staticmethod
-    def format_direct_linking_prompt(database_schema: str, question: str, hint: str) -> str:
+    def format_direct_linking_prompt(database_schema: str, question: str, hint: str, db_type: Optional[str] = None) -> str:
+        if _is_spider2_db_type(db_type):
+            return SPIDER2_DIRECT_LINKING_PROMPT.format(DATABASE_SCHEMA=database_schema, QUESTION=question, HINT=hint)
         return DIRECT_LINKING_PROMPT.format(DATABASE_SCHEMA=database_schema, QUESTION=question, HINT=hint)
     
     @staticmethod

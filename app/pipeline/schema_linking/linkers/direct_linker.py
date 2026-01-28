@@ -19,7 +19,8 @@ class DirectLinker(BaseSchemaLinker):
             return {}, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         
         database_schema_profile = get_database_schema_profile(data_item.database_schema_after_value_retrieval)
-        prompt = PromptFactory.format_direct_linking_prompt(database_schema_profile, data_item.question, data_item.evidence).strip()
+        db_type = getattr(data_item, "db_type", None)
+        prompt = PromptFactory.format_direct_linking_prompt(database_schema_profile, data_item.question, data_item.evidence, db_type=db_type).strip()
         
         extractor = LLMExtractor()
         all_selections, total_token_usage = extractor.extract_with_retry(

@@ -3,6 +3,56 @@ Spider2 specific prompt templates for BigQuery and Snowflake databases.
 These prompts are designed to handle cloud database SQL dialects.
 """
 
+SPIDER2_DIRECT_LINKING_PROMPT = """
+# Task:
+You are an expert and very smart data analyst working with cloud data warehouses.
+Your task is to examine the provided database schema, understand the posed question, and use the hint to **pinpoint the specific tables and columns** that are essential for crafting a SQL query to answer the question.
+
+# Instructions:
+The given schema provides a detailed definition of the database's structure, including tables, their columns, and any relevant details about relationships or constraints.
+The given hint aims to direct your focus towards the specific elements of the database schema that are crucial for answering the question effectively.
+
+For each of the selected tables and columns, explain why exactly it is necessary for answering the question. Your reasoning should be concise and clear, demonstrating a logical connection between the selected items and the question asked.
+
+[IMPORTANT!]
+1. For key phrases mentioned in the question, we have provided the most similar values within the columns (TEXT-TYPE columns) denoted by "Value Examples". **This is a critical hint to identify the tables/columns that will be used in the SQL query.**
+2. If you are not sure whether a column is needed or not, it's better to include it in your selection. **It's safer to select more columns than to miss necessary ones.**
+3. If a column contains values that are related to the current question (check the "Value Examples"), you MUST include this column in your selection.
+4. For BigQuery/Snowflake databases, tables may not have explicit foreign key constraints. You need to identify JOIN relationships based on column names, descriptions, and logical relationships (e.g., columns with similar names like `user_id` in different tables likely represent a join relationship).
+5. Pay attention to nested/repeated fields (for BigQuery) which may require UNNEST() to access.
+
+# Output Format:
+Please respond with XML code structured as follows:
+<reasoning>
+    Your reasoning for selecting the tables and columns, be concise and clear.
+</reasoning>
+<result>
+    <table table_name="table_name">
+        <column column_name="column_name" />
+        ...
+    </table>
+    <table table_name="another_table_name">
+        <column column_name="another_column_name" />
+        ...
+    </table>
+    ...
+</result>
+
+# Input:
+## Database Schema:
+{DATABASE_SCHEMA}
+
+## Question:
+{QUESTION}
+
+## Hint:
+{HINT}
+
+Only output the XML code following the output format as your response.
+
+# Output:
+"""
+
 SPIDER2_DC_SQL_GENERATION_PROMPT = """
 # Task:
 You are an experienced database expert working with cloud data warehouses.
