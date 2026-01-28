@@ -20,29 +20,11 @@ from typing import List, Optional
 def get_best_sql_via_sc(data_item, candidates: List[str]) -> Optional[str]:
     """
     Select the best SQL candidate via self-consistency (SC).
-    
-    For SQLite (BIRD/Spider): Uses execution result grouping based on set equality.
-    For Cloud DBs (Spider2): Returns first successfully executed SQL (no grouping,
-    since Spider2 evaluation uses more complex comparison logic).
+    Works for both SQLite and cloud databases.
     """
     if not candidates:
         return None
-    
-    # Check if it's a Spider2 cloud database
-    db_type = getattr(data_item, "db_type", None)
-    is_cloud_db = db_type is not None and db_type in ("bigquery", "snowflake")
-    
-    if is_cloud_db:
-        return _get_best_sql_for_spider2(data_item, candidates)
-    else:
-        return _get_best_sql_for_bird(data_item, candidates)
-
-
-def _get_best_sql_for_bird(data_item, candidates: List[str]) -> Optional[str]:
-    """
-    Select best SQL for BIRD/Spider datasets via self-consistency.
-    Groups by execution result set equality.
-    """
+        
     valid_sql_candidates = []
     
     # First pass: try to find candidates with non-empty results
@@ -75,40 +57,6 @@ def _get_best_sql_for_bird(data_item, candidates: List[str]) -> Optional[str]:
     # Select by consistency (most common result)
     counter = Counter(execution_result for _, execution_result in valid_sql_candidates)
     return max(valid_sql_candidates, key=lambda x: counter[x[1]])[0]
-
-
-def _get_best_sql_for_spider2(data_item, candidates: List[str]) -> Optional[str]:
-    """
-    Select best SQL for Spider2 datasets (BigQuery/Snowflake).
-    
-    Spider2 evaluation uses complex comparison logic (numeric tolerance, NULL handling,
-    optional column/row ordering), so we cannot reliably group by result set.
-    Instead, return the first successfully executed SQL.
-    """
-    # First pass: find first candidate with non-empty results
-    for sql_candidate in candidates:
-        if sql_candidate is None:
-            continue
-        try:
-            execution_result = execute_sql_for_data_item(data_item, sql_candidate)
-            if execution_result.result_rows is not None and len(execution_result.result_rows) > 0:
-                return sql_candidate
-        except Exception as e:
-            logger.warning(f"Error executing SQL: {e}")
-            continue
-    
-    # Second pass: find first candidate with any valid result (including empty)
-    for sql_candidate in candidates:
-        if sql_candidate is None:
-            continue
-        try:
-            execution_result = execute_sql_for_data_item(data_item, sql_candidate)
-            if execution_result.result_rows is not None:
-                return sql_candidate
-        except Exception:
-            continue
-    
-    return None
 
 
 def convert_to_spider2_sql_files(
