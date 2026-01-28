@@ -409,13 +409,8 @@ def get_database_schema_profile(database_schema_dict: Dict[str, Any], compress_i
                 
                 # Add note about other tables with identical schema
                 profile += f"  [Note: The following {len(other_table_names)} tables have IDENTICAL schema structure as `{representative_name}` above:\n"
-                # List other tables, wrapping for readability
-                for i, other_name in enumerate(other_table_names):
-                    if i > 0 and i % 3 == 0:
-                        profile += "\n  "
-                    profile += f"  `{other_name}`"
-                    if i < len(other_table_names) - 1:
-                        profile += ","
+                # List other tables with simple comma separation
+                profile += "  " + ", ".join([f"`{name}`" for name in other_table_names])
                 profile += "\n  You can query any of these tables using the same column structure.]\n\n"
                 
                 processed_tables.update(table_keys)

@@ -42,11 +42,11 @@ Please respond with XML code structured as follows:
 ## Database Schema:
 {DATABASE_SCHEMA}
 
+## Hint (External Knowledge):
+{HINT}
+
 ## Question:
 {QUESTION}
-
-## Hint:
-{HINT}
 
 Only output the XML code following the output format as your response.
 
@@ -128,11 +128,11 @@ Please respond with XML code structured as follows.
 ## Database Schema:
 {DATABASE_SCHEMA}
 
+## Hints (External Knowledge):
+{HINT}
+
 ## Question:
 {QUESTION}
-
-## Hints:
-{HINT}
 
 Repeating the question and hint, and generating the SQL with Recursive Divide-and-Conquer approach, and finally try to simplify the SQL query using `INNER JOIN` over nested `SELECT` statements IF POSSIBLE.
 
@@ -192,11 +192,11 @@ Please respond with XML code structured as follows:
 ## Target Database Schema:
 {DATABASE_SCHEMA}
 
+## Hints (External Knowledge):
+{HINT}
+
 ## Target Question:
 {QUESTION}
-
-## Hints:
-{HINT}
 
 # Output:
 """
@@ -265,11 +265,11 @@ Please respond with XML code structured as follows:
 ## Database Schema:
 {DATABASE_SCHEMA}
 
+## Hint (External Knowledge):
+{HINT}
+
 ## Question:
 {QUESTION}
-
-## Hint:
-{HINT}
 
 # Output:
 """
@@ -310,11 +310,11 @@ Please respond with XML code structured as follows.
 ## Database Schema:
 {DATABASE_SCHEMA}
 
+## Hint (External Knowledge):
+{HINT}
+
 ## Question:
 {QUESTION}
-
-## Hint:
-{HINT}
 
 ## Previous SQL:
 {QUERY}
@@ -361,11 +361,11 @@ Please respond with XML code structured as follows.
 ## Database Schema:
 {DATABASE_SCHEMA}
 
+## Hint (External Knowledge):
+{HINT}
+
 ## Question:
 {QUESTION}
-
-## Hint:
-{HINT}
 
 ## Previous SQL:
 {QUERY}
@@ -410,11 +410,11 @@ Please respond with XML code structured as follows:
 ## Database Schema:
 {DATABASE_SCHEMA}
 
+## Hint (External Knowledge):
+{HINT}
+
 ## Question:
 {QUESTION}
-
-## Hint:
-{HINT}
 
 SQL Candidate A:
 {QUERY_A}
