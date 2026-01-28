@@ -5,12 +5,11 @@ import traceback
 import shutil
 from argparse import ArgumentParser
 from app.vector_db.vector_db import make_vector_db, get_embedding_function
-from app.config import config, VectorDatabaseConfig
 from app.dataset import load_dataset
 from app.logger import logger
 
 
-def make_vector_db_for_db_id(db_path: str, vector_database_config: VectorDatabaseConfig):
+def make_vector_db_for_db_id(db_path: str, vector_database_config):
     try:
         embedding_function = get_embedding_function(
             model_name_or_path=vector_database_config.embedding_model_name_or_path,
@@ -54,6 +53,7 @@ if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--db_path", type=str, required=True)
     args = parser.parse_args()
+    from app.config import config
     # dataset = load_dataset(config.dataset_config.save_path)
     # for db_path in dataset.get_all_database_paths():
     logger.info(f"Making vector database for {args.db_path}")

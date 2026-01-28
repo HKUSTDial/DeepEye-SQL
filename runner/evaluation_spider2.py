@@ -11,7 +11,6 @@ import argparse
 import subprocess
 from pathlib import Path
 from app.logger import logger
-from app.config import config
 
 
 def run_spider2_evaluation(
@@ -34,6 +33,7 @@ def run_spider2_evaluation(
         skip_conversion: Skip pkl to SQL conversion (use existing SQL files).
     """
     # Determine paths
+    from app.config import config
     if pkl_path is None:
         pkl_path = config.sql_selection_config.save_path
     

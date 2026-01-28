@@ -10,7 +10,6 @@ import os
 import argparse
 from pathlib import Path
 from app.dataset import load_dataset, Spider2DataItem
-from app.config import config
 from app.logger import logger
 from app.db_utils import execute_sql_for_data_item
 from collections import Counter
@@ -147,6 +146,8 @@ def main():
         help="Disable self-consistency fallback"
     )
     args = parser.parse_args()
+    
+    from app.config import config
     
     # Determine pkl path
     pkl_path = args.pkl_path

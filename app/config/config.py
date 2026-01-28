@@ -145,18 +145,26 @@ class Config:
 
     @staticmethod
     def _get_config_path():
-        config_path = PROJECT_ROOT / "config" / "config.toml"
+        import os
+        env_config_path = os.environ.get("CONFIG_PATH")
+        if env_config_path:
+            config_path = Path(env_config_path)
+        else:
+            config_path = PROJECT_ROOT / "config" / "config.toml"
+            
         if not config_path.exists():
             raise FileNotFoundError(f"Config file not found at {config_path}")
         return config_path
     
     @staticmethod
-    def _load_config():
-        with open(Config._get_config_path(), "rb") as f:
+    def _load_config(config_path: Path):
+        with open(config_path, "rb") as f:
             return tomllib.load(f)
 
-    def _initialize_config(self):
-        config = Config._load_config()
+    def _initialize_config(self, config_path: Optional[Path] = None):
+        if config_path is None:
+            config_path = Config._get_config_path()
+        config = Config._load_config(config_path)
         
         # llm config
         llm_config_list = config.get("llm_list", [])

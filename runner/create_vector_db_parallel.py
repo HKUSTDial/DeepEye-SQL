@@ -3,17 +3,17 @@ sys.path.append(".")
 from pathlib import Path
 import traceback
 import shutil
+import os
 from argparse import ArgumentParser
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 
 from app.vector_db.vector_db import make_vector_db, get_embedding_function
-from app.config import config, VectorDatabaseConfig
 from app.dataset import load_dataset
 from app.logger import logger
 
 
-def make_vector_db_for_db_path(db_path: str, vector_database_config: VectorDatabaseConfig):
+def make_vector_db_for_db_path(db_path: str, vector_database_config):
     db_id = Path(db_path).stem
     success_flag_file = Path(vector_database_config.store_root_path) / db_id / "success_flag"
     
@@ -61,6 +61,7 @@ def make_vector_db_for_db_path(db_path: str, vector_database_config: VectorDatab
 
 
 if __name__ == "__main__":
+    from app.config import config
     parser = ArgumentParser()
     parser.add_argument("--n_parallel", type=int, default=config.vector_database_config.n_parallel, help="Number of databases to process in parallel")
     args = parser.parse_args()

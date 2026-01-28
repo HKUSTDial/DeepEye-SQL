@@ -1,15 +1,16 @@
 import sys
+import os
+import argparse
+import json
+from typing import List, Optional
+from collections import Counter
+
 sys.path.append(".")
 
-from app.dataset import load_dataset, BaseDataset
-from app.config import config
-import json
+from app.dataset import load_dataset
 from app.logger import logger
 from app.db_utils import execute_sql_for_data_item, measure_execution_time_for_data_item
-from collections import Counter
-from typing import List, Tuple, Optional
 
-SAVE_PATH = config.sql_selection_config.save_path
 
 def get_best_sql_via_sc(data_item, candidates: List[str]) -> Optional[str]:
     if not candidates:
@@ -65,7 +66,6 @@ def get_best_sql_via_sc(data_item, candidates: List[str]) -> Optional[str]:
         return None
 
     # Sort by consistency score (descending) and execution time (ascending - represented as negative for reverse sort)
-    # x[2] is consistency score, x[3] is execution time
     top_k_sql_candidates = sorted(deduplicated_valid_sql_candidates, key=lambda x: (x[2], -x[3]), reverse=True)
     
     if top_k_sql_candidates:
@@ -73,8 +73,8 @@ def get_best_sql_via_sc(data_item, candidates: List[str]) -> Optional[str]:
     return None
 
 
-def convert_to_sql_file():
-    dataset = load_dataset(SAVE_PATH)
+def convert_to_sql_file(save_path: str):
+    dataset = load_dataset(save_path)
     data = {}
     for item in dataset:
         final_sql = None
@@ -103,10 +103,19 @@ def convert_to_sql_file():
             
         data[str(item.question_id)] = final_sql.strip()
 
-    with open(SAVE_PATH.replace(".pkl", ".json"), "w") as f:
+    output_json_path = save_path.replace(".pkl", ".json")
+    with open(output_json_path, "w") as f:
         json.dump(data, f, indent=4)
     logger.info(f"Dataset converted to sql file successfully")
-    logger.info(f"Dataset sql file saved to {SAVE_PATH.replace('.pkl', '.json')}")
-    
+    logger.info(f"Dataset sql file saved to {output_json_path}")
 
-convert_to_sql_file()
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--pkl_path", type=str, default=None)
+    args = parser.parse_args()
+
+    from app.config import config
+    
+    save_path = args.pkl_path if args.pkl_path else config.sql_selection_config.save_path
+    convert_to_sql_file(save_path)

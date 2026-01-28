@@ -1,14 +1,14 @@
 import sys
-sys.path.append(".")
-from app.config import config
-from app.db_utils import execute_sql, SQLExecutionResult
-from app.dataset import load_dataset
+import os
+import argparse
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from typing import Optional, List, Tuple
+from typing import Optional
 from tqdm import tqdm
-from collections import Counter
 import numpy as np
 
+sys.path.append(".")
+
+from app.db_utils import execute_sql
 
 def _eval_ex_after_selection(pred_sql: str, gold_sql: str, db_path: str) -> Optional[int]:
     pred_result = execute_sql(db_path, pred_sql)
@@ -22,10 +22,12 @@ def _eval_ex_after_selection(pred_sql: str, gold_sql: str, db_path: str) -> Opti
 
 
 def run_evaluation():
-    dataset = load_dataset("bak_workspace/bird-dev/qwen3-coder-30b-a3b/sql_selection/bird/dev.pkl")
+    from app.config import config
+    from app.dataset import load_dataset
+    # dataset = load_dataset("bak_workspace/bird-dev/qwen3-coder-30b-a3b/sql_selection/bird/dev.pkl")
     # dataset = load_dataset("workspace/gemini3flash-limit100/sql_selection/bird/dev.pkl")
-    # dataset = load_dataset(config.sql_selection_config.save_path)
-    executor = ProcessPoolExecutor(max_workers=1)
+    dataset = load_dataset(config.sql_selection_config.save_path)
+    executor = ProcessPoolExecutor(max_workers=32)
     all_futures = [ executor.submit(_eval_ex_after_selection, data_item.final_selected_sql, data_item.gold_sql, data_item.database_path) for data_item in dataset ]
     
     selected_results = []
@@ -35,7 +37,8 @@ def run_evaluation():
             selected_results.append(selected_result)
         else:
             print(f"Gold SQL execution failed")
-        print(f"[Tracking] Evaluated SQL selection {np.mean(selected_results) * 100:.2f}%")
+        if len(selected_results) > 0:
+            print(f"[Tracking] Evaluated SQL selection {np.mean(selected_results) * 100:.2f}%")
         
     return np.mean(selected_results)
 
