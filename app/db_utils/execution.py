@@ -212,54 +212,19 @@ def execute_sql_for_data_item(data_item, sql: str, timeout: int = 60) -> SQLExec
     elif db_type == "snowflake":
         credential_path = config.dataset_config.snowflake_credential_path
     
-    # Execute on cloud and convert result format
-    cloud_result = execute_cloud_sql(sql, db_type, credential_path, timeout)
+    # Execute on cloud - cloud_execution now returns proper SQLExecutionResult directly
+    result = execute_cloud_sql(sql, db_type, data_item.database_path, credential_path, timeout)
     
-    # Convert cloud result to standard SQLExecutionResult format
-    if cloud_result.result_type == "success":
-        result_rows = cloud_result.result_rows
-        result_cols = cloud_result.result_columns
-        
-        if result_rows is not None and len(result_rows) == 0:
-            return SQLExecutionResult(
-                result_type="empty_result",
-                db_path=data_item.database_path,
-                sql=sql,
-                result_cols=result_cols,
-                result_rows=result_rows,
-                error_message="The SQL query returned an empty result table."
-            )
-        
-        if result_rows is not None and not any(any(val is not None for val in row) for row in result_rows):
+    # Check for all_null_result (not handled by cloud_execution)
+    if result.result_type == "success" and result.result_rows is not None:
+        if not any(any(val is not None for val in row) for row in result.result_rows):
             return SQLExecutionResult(
                 result_type="all_null_result",
                 db_path=data_item.database_path,
                 sql=sql,
-                result_cols=result_cols,
-                result_rows=result_rows,
+                result_cols=result.result_cols,
+                result_rows=result.result_rows,
                 error_message="The SQL query returned a result table with all null values."
             )
-        
-        return SQLExecutionResult(
-            result_type="success",
-            db_path=data_item.database_path,
-            sql=sql,
-            result_cols=result_cols,
-            result_rows=result_rows
-        )
-    elif cloud_result.result_type == "empty_result":
-        return SQLExecutionResult(
-            result_type="empty_result",
-            db_path=data_item.database_path,
-            sql=sql,
-            result_cols=cloud_result.result_columns,
-            result_rows=[],
-            error_message="The SQL query returned an empty result table."
-        )
-    else:
-        return SQLExecutionResult(
-            result_type="execution_error",
-            db_path=data_item.database_path,
-            sql=sql,
-            error_message=cloud_result.error_message
-        )
+    
+    return result

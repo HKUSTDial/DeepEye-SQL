@@ -44,6 +44,9 @@ def get_db_type_from_instance_id(instance_id: str, dataset_type: str = "spider2-
         
     Returns:
         Database type string: "snowflake", "bigquery", or "sqlite".
+        
+    Raises:
+        ValueError: If instance_id has an unknown prefix.
     """
     if dataset_type == "spider2-snow":
         # All Spider2-Snow databases are Snowflake
@@ -57,8 +60,7 @@ def get_db_type_from_instance_id(instance_id: str, dataset_type: str = "spider2-
     elif instance_id.startswith("sf"):
         return "snowflake"
     else:
-        # Default to snowflake for unknown prefixes
-        return "snowflake"
+        raise ValueError(f"Unknown instance_id prefix: {instance_id}. Expected prefixes: 'local', 'bq', 'ga', or 'sf'.")
 
 
 class Spider2LiteDataset(BaseDataset):

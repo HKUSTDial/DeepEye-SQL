@@ -14,6 +14,7 @@ from .execution import SQLExecutionResult
 
 def execute_bigquery_sql(
     sql: str,
+    db_path: str,
     credential_path: Optional[str] = None,
     timeout: int = 60
 ) -> SQLExecutionResult:
@@ -22,6 +23,7 @@ def execute_bigquery_sql(
     
     Args:
         sql: SQL query to execute.
+        db_path: Database identifier (for result tracking).
         credential_path: Path to BigQuery credential JSON file.
         timeout: Query timeout in seconds.
         
@@ -33,7 +35,9 @@ def execute_bigquery_sql(
         from google.oauth2 import service_account
     except ImportError:
         return SQLExecutionResult(
-            result_type="error",
+            result_type="execution_error",
+            db_path=db_path,
+            sql=sql,
             error_message="google-cloud-bigquery package is not installed. Run: pip install google-cloud-bigquery"
         )
     
@@ -59,31 +63,39 @@ def execute_bigquery_sql(
         if df.empty:
             return SQLExecutionResult(
                 result_type="empty_result",
+                db_path=db_path,
+                sql=sql,
+                result_cols=list(df.columns) if len(df.columns) > 0 else [],
                 result_rows=[],
-                result_columns=list(df.columns) if len(df.columns) > 0 else []
+                error_message="The SQL query returned an empty result table."
             )
         
         # Convert to list of tuples
         result_rows = [tuple(row) for row in df.values]
-        result_columns = list(df.columns)
+        result_cols = list(df.columns)
         
         return SQLExecutionResult(
             result_type="success",
-            result_rows=result_rows,
-            result_columns=result_columns
+            db_path=db_path,
+            sql=sql,
+            result_cols=result_cols,
+            result_rows=result_rows
         )
         
     except Exception as e:
         error_message = str(e)
         logger.error(f"BigQuery execution error: {error_message}")
         return SQLExecutionResult(
-            result_type="error",
+            result_type="execution_error",
+            db_path=db_path,
+            sql=sql,
             error_message=error_message
         )
 
 
 def execute_snowflake_sql(
     sql: str,
+    db_path: str,
     credential_path: Optional[str] = None,
     timeout: int = 60
 ) -> SQLExecutionResult:
@@ -92,6 +104,7 @@ def execute_snowflake_sql(
     
     Args:
         sql: SQL query to execute.
+        db_path: Database identifier (for result tracking).
         credential_path: Path to Snowflake credential JSON file.
         timeout: Query timeout in seconds.
         
@@ -102,7 +115,9 @@ def execute_snowflake_sql(
         import snowflake.connector
     except ImportError:
         return SQLExecutionResult(
-            result_type="error",
+            result_type="execution_error",
+            db_path=db_path,
+            sql=sql,
             error_message="snowflake-connector-python package is not installed. Run: pip install snowflake-connector-python"
         )
     
@@ -113,7 +128,9 @@ def execute_snowflake_sql(
         # Load credentials
         if credential_path is None:
             return SQLExecutionResult(
-                result_type="error",
+                result_type="execution_error",
+                db_path=db_path,
+                sql=sql,
                 error_message="Snowflake credential path is required"
             )
         
@@ -131,31 +148,37 @@ def execute_snowflake_sql(
         cursor.execute(sql)
         results = cursor.fetchall()
         
+        # Get column names
+        columns = [desc[0] for desc in cursor.description] if cursor.description else []
+        
         if not results:
-            columns = [desc[0] for desc in cursor.description] if cursor.description else []
             return SQLExecutionResult(
                 result_type="empty_result",
+                db_path=db_path,
+                sql=sql,
+                result_cols=columns,
                 result_rows=[],
-                result_columns=columns
+                error_message="The SQL query returned an empty result table."
             )
-        
-        # Get column names
-        columns = [desc[0] for desc in cursor.description]
         
         # Convert results to tuples
         result_rows = [tuple(row) for row in results]
         
         return SQLExecutionResult(
             result_type="success",
-            result_rows=result_rows,
-            result_columns=columns
+            db_path=db_path,
+            sql=sql,
+            result_cols=columns,
+            result_rows=result_rows
         )
         
     except Exception as e:
         error_message = str(e)
         logger.error(f"Snowflake execution error: {error_message}")
         return SQLExecutionResult(
-            result_type="error",
+            result_type="execution_error",
+            db_path=db_path,
+            sql=sql,
             error_message=error_message
         )
     finally:
@@ -168,6 +191,7 @@ def execute_snowflake_sql(
 def execute_cloud_sql(
     sql: str,
     db_type: str,
+    db_path: str,
     credential_path: Optional[str] = None,
     timeout: int = 60
 ) -> SQLExecutionResult:
@@ -177,6 +201,7 @@ def execute_cloud_sql(
     Args:
         sql: SQL query to execute.
         db_type: Database type ("bigquery" or "snowflake").
+        db_path: Database identifier (for result tracking).
         credential_path: Path to credential JSON file.
         timeout: Query timeout in seconds.
         
@@ -184,12 +209,14 @@ def execute_cloud_sql(
         SQLExecutionResult with query results.
     """
     if db_type == "bigquery":
-        return execute_bigquery_sql(sql, credential_path, timeout)
+        return execute_bigquery_sql(sql, db_path, credential_path, timeout)
     elif db_type == "snowflake":
-        return execute_snowflake_sql(sql, credential_path, timeout)
+        return execute_snowflake_sql(sql, db_path, credential_path, timeout)
     else:
         return SQLExecutionResult(
-            result_type="error",
+            result_type="execution_error",
+            db_path=db_path,
+            sql=sql,
             error_message=f"Unsupported cloud database type: {db_type}"
         )
 
@@ -197,7 +224,7 @@ def execute_cloud_sql(
 def execute_sql_for_spider2(
     sql: str,
     db_type: str,
-    db_path: Optional[str] = None,
+    db_path: str,
     credential_path: Optional[str] = None,
     timeout: int = 60
 ) -> SQLExecutionResult:
@@ -207,7 +234,7 @@ def execute_sql_for_spider2(
     Args:
         sql: SQL query to execute.
         db_type: Database type ("sqlite", "bigquery", or "snowflake").
-        db_path: Path to SQLite database (required for sqlite type).
+        db_path: Path to SQLite database or database identifier for cloud.
         credential_path: Path to credential JSON file (required for cloud types).
         timeout: Query timeout in seconds.
         
@@ -219,4 +246,4 @@ def execute_sql_for_spider2(
         from app.db_utils.execution import execute_sql
         return execute_sql(db_path, sql, timeout=timeout)
     else:
-        return execute_cloud_sql(sql, db_type, credential_path, timeout)
+        return execute_cloud_sql(sql, db_type, db_path, credential_path, timeout)

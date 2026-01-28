@@ -10,23 +10,44 @@ from functools import lru_cache
 from app.logger import logger
 
 
-def _get_value_examples_from_sample_rows(sample_rows: List[Dict], column_name: str, max_examples: int = 3) -> List[str]:
-    """Extract value examples from sample rows."""
+def _get_value_examples_from_sample_rows(sample_rows: List[Dict], column_name: str, max_examples: int = 3, max_length: int = 100) -> List[str]:
+    """
+    Extract value examples from sample rows.
+    
+    Args:
+        sample_rows: List of sample row dictionaries.
+        column_name: Name of the column to extract examples from.
+        max_examples: Maximum number of examples to return.
+        max_length: Maximum length of string representation for each value.
+        
+    Returns:
+        List of string representations of example values.
+    """
     if not sample_rows:
         return []
     
     examples = []
     for row in sample_rows:
-        if column_name in row and row[column_name] is not None:
-            value = row[column_name]
-            # Skip complex types (dict, list)
-            if isinstance(value, (dict, list)):
-                continue
+        if column_name not in row:
+            continue
+            
+        value = row[column_name]
+        
+        # Convert value to string representation
+        if value is None:
+            str_value = "NULL"
+        elif isinstance(value, (dict, list)):
+            # Convert complex types to JSON string
+            str_value = json.dumps(value, ensure_ascii=False, default=str)
+        else:
             str_value = str(value)
-            if len(str_value) <= 100 and str_value not in examples:
-                examples.append(str_value)
-                if len(examples) >= max_examples:
-                    break
+        
+        # Check length constraint
+        if len(str_value) <= max_length and str_value not in examples:
+            examples.append(str_value)
+            if len(examples) >= max_examples:
+                break
+                
     return examples
 
 
