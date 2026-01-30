@@ -32,7 +32,7 @@ DeepEye-SQL/
 ### 1. Clone the Project
 ```bash
 git clone git@github.com:BugMaker-Boyan/Symph-SQL.git
-cd Beta-SQL
+cd DeepEye-SQL
 ```
 
 ### 2. Install Dependencies

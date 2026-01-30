@@ -1,5 +1,5 @@
 [project]
-name = "beta-sql"
+name = "deepeye-sql"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"

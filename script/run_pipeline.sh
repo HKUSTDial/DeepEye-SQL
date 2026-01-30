@@ -1,5 +1,16 @@
 #!/bin/bash
 
+# ==============================================================================
+# DeepEye-SQL General Pipeline Automation Script
+# ==============================================================================
+# This script runs the full pipeline from preprocessing to SQL selection.
+# 
+# Usage: 
+#   CONFIG_PATH="config/your_config.toml" bash script/run_pipeline.sh
+# or
+#   bash script/run_pipeline.sh config/your_config.toml
+# ==============================================================================
+
 # Set the project root to the directory where the script is located's parent
 PROJECT_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$PROJECT_ROOT"
@@ -7,6 +18,11 @@ cd "$PROJECT_ROOT"
 # Set CONFIG_PATH if provided as an argument
 if [ ! -z "$1" ]; then
     export CONFIG_PATH="$1"
+fi
+
+# Default CONFIG_PATH if not set
+if [ -z "$CONFIG_PATH" ]; then
+    export CONFIG_PATH="config/config.toml"
 fi
 
 # Create logs directory if it doesn't exist
@@ -20,9 +36,9 @@ LOG_FILE="$LOG_DIR/pipeline_$(date +'%Y%m%d_%H%M%S').log"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 echo "=============================================================================="
-echo "Starting the Beta-SQL full pipeline..."
+echo "Starting the DeepEye-SQL Pipeline..."
 echo "Project Root: $PROJECT_ROOT"
-echo "Config Path:  ${CONFIG_PATH:-config/config.toml}"
+echo "Config Path:  $CONFIG_PATH"
 echo "Log File:     $LOG_FILE"
 echo "=============================================================================="
 
@@ -62,9 +78,5 @@ uv run runner/run_sql_selection.py
 if [ $? -ne 0 ]; then echo "SQL selection failed!"; exit 1; fi
 
 echo -e "\n=============================================================================="
-echo "Full pipeline completed successfully!"
+echo "Pipeline completed successfully!"
 echo "=============================================================================="
-
-# Optional: Evaluation (uncomment if needed)
-# echo "Step 8: Final Evaluation..."
-# uv run runner/evaluation.py

@@ -121,55 +121,6 @@ wheels = [
 ]
 
 [[package]]
-name = "beta-sql"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "chardet" },
-    { name = "chromadb" },
-    { name = "db-dtypes" },
-    { name = "gdown" },
-    { name = "google-cloud-bigquery" },
-    { name = "google-cloud-bigquery-storage" },
-    { name = "loguru" },
-    { name = "matplotlib" },
-    { name = "modelscope" },
-    { name = "nvitop" },
-    { name = "openai" },
-    { name = "pandas" },
-    { name = "pyarrow" },
-    { name = "seaborn" },
-    { name = "sentence-transformers" },
-    { name = "snowflake-connector-python" },
-    { name = "tabulate" },
-    { name = "tenacity" },
-    { name = "tiktoken" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "chardet", specifier = ">=5.2.0" },
-    { name = "chromadb", specifier = ">=1.0.21" },
-    { name = "db-dtypes", specifier = ">=1.5.0" },
-    { name = "gdown", specifier = ">=5.2.0" },
-    { name = "google-cloud-bigquery", specifier = ">=3.40.0" },
-    { name = "google-cloud-bigquery-storage", specifier = ">=2.36.0" },
-    { name = "loguru", specifier = ">=0.7.3" },
-    { name = "matplotlib", specifier = ">=3.10.6" },
-    { name = "modelscope", specifier = ">=1.29.2" },
-    { name = "nvitop", specifier = ">=1.6.1" },
-    { name = "openai", specifier = ">=1.107.2" },
-    { name = "pandas", specifier = ">=2.3.2" },
-    { name = "pyarrow", specifier = ">=23.0.0" },
-    { name = "seaborn", specifier = ">=0.13.2" },
-    { name = "sentence-transformers", specifier = ">=5.1.0" },
-    { name = "snowflake-connector-python", specifier = ">=4.2.0" },
-    { name = "tabulate", specifier = ">=0.9.0" },
-    { name = "tenacity", specifier = ">=9.1.2" },
-    { name = "tiktoken", specifier = ">=0.11.0" },
-]
-
-[[package]]
 name = "boto3"
 version = "1.42.36"
 source = { registry = "https://pypi.org/simple" }
@@ -554,6 +505,55 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/27/3d/8c021df7796bde3bc4a9f8129865676a45d95ba8c5fd14b1de82997ff0b4/db_dtypes-1.5.0.tar.gz", hash = "sha256:ad9e94243f53e104bc77dbf9ae44b580d83a770d3694483aba59c9767966daa5", size = 34800, upload-time = "2025-12-15T21:47:21.874Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/01/80/171c7c5b78e60ab25d6f11e3d38675fe7ef843ddc79a7fd26916d3a6ca05/db_dtypes-1.5.0-py3-none-any.whl", hash = "sha256:abdbb2e4eb965800ed6f98af0c5c1cafff9063ace09114be2d26a7f046be2c8a", size = 18267, upload-time = "2025-12-15T21:47:21.026Z" },
+]
+
+[[package]]
+name = "deepeye-sql"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "chardet" },
+    { name = "chromadb" },
+    { name = "db-dtypes" },
+    { name = "gdown" },
+    { name = "google-cloud-bigquery" },
+    { name = "google-cloud-bigquery-storage" },
+    { name = "loguru" },
+    { name = "matplotlib" },
+    { name = "modelscope" },
+    { name = "nvitop" },
+    { name = "openai" },
+    { name = "pandas" },
+    { name = "pyarrow" },
+    { name = "seaborn" },
+    { name = "sentence-transformers" },
+    { name = "snowflake-connector-python" },
+    { name = "tabulate" },
+    { name = "tenacity" },
+    { name = "tiktoken" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "chardet", specifier = ">=5.2.0" },
+    { name = "chromadb", specifier = ">=1.0.21" },
+    { name = "db-dtypes", specifier = ">=1.5.0" },
+    { name = "gdown", specifier = ">=5.2.0" },
+    { name = "google-cloud-bigquery", specifier = ">=3.40.0" },
+    { name = "google-cloud-bigquery-storage", specifier = ">=2.36.0" },
+    { name = "loguru", specifier = ">=0.7.3" },
+    { name = "matplotlib", specifier = ">=3.10.6" },
+    { name = "modelscope", specifier = ">=1.29.2" },
+    { name = "nvitop", specifier = ">=1.6.1" },
+    { name = "openai", specifier = ">=1.107.2" },
+    { name = "pandas", specifier = ">=2.3.2" },
+    { name = "pyarrow", specifier = ">=23.0.0" },
+    { name = "seaborn", specifier = ">=0.13.2" },
+    { name = "sentence-transformers", specifier = ">=5.1.0" },
+    { name = "snowflake-connector-python", specifier = ">=4.2.0" },
+    { name = "tabulate", specifier = ">=0.9.0" },
+    { name = "tenacity", specifier = ">=9.1.2" },
+    { name = "tiktoken", specifier = ">=0.11.0" },
 ]
 
 [[package]]
