@@ -252,14 +252,27 @@ class ReversedLinker(BaseSchemaLinker):
         sql_candidate_lower = sql_candidate.lower()
         
         # Extract all wildcard patterns from SQL (e.g., table_name_*)
-        # Common in BigQuery: `project.dataset.table_*` or `table_*`
-        wildcard_patterns = re.findall(r'([a-zA-Z0-9._-]+\*)', sql_candidate_lower)
+        # Handle backticks, double quotes, and unquoted identifiers containing '*'
+        wildcard_candidates = []
+        # 1. Backticked: `project.dataset.table_*`
+        wildcard_candidates.extend(re.findall(r'`([^`]*\*[^`]*)`', sql_candidate_lower))
+        # 2. Double quoted: "table_*"
+        wildcard_candidates.extend(re.findall(r'"([^"]*\*[^"]*)"', sql_candidate_lower))
+        # 3. Unquoted: table_* (looking for alphanumeric/dots/underscores/hyphens followed by *)
+        wildcard_candidates.extend(re.findall(r'(?:\s|^)([a-zA-Z0-9_.-]*\*[a-zA-Z0-9_.-]*)', sql_candidate_lower))
+        
         wildcard_regexes = []
-        for pat in wildcard_patterns:
+        for pat in set(wildcard_candidates):
             try:
-                # Convert ga_sessions_* to ga_sessions_.*
-                reg = re.compile(re.escape(pat).replace(r'\*', '.*'))
-                wildcard_regexes.append(reg)
+                # If the pattern contains dots, we also care about the base name wildcard
+                # e.g., "schema.table_*" -> regex for "table_.*"
+                patterns_to_compile = [pat]
+                if "." in pat:
+                    patterns_to_compile.append(pat.split(".")[-1])
+                
+                for p in patterns_to_compile:
+                    reg = re.compile(re.escape(p).replace(r'\*', '.*'))
+                    wildcard_regexes.append(reg)
             except Exception:
                 continue
                 
@@ -270,24 +283,36 @@ class ReversedLinker(BaseSchemaLinker):
             table_name = table_dict.get("table_name", "")
             table_fullname = table_dict.get("table_fullname", "")
             
-            table_key_low = table_key.lower()
-            table_name_low = table_name.lower() if table_name else ""
-            table_fullname_low = table_fullname.lower() if table_fullname else ""
+            # Collect all possible string variants for this table to check containment
+            check_names = [table_key.lower()]
+            if table_name: check_names.append(table_name.lower())
+            if table_fullname: check_names.append(table_fullname.lower())
+            
+            # IMPORTANT: Handle dots. If a name is "SCHEMA.TABLE", also check for "TABLE".
+            # This handles cases like "SCHEMA"."TABLE" in SQL where "SCHEMA.TABLE" wouldn't match.
+            base_names = []
+            for name in check_names:
+                if "." in name:
+                    base_names.append(name.split(".")[-1])
+            check_names.extend(base_names)
+            check_names = set([n for n in check_names if n]) # Deduplicate
 
             # Check for exact string containment OR wildcard pattern match
             is_table_used = False
-            if table_key_low in sql_candidate_lower or \
-               (table_name_low and table_name_low in sql_candidate_lower) or \
-               (table_fullname_low and table_fullname_low in sql_candidate_lower):
-                is_table_used = True
-            else:
-                # Check wildcard regexes
+            # 1. Check if any of our variants exist in the SQL string
+            for name_variant in check_names:
+                if name_variant in sql_candidate_lower:
+                    is_table_used = True
+                    break
+            
+            if not is_table_used:
+                # 2. Check wildcard regexes against ALL name variants (including base names)
                 for reg in wildcard_regexes:
-                    if reg.fullmatch(table_key_low) or \
-                       (table_name_low and reg.fullmatch(table_name_low)) or \
-                       (table_fullname_low and reg.fullmatch(table_fullname_low)):
-                        is_table_used = True
-                        break
+                    for name_variant in check_names:
+                        if reg.fullmatch(name_variant):
+                            is_table_used = True
+                            break
+                    if is_table_used: break
                 
             if is_table_used:
                 matched_columns = []

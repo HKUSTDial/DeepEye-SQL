@@ -518,6 +518,22 @@ def map_lower_table_name_to_original_table_name(table_name: str, database_schema
         if table_schema_dict.get("table_fullname", "").lower() == table_name.lower():
             return table_key
             
+    # 4. Try base name matching (if table_name is 'LICENSES' and schema has 'GITHUB_REPOS.LICENSES')
+    for table_key, table_schema_dict in database_schema_dict["tables"].items():
+        # Check table_key (e.g., "GITHUB_REPOS.LICENSES")
+        if "." in table_key and table_key.lower().split(".")[-1] == table_name.lower():
+            return table_key
+        
+        # Check table_name field
+        t_name = table_schema_dict.get("table_name", "")
+        if t_name and "." in t_name and t_name.lower().split(".")[-1] == table_name.lower():
+            return table_key
+            
+        # Check table_fullname field
+        t_fullname = table_schema_dict.get("table_fullname", "")
+        if t_fullname and "." in t_fullname and t_fullname.lower().split(".")[-1] == table_name.lower():
+            return table_key
+            
     logger.warning(f"Mapping lower table name to original table name failed: {table_name}")
     return None
 
@@ -532,10 +548,23 @@ def map_lower_column_name_to_original_column_name(table_name: str, column_name: 
                 return col_name
                 
     # Fallback to searching all tables
-    for table_schema_dict in database_schema_dict["tables"].values():
-        if table_schema_dict.get("table_name", "").lower() == table_name.lower() or \
-           table_schema_dict.get("table_fullname", "").lower() == table_name.lower():
-            for col_name in table_schema_dict["columns"]:
+    for table_key, table_dict in database_schema_dict["tables"].items():
+        # Check if table_name matches (including base name comparison)
+        table_matches = False
+        t_name = table_dict.get("table_name", "")
+        t_fullname = table_dict.get("table_fullname", "")
+        
+        if table_key.lower() == table_name.lower() or \
+           t_name.lower() == table_name.lower() or \
+           t_fullname.lower() == table_name.lower():
+            table_matches = True
+        elif ("." in table_key and table_key.lower().split(".")[-1] == table_name.lower()) or \
+             (t_name and "." in t_name and t_name.lower().split(".")[-1] == table_name.lower()) or \
+             (t_fullname and "." in t_fullname and t_fullname.lower().split(".")[-1] == table_name.lower()):
+            table_matches = True
+            
+        if table_matches:
+            for col_name in table_dict["columns"]:
                 if col_name.lower() == column_name.lower():
                     return col_name
                     

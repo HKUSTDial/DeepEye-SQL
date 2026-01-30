@@ -23,10 +23,21 @@ if [ -z "$CONFIG_PATH" ]; then
     export CONFIG_PATH="config/config.toml"
 fi
 
+# Create logs directory if it doesn't exist
+LOG_DIR="$PROJECT_ROOT/logs"
+mkdir -p "$LOG_DIR"
+
+# Set log file name with timestamp
+LOG_FILE="$LOG_DIR/spider2_lite_pipeline_$(date +'%Y%m%d_%H%M%S').log"
+
+# Redirect stdout and stderr to both the console and the log file
+exec > >(tee -a "$LOG_FILE") 2>&1
+
 echo "=============================================================================="
 echo "Starting the Beta-SQL Spider2-Lite Pipeline..."
 echo "Project Root: $PROJECT_ROOT"
 echo "Config Path:  $CONFIG_PATH"
+echo "Log File:     $LOG_FILE"
 echo "=============================================================================="
 
 # 1. Dataset Preprocessing
