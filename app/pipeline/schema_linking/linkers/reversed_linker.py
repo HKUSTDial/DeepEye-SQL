@@ -126,7 +126,7 @@ class ReversedLinker(BaseSchemaLinker):
         # Define a combined parser that parses SQL then extracts tables/columns
         def parse_and_extract(response: str, database_schema: Dict[str, Any] = None) -> Optional[Dict[str, List[str]]]:
             parsed_sql = self._parse_llm_response(response)
-            if parsed_sql:
+            if parsed_sql and parsed_sql.strip():
                 return self._extract_tables_and_columns(parsed_sql, database_schema)
             return None
         
@@ -195,7 +195,7 @@ class ReversedLinker(BaseSchemaLinker):
         # Define a combined parser that parses SQL then extracts tables/columns
         def parse_and_extract(response: str, database_schema: Dict[str, Any] = None) -> Optional[Dict[str, List[str]]]:
             parsed_sql = self._parse_llm_response(response)
-            if parsed_sql:
+            if parsed_sql and parsed_sql.strip():
                 return self._extract_tables_and_columns(parsed_sql, database_schema)
             return None
         
@@ -224,6 +224,10 @@ class ReversedLinker(BaseSchemaLinker):
             if answer_content.startswith("```sql") and answer_content.endswith("```"):
                 answer_content = answer_content[len("```sql"):-len("```")].strip()
             
+            if not answer_content or not answer_content.strip():
+                logger.warning("Parsed SQL content is empty")
+                return None
+                
             logger.debug(f"Parsed SQL from LLM: {answer_content}")
             return answer_content
         except Exception as e:
@@ -233,6 +237,10 @@ class ReversedLinker(BaseSchemaLinker):
     def _extract_tables_and_columns(self, sql_candidate: str, database_schema: Dict[str, Any]) -> Dict[str, List[str]]:
         import re
         
+        if not sql_candidate or not sql_candidate.strip():
+            logger.warning(f"Empty SQL candidate received in _extract_tables_and_columns (len={len(sql_candidate) if sql_candidate else 0})")
+            return {}
+
         # 1. Extract potential table names from SQL using regex
         potential_table_names = []
         # Find backticked names
@@ -245,7 +253,7 @@ class ReversedLinker(BaseSchemaLinker):
         
         # Deduplicate and normalize
         potential_table_names = list(set([name.strip() for name in potential_table_names if name.strip()]))
-        logger.debug(f"Potential table names extracted from SQL: {potential_table_names}")
+        logger.debug(f"Potential table names extracted from SQL: {potential_table_names}\nSQL Candidate: {sql_candidate}")
 
         # 2. Use the robust mapping function for each potential table name
         mapped_tables = []

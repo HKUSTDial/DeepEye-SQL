@@ -44,6 +44,9 @@ def run_spider2_evaluation(
     else:
         sql_output_dir = Path(sql_output_dir)
     
+    # Ensure absolute path for sql_output_dir as we'll change CWD
+    sql_output_dir = sql_output_dir.resolve()
+    
     # Step 1: Convert pkl to SQL files (if not skipping)
     if not skip_conversion:
         logger.info(f"Step 1: Converting {pkl_path} to SQL files...")
@@ -60,7 +63,7 @@ def run_spider2_evaluation(
     logger.info(f"Step 2: Running official {dataset_type} evaluation...")
     
     # Determine paths based on dataset type
-    project_root = Path(__file__).parent.parent
+    project_root = Path(__file__).resolve().parent.parent
     
     if dataset_type == "spider2-lite":
         eval_script = project_root / "data" / "spider2-lite" / "evaluation_suite" / "evaluate.py"

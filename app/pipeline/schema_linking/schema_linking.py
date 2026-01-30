@@ -10,7 +10,7 @@ from tqdm import tqdm
 from app.logger import logger
 from pathlib import Path
 import time
-
+import traceback
 
 class SchemaLinkingRunner:
     
@@ -56,6 +56,7 @@ class SchemaLinkingRunner:
                     results[name] = future.result()
                 except Exception as e:
                     logger.error(f"Error in {name} linking for item {data_item.question_id}: {e}")
+                    traceback.print_exc()
                     # Set to None instead of empty dict to indicate failure
                     results[name] = (None, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
 
@@ -143,6 +144,16 @@ class SchemaLinkingRunner:
         save_dataset(self._dataset, config.schema_linking_config.save_path)
         
     def _eval_schema_linking_recall(self, data_item: DataItem):
+        # Skip recall calculation if gold_sql is missing or empty (typical for Spider2 inference)
+        if not hasattr(data_item, "gold_sql") or not data_item.gold_sql or not data_item.gold_sql.strip():
+            # Initialize with default zero recall or None
+            default_recall = {"table_recall": 0.0, "column_recall": 0.0}
+            data_item.direct_linking_recall = default_recall
+            data_item.reversed_linking_recall = default_recall
+            data_item.value_linking_recall = default_recall
+            data_item.final_linking_recall = default_recall
+            return
+
         gold_tables_and_columns = self._reversed_linker._extract_tables_and_columns(data_item.gold_sql, data_item.database_schema_after_value_retrieval)
         
         def _calc_recall(linked_tables_and_columns):

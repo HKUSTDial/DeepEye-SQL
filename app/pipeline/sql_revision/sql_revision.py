@@ -9,6 +9,7 @@ from app.logger import logger
 from tqdm import tqdm
 from typing import List, Dict
 from pathlib import Path
+import traceback
 
 class SQLRevisionRunner:
     
@@ -106,6 +107,7 @@ class SQLRevisionRunner:
                     norm_to_result[norm] = (revised_sql, tokens)
                 except Exception as e:
                     logger.error(f"Error revising SQL candidate for item {data_item.question_id}: {e}")
+                    traceback.print_exc()
                     # Mark as failed instead of fallback
                     norm_to_result[norm] = (None, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
                     has_failure = True

@@ -81,7 +81,7 @@ max_model_len = 131072
 [sql_revision]
 n_parallel = 16
 save_path = "workspace/sql_revision/spider2-lite/spider2-lite.pkl"
-checker_sampling_budget = 5
+checker_sampling_budget = 1
 
 [sql_revision.llm]
 model = "Qwen3-Coder-30B-A3B-Instruct"

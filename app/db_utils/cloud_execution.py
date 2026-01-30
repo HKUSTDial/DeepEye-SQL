@@ -12,6 +12,22 @@ from app.logger import logger
 from .execution import SQLExecutionResult
     
 
+# Global cache for BigQuery clients to avoid repeated creation in multi-threaded environments
+_bq_clients: Dict[str, Any] = {}
+
+def _get_bigquery_client(credential_path: Optional[str] = None):
+    """Get or create a thread-safe BigQuery client."""
+    from google.cloud import bigquery
+    
+    cache_key = credential_path or "default"
+    if cache_key not in _bq_clients:
+        if credential_path:
+            _bq_clients[cache_key] = bigquery.Client.from_service_account_json(credential_path)
+        else:
+            _bq_clients[cache_key] = bigquery.Client()
+    return _bq_clients[cache_key]
+
+
 def execute_bigquery_sql(
     sql: str,
     db_path: str,
@@ -32,7 +48,6 @@ def execute_bigquery_sql(
     """
     try:
         from google.cloud import bigquery
-        from google.oauth2 import service_account
     except ImportError:
         return SQLExecutionResult(
             result_type="execution_error",
@@ -42,22 +57,19 @@ def execute_bigquery_sql(
         )
     
     try:
-        # Set up credentials
-        if credential_path:
-            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credential_path
-        
-        client = bigquery.Client()
+        # Get thread-safe client from cache
+        client = _get_bigquery_client(credential_path)
         
         # Configure job
         job_config = bigquery.QueryJobConfig(
-            timeout_ms=timeout * 1000
+            job_timeout_ms=timeout * 1000
         )
         
         # Execute query
         query_job = client.query(sql, job_config=job_config)
-        results = query_job.result()
+        results = query_job.result(timeout=timeout)
         
-        # Convert to dataframe first for easier processing
+        # Convert to dataframe
         df = results.to_dataframe()
         
         if df.empty:

@@ -16,14 +16,29 @@ class JoinChecker(BaseChecker):
         join_suggestion = self._check_join(sql)
         if join_suggestion:
             logger.info(f"[JoinChecker] Found join errors in SQL: {sql}")
-            database_schema_profile = get_database_schema_profile(data_item.database_schema_after_schema_linking)
             db_type = getattr(data_item, "db_type", None)
-            prompt = PromptFactory.format_common_checker_prompt(database_schema_profile, data_item.question, data_item.evidence, sql, join_suggestion, db_type=db_type)
+            
+            # Define prompt format function for JoinChecker
+            def prompt_format_func(schema_profile: str) -> str:
+                return PromptFactory.format_common_checker_prompt(
+                    schema_profile, 
+                    data_item.question, 
+                    data_item.evidence, 
+                    sql, 
+                    join_suggestion, 
+                    db_type=db_type
+                )
+            
+            final_prompt, level = self._check_and_revise_with_progressive_stripping(data_item, llm, prompt_format_func)
+            
+            if final_prompt is None:
+                logger.error(f"CRITICAL: Even minimal JoinChecker prompt for item {data_item.question_id} exceeds token limit. Returning original SQL.")
+                return sql, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
             
             extractor = LLMExtractor()
             results, total_token_usage = extractor.extract_with_retry(
                 llm=llm,
-                messages=[{"role": "user", "content": prompt}],
+                messages=[{"role": "user", "content": final_prompt}],
                 rule_parser=self._parse_llm_response,
                 fix_end_token=config.sql_revision_config.llm.fix_end_token,
                 end_token="</result>",

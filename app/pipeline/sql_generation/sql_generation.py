@@ -8,7 +8,7 @@ import time
 from app.logger import logger
 from tqdm import tqdm
 from pathlib import Path
-
+import traceback
 
 
 class SQLGenerationRunner:
@@ -54,6 +54,7 @@ class SQLGenerationRunner:
                     results[name] = future.result()
                 except Exception as e:
                     logger.error(f"Error in {name} generation for item {data_item.question_id}: {e}")
+                    traceback.print_exc()
                     # Set to None instead of empty list to indicate failure
                     results[name] = (None, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
 

@@ -98,12 +98,22 @@ class LLMExtractor:
                     
                     # Try rule-based parsing
                     try:
+                        if not content or not content.strip():
+                            logger.warning("LLM returned empty content for response")
+                            continue
+
                         result = rule_parser(content, **parser_kwargs)
-                        if result is not None:
+                        # Check if result is truly valid (not None and not empty if it's a collection)
+                        is_valid = result is not None
+                        if is_valid and isinstance(result, (dict, list, str)):
+                            if not result: # Handle empty dict/list/string
+                                is_valid = False
+                                
+                        if is_valid:
                             all_results.append(result)
                             logger.debug(f"Rule parsing succeeded")
                         else:
-                            logger.warning(f"Rule parsing returned None for response")
+                            logger.warning(f"Rule parsing returned invalid or empty result")
                             logger.debug(f"Response content: {content}")
                     except Exception as e:
                         logger.warning(f"Rule parsing failed with exception: {e}")

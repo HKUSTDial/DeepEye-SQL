@@ -19,14 +19,29 @@ class ResultChecker(BaseChecker):
         if execution_result.result_type == "success":
             return sql, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         else:
-            database_schema_profile = get_database_schema_profile(data_item.database_schema_after_schema_linking)
             db_type = getattr(data_item, "db_type", None)
-            prompt = PromptFactory.format_execution_checker_prompt(database_schema_profile, data_item.question, data_item.evidence, sql, execution_result.result_table_str, db_type=db_type)
+            
+            # Define prompt format function for ResultChecker
+            def prompt_format_func(schema_profile: str) -> str:
+                return PromptFactory.format_execution_checker_prompt(
+                    schema_profile, 
+                    data_item.question, 
+                    data_item.evidence, 
+                    sql, 
+                    execution_result.result_table_str, 
+                    db_type=db_type
+                )
+            
+            final_prompt, level = self._check_and_revise_with_progressive_stripping(data_item, llm, prompt_format_func)
+            
+            if final_prompt is None:
+                logger.error(f"CRITICAL: Even minimal ResultChecker prompt for item {data_item.question_id} exceeds token limit. Returning original SQL.")
+                return sql, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
             
             extractor = LLMExtractor()
             all_sql_candidates, total_token_usage = extractor.extract_with_retry(
                 llm=llm,
-                messages=[{"role": "user", "content": prompt}],
+                messages=[{"role": "user", "content": final_prompt}],
                 rule_parser=self._parse_llm_response,
                 fix_end_token=config.sql_revision_config.llm.fix_end_token,
                 end_token="</result>",
@@ -45,7 +60,7 @@ class ResultChecker(BaseChecker):
             # Use execute_sql_for_data_item to support cloud databases
             execution_result = execute_sql_for_data_item(data_item, sql_candidate)
             if execution_result.result_type == "success":
-                valid_sql_candidates.append((sql_candidate, frozenset(execution_result.result_rows)))
+                valid_sql_candidates.append((sql_candidate, frozenset(self._make_hashable(execution_result.result_rows))))
         
         if len(valid_sql_candidates) == 0:
             return None

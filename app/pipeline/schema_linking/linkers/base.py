@@ -29,7 +29,7 @@ class BaseSchemaLinker(ABC):
                 for group_table in table_groups[table_name]:
                     if group_table not in expanded_result:
                         expanded_result[group_table] = list(columns)
-                        logger.debug(f"Auto-expanded identical schema table: {group_table}")
+                        # logger.debug(f"Auto-expanded identical schema table: {group_table}")
         
         if len(expanded_result) > initial_count:
             logger.info(f"Expanded {initial_count} tables to {len(expanded_result)} tables (via identical schema groups)")

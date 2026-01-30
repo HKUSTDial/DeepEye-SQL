@@ -17,6 +17,7 @@ import time
 import threading
 from collections import defaultdict
 from app.logger import logger
+import traceback
 
 
 def _is_spider2_item(data_item: DataItem) -> bool:
@@ -202,8 +203,7 @@ class ValueRetrievalRunner:
                 future.result()
             except Exception as e:
                 logger.error(f"Error processing data item: {e}")
-                import traceback
-                logger.error(traceback.format_exc())
+                traceback.format_exc()
             
             if idx % 5 == 0:
                 logger.info(f"Value Retrieval {idx} / {len(all_futures)} completed")
