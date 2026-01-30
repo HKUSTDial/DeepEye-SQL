@@ -117,3 +117,8 @@ Using **Qwen3-Coder-30B** as the backbone model (without any fine-tuning):
 
 ## Logging & Debugging
 All runtime logs are stored in `workspace/logs/`. If the pipeline is interrupted by API rate limits or timeouts, the framework supports checkpoints—simply re-run the corresponding script to resume.
+
+
+## To Be Released
+- Pre-build Vector Databases for BIRD/Spider
+- Evaluation Results/Scores/Tables on BIRD/Spider/Spider2.0

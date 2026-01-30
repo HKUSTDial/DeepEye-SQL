@@ -13,7 +13,7 @@ def load_table_names(db_path: Path) -> List[str]:
     result = execute_sql(db_path, sql)
     if result.result_type != "success":
         raise Exception(f"Failed to load table names from {db_path}: {result.error_message}")
-    return [row[0] for row in result.result_rows]
+    return [row[0].strip() for row in result.result_rows]
 
 
 def load_column_names_and_types(db_path: Path, table_name: str) -> List[Tuple[str, str]]:
@@ -21,7 +21,7 @@ def load_column_names_and_types(db_path: Path, table_name: str) -> List[Tuple[st
     result = execute_sql(db_path, sql)
     if result.result_type != "success":
         raise Exception(f"Failed to load column names and types from {db_path}: {result.error_message}")
-    return [(row[1], row[2]) for row in result.result_rows]
+    return [(row[1].strip(), row[2].strip()) for row in result.result_rows]
 
 
 def load_primary_keys(db_path: Path, table_name: str) -> List[str]:
@@ -29,7 +29,7 @@ def load_primary_keys(db_path: Path, table_name: str) -> List[str]:
     result = execute_sql(db_path, sql)
     if result.result_type != "success":
         raise Exception(f"Failed to load primary keys from {db_path}: {result.error_message}")
-    return [row[1] for row in result.result_rows if row[5] != 0]
+    return [row[1].strip() for row in result.result_rows if row[5] != 0]
 
 
 def load_foreign_keys(db_path: Path, table_name: str) -> List[Tuple[str, str, str, str]]:
@@ -247,15 +247,17 @@ def get_table_profile(table_schema_dict: Dict[str, Any]) -> str:
     representation += f"[\n"
     column_representations = []
     for column_name, column_schema_dict in table_schema_dict["columns"].items():
-        column_representation = f"`{column_name}`: {column_schema_dict["column_type"]}"
+        column_representation = f"`{column_name}`: {column_schema_dict['column_type']}"
         if column_schema_dict["description"]:
-            column_representation += f" | {column_schema_dict["description"]}"
+            column_representation += f" | {column_schema_dict['description']}"
         if column_schema_dict["value_statistics"]:
-            column_representation += f" | Value Statistics: {column_schema_dict["value_statistics"]["null_count"]} NULL values, {column_schema_dict["value_statistics"]["distinct_count"]} distinct values, {column_schema_dict["value_statistics"]["total_count"]} total values"
+            stats = column_schema_dict["value_statistics"]
+            column_representation += f" | Value Statistics: {stats['null_count']} NULL values, {stats['distinct_count']} distinct values, {stats['total_count']} total values"
         if column_schema_dict["value_examples"]:
-            column_representation += f" | Value Examples: {column_schema_dict["value_examples"]}"
+            column_representation += f" | Value Examples: {column_schema_dict['value_examples']}"
         column_representations.append(f"({column_representation})")
-    representation += f"{',\n'.join(column_representations)}\n"
+    column_reps_str = ",\n".join(column_representations)
+    representation += f"{column_reps_str}\n"
     representation += f"]\n"
 
     all_primary_keys = []
@@ -272,7 +274,8 @@ def get_table_profile(table_schema_dict: Dict[str, Any]) -> str:
             all_foreign_keys.append(f"`{table_schema_dict['table_name']}`.`{column_name}` = `{target_table_name}`.`{target_column_name}`")
     if all_foreign_keys:
         representation += "Foreign Keys:\n"
-        representation += f"{'\n'.join(all_foreign_keys)}"
+        foreign_keys_str = "\n".join(all_foreign_keys)
+    representation += f"{foreign_keys_str}"
     return representation
 
 
@@ -373,7 +376,8 @@ def _format_single_table_profile(
             column_profile += f" | Value Examples: {column_schema_dict['value_examples']}"
             
         column_profiles.append(f"({column_profile})")
-    profile += f"{',\n'.join(column_profiles)}\n"
+    column_reps_str = ",\n".join(column_profiles)
+    profile += f"{column_reps_str}\n"
     profile += f"]\n"
     
     # Add nested columns section for BigQuery tables
@@ -481,7 +485,8 @@ def get_database_schema_profile(
                     all_foreign_keys.append(f"`{table_name}`.`{column_name}` = `{target_table_name}`.`{target_column_name}`")
     if all_foreign_keys:
         profile += "Foreign Keys:\n"
-        profile += f"{'\n'.join(all_foreign_keys)}"
+        fk_str = "\n".join(all_foreign_keys)
+        profile += f"{fk_str}"
     
     # Add database-specific notes for cloud databases
     if db_type == "bigquery":

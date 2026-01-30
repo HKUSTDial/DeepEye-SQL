@@ -68,16 +68,26 @@ def load_table_schema_from_json(json_path: Path) -> Dict[str, Any]:
     with open(json_path, "r", encoding="utf-8") as f:
         table_data = json.load(f)
     
-    table_name = table_data.get("table_name", "")
-    table_fullname = table_data.get("table_fullname", "")
-    column_names = table_data.get("column_names", [])
-    column_types = table_data.get("column_types", [])
+    table_name = table_data.get("table_name", "").strip()
+    table_fullname = table_data.get("table_fullname", "").strip()
+    # Normalize table_fullname by stripping spaces around dots
+    if "." in table_fullname:
+        table_fullname = ".".join([part.strip() for part in table_fullname.split(".")])
+    
+    column_names = [name.strip() for name in table_data.get("column_names", [])]
+    # Normalize column names by stripping spaces around dots (for BigQuery nested fields)
+    column_names = [".".join([p.strip() for p in name.split(".")]) if "." in name else name for name in column_names]
+    
+    column_types = [t.strip() if isinstance(t, str) else t for t in table_data.get("column_types", [])]
     descriptions = table_data.get("description", [])
     sample_rows = table_data.get("sample_rows", [])
     
     # Handle nested columns for BigQuery
-    nested_column_names = table_data.get("nested_column_names", [])
-    nested_column_types = table_data.get("nested_column_types", [])
+    nested_column_names = [name.strip() for name in table_data.get("nested_column_names", [])]
+    # Normalize nested column names by stripping spaces around dots
+    nested_column_names = [".".join([p.strip() for p in name.split(".")]) if "." in name else name for name in nested_column_names]
+    
+    nested_column_types = [t.strip() if isinstance(t, str) else t for t in table_data.get("nested_column_types", [])]
     
     # Build table schema dict
     table_schema_dict = {
