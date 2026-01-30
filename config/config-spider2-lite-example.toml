@@ -114,3 +114,6 @@ max_request_n = 1
 temperature = 0.0
 api_type = "openai"
 max_model_len = 131072
+
+[llm_extractor]
+max_retry = 5
