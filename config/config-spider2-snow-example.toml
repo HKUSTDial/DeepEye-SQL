@@ -29,6 +29,7 @@ model = "Qwen3-Coder-30B-A3B-Instruct"
 base_url = "http://0.0.0.0:8000/v1"
 api_key = "dummy"
 max_tokens = 4096
+max_request_n = 1
 temperature = 0.7
 api_type = "openai"
 
@@ -45,6 +46,7 @@ model = "Qwen3-Coder-30B-A3B-Instruct"
 base_url = "http://0.0.0.0:8000/v1"
 api_key = "dummy"
 max_tokens = 4096
+max_request_n = 1
 temperature = 0.7
 api_type = "openai"
 
@@ -63,6 +65,7 @@ model = "Qwen3-Coder-30B-A3B-Instruct"
 base_url = "http://0.0.0.0:8000/v1"
 api_key = "dummy"
 max_tokens = 4096
+max_request_n = 1
 temperature = 0.7
 api_type = "openai"
 
@@ -71,12 +74,14 @@ api_type = "openai"
 n_parallel = 16
 save_path = "workspace/sql_revision/spider2-snow/spider2-snow.pkl"
 checker_sampling_budget = 5
+checkers = ["ResultChecker"]
 
 [sql_revision.llm]
 model = "Qwen3-Coder-30B-A3B-Instruct"
 base_url = "http://0.0.0.0:8000/v1"
 api_key = "dummy"
 max_tokens = 4096
+max_request_n = 1
 temperature = 0.7
 api_type = "openai"
 
@@ -93,5 +98,6 @@ model = "Qwen3-Coder-30B-A3B-Instruct"
 base_url = "http://0.0.0.0:8000/v1"
 api_key = "dummy"
 max_tokens = 4096
+max_request_n = 1
 temperature = 0.7
 api_type = "openai"

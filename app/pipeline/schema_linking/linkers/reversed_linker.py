@@ -127,7 +127,12 @@ class ReversedLinker(BaseSchemaLinker):
         def parse_and_extract(response: str, database_schema: Dict[str, Any] = None) -> Optional[Dict[str, List[str]]]:
             parsed_sql = self._parse_llm_response(response)
             if parsed_sql and parsed_sql.strip():
-                return self._extract_tables_and_columns(parsed_sql, database_schema)
+                result = self._extract_tables_and_columns(parsed_sql, database_schema)
+                if not result:
+                    logger.warning(f"SQL parsed successfully but no tables/columns extracted from it. SQL: {parsed_sql}...")
+                return result
+            
+            logger.warning(f"Failed to parse SQL from LLM response (no result tag or empty content)")
             return None
         
         extractor = LLMExtractor()
@@ -196,7 +201,12 @@ class ReversedLinker(BaseSchemaLinker):
         def parse_and_extract(response: str, database_schema: Dict[str, Any] = None) -> Optional[Dict[str, List[str]]]:
             parsed_sql = self._parse_llm_response(response)
             if parsed_sql and parsed_sql.strip():
-                return self._extract_tables_and_columns(parsed_sql, database_schema)
+                result = self._extract_tables_and_columns(parsed_sql, database_schema)
+                if not result:
+                    logger.warning(f"SQL parsed successfully but no tables/columns extracted from it. SQL: {parsed_sql}...")
+                return result
+            
+            logger.warning(f"Failed to parse SQL from LLM response (no result tag or empty content)")
             return None
         
         extractor = LLMExtractor()
@@ -235,59 +245,62 @@ class ReversedLinker(BaseSchemaLinker):
             return None
     
     def _extract_tables_and_columns(self, sql_candidate: str, database_schema: Dict[str, Any]) -> Dict[str, List[str]]:
-        import re
-        
         if not sql_candidate or not sql_candidate.strip():
-            logger.warning(f"Empty SQL candidate received in _extract_tables_and_columns (len={len(sql_candidate) if sql_candidate else 0})")
+            logger.warning(f"Empty SQL candidate received in _extract_tables_and_columns")
             return {}
 
-        # 1. Extract potential table names from SQL using regex
-        potential_table_names = []
-        # Find backticked names
-        potential_table_names.extend(re.findall(r'`([^`]+)`', sql_candidate))
-        # Find double quoted names
-        potential_table_names.extend(re.findall(r'"([^"]+)"', sql_candidate))
-        # Find names after FROM/JOIN
-        from_join_matches = re.findall(r'(?:FROM|JOIN|UPDATE|INTO)\s+([a-zA-Z0-9._*%-]+)', sql_candidate, re.IGNORECASE)
-        potential_table_names.extend(from_join_matches)
+        sql_candidate_lower = sql_candidate.lower()
         
-        # Deduplicate and normalize
-        potential_table_names = list(set([name.strip() for name in potential_table_names if name.strip()]))
-        logger.debug(f"Potential table names extracted from SQL: {potential_table_names}\nSQL Candidate: {sql_candidate}")
-
-        # 2. Use the robust mapping function for each potential table name
-        mapped_tables = []
-        for p_name in potential_table_names:
-            original_table_name = map_lower_table_name_to_original_table_name(p_name, database_schema)
-            if original_table_name:
-                mapped_tables.append(original_table_name)
-        
-        mapped_tables = list(set(mapped_tables))
-        logger.debug(f"Successfully mapped tables: {mapped_tables}")
-
-        # 3. Handle Columns
-        all_table_names_in_schema = list(database_schema["tables"].keys())
-        all_column_names_in_schema = []
-        for t_name in all_table_names_in_schema:
-            all_column_names_in_schema.extend(database_schema["tables"][t_name]["columns"].keys())
-        all_column_names_in_schema = list(set(all_column_names_in_schema))
-        
-        found_column_names = list(set([col.lower() for col in all_column_names_in_schema if col.lower() in sql_candidate.lower()]))
-        logger.debug(f"Candidate columns found in SQL: {found_column_names}")
-        
+        # Extract all wildcard patterns from SQL (e.g., table_name_*)
+        # Common in BigQuery: `project.dataset.table_*` or `table_*`
+        wildcard_patterns = re.findall(r'([a-zA-Z0-9._-]+\*)', sql_candidate_lower)
+        wildcard_regexes = []
+        for pat in wildcard_patterns:
+            try:
+                # Convert ga_sessions_* to ga_sessions_.*
+                reg = re.compile(re.escape(pat).replace(r'\*', '.*'))
+                wildcard_regexes.append(reg)
+            except Exception:
+                continue
+                
         used_tables_and_columns = {}
-        for original_table_name in mapped_tables:
-            used_tables_and_columns[original_table_name] = []
-            for col_name in found_column_names:
-                original_column_name = map_lower_column_name_to_original_column_name(original_table_name, col_name, database_schema)
-                if original_column_name:
-                    used_tables_and_columns[original_table_name].append(original_column_name)
-            
-            if not used_tables_and_columns[original_table_name]:
-                logger.debug(f"No valid columns mapped for table: {original_table_name}")
         
+        # Iterate through all tables in the schema
+        for table_key, table_dict in database_schema["tables"].items():
+            table_name = table_dict.get("table_name", "")
+            table_fullname = table_dict.get("table_fullname", "")
+            
+            table_key_low = table_key.lower()
+            table_name_low = table_name.lower() if table_name else ""
+            table_fullname_low = table_fullname.lower() if table_fullname else ""
+
+            # Check for exact string containment OR wildcard pattern match
+            is_table_used = False
+            if table_key_low in sql_candidate_lower or \
+               (table_name_low and table_name_low in sql_candidate_lower) or \
+               (table_fullname_low and table_fullname_low in sql_candidate_lower):
+                is_table_used = True
+            else:
+                # Check wildcard regexes
+                for reg in wildcard_regexes:
+                    if reg.fullmatch(table_key_low) or \
+                       (table_name_low and reg.fullmatch(table_name_low)) or \
+                       (table_fullname_low and reg.fullmatch(table_fullname_low)):
+                        is_table_used = True
+                        break
+                
+            if is_table_used:
+                matched_columns = []
+                # If table is used, check which of its columns are used
+                for col_name in table_dict["columns"]:
+                    if col_name.lower() in sql_candidate_lower:
+                        matched_columns.append(col_name)
+                
+                # We include the table even if no columns matched (it might be SELECT *)
+                used_tables_and_columns[table_key] = matched_columns
+
         if not used_tables_and_columns:
-            logger.warning("No tables/columns could be extracted from the generated SQL")
+            logger.warning(f"No tables/columns could be extracted from the generated SQL using string containment.\nSQL: {sql_candidate}")
         
         # Expand tables with identical schema (for Spider2 cloud databases)
         used_tables_and_columns = self._expand_identical_schema_tables(used_tables_and_columns, database_schema)

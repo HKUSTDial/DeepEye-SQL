@@ -16,7 +16,8 @@ wheels/
 tests/
 workspace/
 bak_workspace/
-gemini3_flash_on_qwen3_failed_workspace
+gemini3_flash_on_qwen3_failed_workspace/
+*_workspace/
 
 # data
 data/

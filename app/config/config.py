@@ -21,6 +21,7 @@ class LLMConfig(BaseModel):
     base_url: str = Field(..., description="The base url of the model service")
     api_key: str = Field(..., description="The api key of the model service")
     max_tokens: int = Field(default=4096, description="The maximum number of tokens to generate per request")
+    max_request_n: Optional[int] = Field(default=None, ge=1, description="The maximum number of choices (n) per request; None means no limit")
     temperature: float = Field(default=0.7, description="The temperature of the model")
     api_type: Literal["openai", "azure"] = Field(default="openai", description="The type of the api")
     api_version: Optional[str] = Field(default=None, description="The version of the Azure API")
@@ -105,6 +106,7 @@ class SQLRevisionConfig(BaseModel):
     n_parallel: int = Field(default=16, description="The number of parallel threads to use")
     save_path: str = Field(default=WORKSPACE_ROOT / "sql_revision", description="The save path of the sql revision result")
     checker_sampling_budget: int = Field(default=5, description="The sampling budget of the checker")
+    checkers: List[str] = Field(default=[], description="The list of checkers to enable")
 
 
 class SQLSelectionConfig(BaseModel):
@@ -183,6 +185,7 @@ class Config:
                 "base_url": llm_config.get("base_url"),
                 "api_key": llm_config.get("api_key"),
                 "max_tokens": llm_config.get("max_tokens", 4096),
+                "max_request_n": llm_config.get("max_request_n", None),
                 "temperature": llm_config.get("temperature", 0.7),
                 "api_type": llm_config.get("api_type", "openai"),
                 "api_version": llm_config.get("api_version", None),
@@ -258,6 +261,7 @@ class Config:
             "n_parallel": sql_revision_config.get("n_parallel", 16),
             "save_path": sql_revision_config.get("save_path", WORKSPACE_ROOT / "sql_revision"),
             "checker_sampling_budget": sql_revision_config.get("checker_sampling_budget", 5),
+            "checkers": sql_revision_config.get("checkers", []),
         }
         
         # sql selection config

@@ -28,16 +28,40 @@ class SQLRevisionRunner:
             logger.info(f"Loading dataset from {config.sql_generation_config.save_path}")
             self._dataset = load_dataset(config.sql_generation_config.save_path)
         self._thread_pool_executor = ThreadPoolExecutor(max_workers=config.sql_revision_config.n_parallel)
-        self._checkers: List[BaseChecker] = [
-            SyntaxChecker(),
-            JoinChecker(),
-            OrderByLimitChecker(),
-            TimeChecker(),
-            SelectChecker(),
-            MaxMinChecker(),
-            OrderByNullChecker(),
-            ResultChecker(),
-        ]
+        
+        # Initialize checkers based on config or default list
+        checker_map = {
+            "SyntaxChecker": SyntaxChecker,
+            "JoinChecker": JoinChecker,
+            "OrderByLimitChecker": OrderByLimitChecker,
+            "TimeChecker": TimeChecker,
+            "SelectChecker": SelectChecker,
+            "MaxMinChecker": MaxMinChecker,
+            "OrderByNullChecker": OrderByNullChecker,
+            "ResultChecker": ResultChecker,
+        }
+        
+        if config.sql_revision_config.checkers:
+            self._checkers = []
+            for checker_name in config.sql_revision_config.checkers:
+                if checker_name in checker_map:
+                    self._checkers.append(checker_map[checker_name]())
+                else:
+                    logger.warning(f"Unknown checker name in config: {checker_name}")
+        else:
+            # Default checkers if none specified in config
+            self._checkers: List[BaseChecker] = [
+                SyntaxChecker(),
+                JoinChecker(),
+                OrderByLimitChecker(),
+                TimeChecker(),
+                SelectChecker(),
+                MaxMinChecker(),
+                OrderByNullChecker(),
+                ResultChecker(),
+            ]
+        
+        logger.info(f"Using checkers: {[checker.__class__.__name__ for checker in self._checkers]}")
         
     def _normalize_sql(self, sql: str) -> str:
         """Simple normalization to handle whitespace and case differences."""

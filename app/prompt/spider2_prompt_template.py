@@ -15,16 +15,15 @@ The given hint aims to direct your focus towards the specific elements of the da
 For each of the selected tables and columns, explain why exactly it is necessary for answering the question. Your reasoning should be concise and clear, demonstrating a logical connection between the selected items and the question asked.
 
 [IMPORTANT!]
-1. For key phrases mentioned in the question, we have provided the most similar values within the columns (TEXT-TYPE columns) denoted by "Value Examples". **This is a critical hint to identify the tables/columns that will be used in the SQL query.**
-2. If you are not sure whether a column is needed or not, it's better to include it in your selection. **It's safer to select more columns than to miss necessary ones.**
-3. If a column contains values that are related to the current question (check the "Value Examples"), you MUST include this column in your selection.
-4. For {DATABASE_ENGINE} databases, tables may not have explicit foreign key constraints. You need to identify JOIN relationships based on column names, descriptions, and logical relationships (e.g., columns with similar names like `user_id` in different tables likely represent a join relationship).
-5. Pay attention to nested/repeated fields (for BigQuery) which may require UNNEST() to access.
-6. **Tables with identical schema**: Some databases have multiple tables with the exact same structure (marked in schema as "IDENTICAL schema structure"). If you need to query such tables, **just select ONE representative table** - we will automatically include all tables in the group. In the final SQL, these can be queried using:
+1. If you are not sure whether a column is needed or not, it's better to include it in your selection. **It's safer to select more columns than to miss necessary ones.**
+2. If a column contains values that are related to the current question (check the "Value Examples"), you MUST include this column in your selection.
+3. For BigQuery and Snowflake databases, tables may not have explicit foreign key constraints. You need to identify JOIN relationships based on column names, descriptions, and logical relationships (e.g., columns with similar names like `user_id` in different tables likely represent a join relationship).
+4. Pay attention to nested/repeated fields (for BigQuery) which may require UNNEST() to access.
+5. **Tables with identical schema**: Some databases have multiple tables with the exact same structure (marked in schema as "IDENTICAL schema structure"). If you need to query such tables, **just select ONE representative table** - we will automatically include all tables in the group. In the final SQL, these can be queried using:
    - BigQuery: Wildcard table syntax like `project.dataset.table_prefix_*` with `_TABLE_SUFFIX`
    - Snowflake: UNION ALL or dynamic SQL patterns
-7. **Column name format**: When selecting a column, use the **exact column name** as it appears in the schema. Do **NOT** include table names or dots (e.g., use `column_name`, not `table_name.column_name`).
-8. **Nested columns (BigQuery/Snowflake)**: For nested or semi-structured fields (e.g., `totals.pageviews` in BigQuery or VARIANT in Snowflake), you only need to select the **top-level column name** (e.g., `totals`). You do not need to list individual fields within the nested structure.
+6. **Column name format**: When selecting a column, use the **exact column name** as it appears in the schema. Do **NOT** include table names or dots (e.g., use `column_name`, not `table_name.column_name`).
+7. **Nested columns (BigQuery/Snowflake)**: For nested or semi-structured fields (e.g., `totals.pageviews` in BigQuery or VARIANT in Snowflake), you only need to select the **top-level column name** (e.g., `totals`). You do not need to list individual fields within the nested structure.
 
 # Output Format:
 Please respond with XML code structured as follows:
@@ -78,53 +77,40 @@ Here is a high level description of the steps.
 
 # Important Rules:
 1. **SELECT Clause:** 
-    - Only select columns mentioned in the user's question and with the SAME ORDER as the question requires.
-    - Avoid unnecessary columns or values.
-2. **Handling NULLs:**
-    - If a column may contain NULL values, use `JOIN` or `WHERE <column> IS NOT NULL`.
-3. **FROM/JOIN Clauses:**
+    - Select all columns required to answer the user's question.
+2. **FROM/JOIN Clauses:**
     - Only include tables essential to answer the question.
-4. **Thorough Question Analysis:**
+3. **Thorough Question Analysis:**
     - Address all conditions mentioned in the question.
-5. **DISTINCT Keyword:**
-    - Use `SELECT DISTINCT` when the question requires unique values (e.g., IDs, URLs). 
-    - Refer to column statistics ("Total count" and "Distinct count") to determine if `DISTINCT` is necessary.
-6. **Column Selection:**
+4. **DISTINCT Keyword:**
+    - Use `SELECT DISTINCT` when the question requires unique values (e.g., IDs, URLs).
+5. **Column Selection:**
     - Carefully analyze column descriptions and hints to choose the correct column when similar columns exist across tables.
-7. **String Concatenation:**
-    - Never use `|| ' ' ||` or any other method to concatenate strings in the `SELECT` clause.
-8. **JOIN Preference:**
-    - Prioritize `INNER JOIN` over nested `SELECT` statements.
-9. **Database Dialect (CRITICAL):**
+6. **Database Dialect (CRITICAL):**
     - Use the specified Database Engine (BIGQUERY, SNOWFLAKE, or SQLITE).
     - For BigQuery:
-      * Use backticks for fully qualified table names (e.g., `project.dataset.table`)
+      * Use backticks for ALL identifiers (e.g., `project.dataset.table`, `column_name`)
       * Use EXTRACT() for date parts: EXTRACT(YEAR FROM date_column)
       * Use FORMAT_DATE(), FORMAT_TIMESTAMP() for date formatting
       * Use UNNEST() to access nested/repeated fields (ARRAY, STRUCT)
-      * Use SAFE_DIVIDE() for safe division
       * String functions: STARTS_WITH(), ENDS_WITH(), CONTAINS_SUBSTR()
     - For Snowflake:
-      * Table names are case-sensitive and typically uppercase
+      * **CRITICAL**: Use double quotes for ALL identifiers (database, schema, table, and column names) to ensure case-sensitivity is handled correctly (e.g., "DATABASE"."SCHEMA"."TABLE", "column_name").
       * Use TO_DATE(), TO_TIMESTAMP() for date conversion
       * Use DATEADD(), DATEDIFF() for date arithmetic
-      * Use TRY_TO_NUMBER(), TRY_TO_DATE() for safe type conversion
-      * Use FLATTEN() to access nested/semi-structured data (VARIANT, ARRAY, OBJECT)
+      * Use LATERAL FLATTEN(INPUT => "column_name") to access nested/semi-structured data (VARIANT, ARRAY, OBJECT)
       * String functions: STARTSWITH(), ENDSWITH(), CONTAINS()
     - For SQLite:
-      * Use standard SQLite syntax
-      * Use date() or datetime() for date operations
-10. **Date Processing:**
+      * Use standard SQLite syntax and backticks for identifiers
+7. **Date Processing:**
     - Use database-appropriate date functions based on the Database Type shown in the schema.
-11. **Schema Syntax:**
-    - For BigQuery: Use backticks for table names with dots (e.g., `project.dataset.table`)
-    - For Snowflake: Use double quotes for identifiers with special characters
-12. **Value Examples:**
-    - For key phrases mentioned in the question, we have provided the most similar values within the columns (TEXT-TYPE columns) denoted by "Value Examples".
-13. **Nested/Repeated Fields:**
+8. **Schema Syntax:**
+    - For BigQuery / SQLite: Use backticks for identifiers (e.g., `project.dataset.table`, `column_name`)
+    - For Snowflake: Use double quotes for ALL identifiers (e.g., "DATABASE"."SCHEMA"."TABLE", "column_name") to safely handle case-sensitivity.
+9. **Nested/Repeated Fields:**
     - For BigQuery: Use UNNEST() to flatten ARRAY fields before accessing nested data
-    - For Snowflake: Use FLATTEN() or LATERAL FLATTEN() for VARIANT/ARRAY data
-14. **Wildcard Table Queries (Tables with identical schema):**
+    - For Snowflake: Use LATERAL FLATTEN(INPUT => "column_name") for VARIANT/ARRAY data
+10. **Wildcard Table Queries (Tables with identical schema):**
     - Some databases have multiple tables with the exact same structure (e.g., per-date tables, per-region tables)
     - For BigQuery: Use wildcard table syntax `project.dataset.table_prefix_*` with `_TABLE_SUFFIX` filter. 
       * **CRITICAL**: The `_TABLE_SUFFIX` contains ONLY the part matched by the asterisk `*`.
@@ -156,14 +142,14 @@ Please respond with XML code structured as follows.
 ## Question:
 {QUESTION}
 
-Repeating the question and hint, and generating the SQL with Recursive Divide-and-Conquer approach, and finally try to simplify the SQL query using `INNER JOIN` over nested `SELECT` statements IF POSSIBLE.
+Repeating the question and hint, and generating the SQL with Recursive Divide-and-Conquer approach.
 
 # Output:
 """
 
 SPIDER2_ICL_SQL_GENERATION_PROMPT = """
 # Task:
-You are an experienced database expert specializing in cross-domain SQL generation for databases.
+You are an experienced database expert specializing in cross-domain SQL generation for BigQuery, Snowflake and SQLite databases.
 You will be given a target database schema, a question, and several similar examples from different databases (cross-domain few-shot examples).
 Your task is to generate a SQL query for the target question by learning from the provided examples.
 
@@ -191,13 +177,12 @@ Your task is to generate a SQL query for the target question by learning from th
 4. **Database Dialect (CRITICAL)**: 
    - Use the specified Database Engine (BIGQUERY, SNOWFLAKE, or SQLITE)
    - Examples may use SQLite syntax; you MUST adapt to the target database's syntax
-   - For BigQuery: Use EXTRACT() instead of STRFTIME(), backticks for table names, UNNEST() for arrays.
-     * **CRITICAL**: `_TABLE_SUFFIX` filter MUST match the asterisk `*` in the `FROM` clause. Use `events_*` with `BETWEEN '20210101' AND '20210107'` for full dates.
-   - For Snowflake: Use TO_DATE()/DATEADD() for dates, uppercase table names, FLATTEN() for arrays
-   - For SQLite: Use standard SQLite syntax and date functions
+   - For BigQuery: Use EXTRACT() instead of STRFTIME(), backticks for ALL identifiers, UNNEST() for arrays
+   - For Snowflake: Use TO_DATE()/DATEADD() for dates, double quotes for ALL identifiers (e.g. "TABLE"."COLUMN") to ensure case-sensitivity, LATERAL FLATTEN(INPUT => "COLUMN") for arrays
+   - For SQLite: Use standard SQLite syntax and backticks for identifiers
 5. **Exact Column Names**: Use the exact column and table names from the target schema
 6. **Logical Consistency**: Ensure the generated query logically answers the target question
-7. **Nested/Repeated Fields**: If the schema mentions nested fields, use appropriate functions (UNNEST for BigQuery, FLATTEN for Snowflake)
+7. **Nested/Repeated Fields**: If the schema mentions nested fields, use appropriate functions (UNNEST for BigQuery, LATERAL FLATTEN(INPUT => "column") for Snowflake)
 8. **Wildcard Table Queries (Tables with identical schema):**
    - Some databases have multiple tables with the exact same structure (e.g., per-date tables, per-region tables)
     - For BigQuery: Use wildcard table syntax `project.dataset.table_prefix_*` with `_TABLE_SUFFIX` filter. 
@@ -238,7 +223,7 @@ Please respond with XML code structured as follows:
 
 SPIDER2_SKELETON_SQL_GENERATION_PROMPT = """
 # Task:
-You are an expert SQL developer who uses a systematic approach to generate complex SQL queries for databases.
+You are an expert SQL developer who uses a systematic approach to generate complex SQL queries for BigQuery, Snowflake and SQLite databases.
 Your task is to analyze the given question and database schema, then generate a SQL query using a three-step process:
 1. **Plan**: Identify the required SQL components and logical structure
 2. **Skeleton**: Create a structured SQL skeleton with placeholders
@@ -277,16 +262,14 @@ Fill in the skeleton with:
 1. **Schema Accuracy**: Use exact table and column names from the provided schema
 2. **Database Dialect (CRITICAL)**: 
    - Use the specified Database Engine (BIGQUERY, SNOWFLAKE, or SQLITE)
-   - For BigQuery: Use backticks, EXTRACT(), UNNEST(), FORMAT_DATE().
-     * **CRITICAL**: `_TABLE_SUFFIX` filter MUST match the asterisk `*` in the `FROM` clause. Use `events_*` with `BETWEEN '20210101' AND '20210107'` for full dates.
-   - For Snowflake: Use uppercase tables, TO_DATE(), DATEADD(), FLATTEN()
-   - For SQLite: Use standard SQLite syntax, date() or datetime() for dates
+   - For BigQuery: Use backticks for ALL identifiers, EXTRACT(), UNNEST(), FORMAT_DATE()
+   - For Snowflake: Use double quotes for ALL identifiers (e.g. "TABLE"."COLUMN") to ensure case-sensitivity, TO_DATE(), DATEADD(), LATERAL FLATTEN(INPUT => "COLUMN")
+   - For SQLite: Use standard SQLite syntax and backticks for identifiers
 3. **Logical Flow**: Ensure the query logic matches the question requirements
-4. **Performance**: Prefer efficient JOIN patterns over nested subqueries when possible
-5. **Readability**: Use clear aliases and proper formatting
-6. **Completeness**: Address all aspects mentioned in the question and hint
-7. **Nested Fields**: For BigQuery use UNNEST(), for Snowflake use FLATTEN()
-8. **Wildcard Table Queries (Tables with identical schema):**
+4. **Readability**: Use clear aliases and proper formatting
+5. **Completeness**: Address all aspects mentioned in the question and hint
+6. **Nested Fields**: For BigQuery use UNNEST(), for Snowflake use LATERAL FLATTEN(INPUT => "column")
+7. **Wildcard Table Queries (Tables with identical schema):**
    - Some databases have multiple tables with the exact same structure (e.g., per-date tables, per-region tables)
     - For BigQuery: Use wildcard table syntax `project.dataset.table_prefix_*` with `_TABLE_SUFFIX` filter. 
       * **CRITICAL**: The `_TABLE_SUFFIX` contains ONLY the part matched by the asterisk `*`.
@@ -295,14 +278,13 @@ Fill in the skeleton with:
       * **Avoid**: `FROM `project.dataset.events_2021*` WHERE _TABLE_SUFFIX BETWEEN '20210101' AND ...` (Incorrect logic, as suffix would only be '0101')
    - For Snowflake: Use UNION ALL across tables or dynamic SQL with table functions
 
-
 # Output Format:
 Please respond with XML code structured as follows:
 <reasoning>
     Your comprehensive analysis and planning for the SQL query generation and the SQL skeleton with placeholders.
 </reasoning>
 <result>
-    The final SQL query that answers the target question and can be executed on the target database (BigQuery, Snowflake, or SQLite), ensure there is not any comment and not any other explanation text in the SQL query.
+    The final SQL query that answers the target question and can be executed on the target database (BigQuery, Snowflake, or SQLite as indicated in the engine), ensure there is not any comment and not any other explanation text in the SQL query.
     The SQL query must not include XML-specific characters (e.g., `&lt;`, `&gt;`, `&amp;`); only SQL-valid characters are allowed.
 </result>
 
@@ -337,12 +319,8 @@ You are an SQL database expert tasked with correcting a SQL query for a database
     - Execution Result: Analyze the outcome of the executed query to identify why it failed (e.g., syntax errors, incorrect column references, logical mistakes, wrong SQL dialect).
 3. Correct the Query: 
     - Modify the SQL query to address the identified issues, ensuring it correctly fetches the requested data according to the database schema and query requirements.
-    - Use the retrieved values to help write more accurate conditions when appropriate.
     - Ensure the SQL syntax matches the target database dialect (BigQuery, Snowflake, or SQLite).
-
-[IMPORTANT]
-- For key phrases mentioned in the question, we have provided the most similar values within the columns (TEXT-TYPE columns) denoted by "Value Examples". **This is a critical hint to identify the tables/columns that will be used in the SQL query.**
-- Check if the error is related to SQL dialect mismatch (e.g., using SQLite syntax on BigQuery/Snowflake).
+    - For BigQuery and SQLite, use backticks for identifiers. For Snowflake, use double quotes for ALL identifiers to ensure case-sensitivity.
 
 # Output Format:
 Please respond with XML code structured as follows.
@@ -350,7 +328,7 @@ Please respond with XML code structured as follows.
     Your detailed reasoning for the SQL query revision, including the detailed analysis of the previous query and the database schema, and try to fix the failed query.
 </reasoning>
 <result>
-    The final revised SQL query that answers the question and can be executed on the target database (BigQuery, Snowflake, or SQLite), ensure there is not any comment and not any other explanation text in the SQL query.
+    The final revised SQL query that answers the question and can be executed on the target database (BigQuery, Snowflake, or SQLite as indicated in the engine), ensure there is not any comment and not any other explanation text in the SQL query.
     The SQL query must not include XML-specific characters (e.g., `&lt;`, `&gt;`, `&amp;`); only SQL-valid characters are allowed.
 </result>
 
@@ -393,7 +371,8 @@ You are an SQL database expert tasked with correcting a SQL query for a database
     - Modification Suggestions: Review the suggestions provided by the external checker, and think how to modify the SQL to meet the suggestions.
 3. Correct the Query: 
     - Modify the SQL query based the given Modification Suggestions, ensuring it correctly meet the expected suggestions.
-    - Ensure the SQL syntax matches the target database dialect (BigQuery, Snowflake, or SQLite).
+    - Ensure the SQL syntax matches the target database dialect (BigQuery, Snowflake, or SQLite as indicated in the engine).
+    - For BigQuery and SQLite, use backticks for identifiers. For Snowflake, use double quotes for ALL identifiers to ensure case-sensitivity.
 
 [IMPORTANT]
 Your are NOT ALLOWED to do any other modifications which are not listed in given suggestions.
@@ -442,13 +421,11 @@ Given the DB info and question, there are two candidate queries for a database (
 - You should only choose SQL Candidate B if there is clear evidence that it is superior to SQL Candidate A, or if SQL Candidate A has obvious errors
 - The default preference should be SQL Candidate A unless there are compelling reasons to choose SQL Candidate B
 - If you cannot determine which SQL is better, or if both SQLs have significant issues, you should choose SQL Candidate A by default
-- Consider database-specific syntax correctness for the specified Database Engine ({DATABASE_ENGINE})
 
 # Instructions:
 - Carefully analyze the user question, database schema, and both candidate SQL queries
 - For each SQL, consider its logic, correctness, and the provided execution result
 - Compare the two SQLs in terms of their ability to answer the question accurately and completely
-- You can only select minimum columns requested by the user question
 - Give preference to SQL Candidate A unless SQL Candidate B clearly demonstrates superiority or SQL Candidate A has obvious flaws
 - In <result>, output 'A' or 'B' (just the letter/word):
   - 'A': SQL Candidate A is clearly better

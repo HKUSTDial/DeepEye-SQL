@@ -58,48 +58,64 @@ class LLM:
                   system_message: Optional[Dict[str, str]] = None,
                   timeout: int = 300,
                   **kwargs) -> tuple[List[ChatCompletionMessage], Dict[str, int]]:
-        try:
-            if system_message:
-                messages = [system_message] + messages
-            request_params = {
-                "model": self._config.model,
-                "messages": messages,
-                "max_tokens": self._config.max_tokens,
-                "temperature": self._config.temperature,
-                "timeout": timeout,
-            }
-            if self._config.reasoning_effort is not None:
-                request_params["reasoning_effort"] = self._config.reasoning_effort
-            request_params.update(kwargs)
+        if system_message:
+            messages = [system_message] + messages
+            
+        target_n = kwargs.pop("n", 1)
+        max_request_n = self._config.max_request_n or target_n
+        
+        all_choices = []
+        total_token_usage = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0
+        }
+        
+        while len(all_choices) < target_n:
+            current_n = min(target_n - len(all_choices), max_request_n)
+            try:
+                request_params = {
+                    "model": self._config.model,
+                    "messages": messages,
+                    "max_tokens": self._config.max_tokens,
+                    "temperature": self._config.temperature,
+                    "timeout": timeout,
+                    "n": current_n,
+                }
+                if self._config.reasoning_effort is not None:
+                    request_params["reasoning_effort"] = self._config.reasoning_effort
+                request_params.update(kwargs)
+                    
+                response = self._client.chat.completions.create(**request_params)
+                if not response.choices:
+                    raise EmptyResponseError(f"No response from the model: {response}")
                 
-            response = self._client.chat.completions.create(**request_params)
-            if not response.choices:
-                raise EmptyResponseError(f"No response from the model: {response}")
-            
-            # Check if any choice has None or empty content
-            for choice in response.choices:
-                if choice.message.content is None or choice.message.content.strip() == "":
-                    raise EmptyResponseError(f"Model returned empty content (possibly filtered): {response}")
-            
-            # Calculate token usage for this specific request
-            current_token_usage = {
-                "prompt_tokens": response.usage.prompt_tokens,
-                "completion_tokens": response.usage.completion_tokens,
-                "total_tokens": response.usage.total_tokens
-            }
-            
-            return [choice.message for choice in response.choices], current_token_usage
-        except OpenAIError as e:
-            if isinstance(e, RateLimitError):
-                logger.error(f"OpenAI error: {e}")
-                logger.error("Rate limit exceeded, please try again later.")
-            elif isinstance(e, AuthenticationError):
-                logger.error(f"OpenAI error: {e}")
-                logger.error("Authentication error, please check your api key.")
-            elif isinstance(e, BadRequestError):
-                logger.error(f"OpenAI error: {e}")
-                logger.error("Bad request, please check your request parameters.")
-            raise e
-        except Exception as e:
-            logger.error(f"Unexpected error: {e}")
-            raise e
+                # Check if any choice has None or empty content
+                for choice in response.choices:
+                    if choice.message.content is None or choice.message.content.strip() == "":
+                        raise EmptyResponseError(f"Model returned empty content (possibly filtered): {response}")
+                
+                all_choices.extend([choice.message for choice in response.choices])
+                
+                # Calculate token usage
+                if response.usage:
+                    total_token_usage["prompt_tokens"] += response.usage.prompt_tokens
+                    total_token_usage["completion_tokens"] += response.usage.completion_tokens
+                    total_token_usage["total_tokens"] += response.usage.total_tokens
+                
+            except OpenAIError as e:
+                if isinstance(e, RateLimitError):
+                    logger.error(f"OpenAI error: {e}")
+                    logger.error("Rate limit exceeded, please try again later.")
+                elif isinstance(e, AuthenticationError):
+                    logger.error(f"OpenAI error: {e}")
+                    logger.error("Authentication error, please check your api key.")
+                elif isinstance(e, BadRequestError):
+                    logger.error(f"OpenAI error: {e}")
+                    logger.error("Bad request, please check your request parameters.")
+                raise e
+            except Exception as e:
+                logger.error(f"Unexpected error: {e}")
+                raise e
+                
+        return all_choices, total_token_usage
