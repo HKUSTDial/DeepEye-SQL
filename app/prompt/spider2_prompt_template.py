@@ -22,7 +22,9 @@ For each of the selected tables and columns, explain why exactly it is necessary
 5. **Tables with identical schema**: Some databases have multiple tables with the exact same structure (marked in schema as "IDENTICAL schema structure"). If you need to query such tables, **just select ONE representative table** - we will automatically include all tables in the group. In the final SQL, these can be queried using:
    - BigQuery: Wildcard table syntax like `project.dataset.table_prefix_*` with `_TABLE_SUFFIX`
    - Snowflake: UNION ALL or dynamic SQL patterns
-6. **Column name format**: When selecting a column, use the **exact column name** as it appears in the schema. Do **NOT** include table names or dots (e.g., use `column_name`, not `table_name.column_name`).
+6. **Table and Column name format**: 
+   - When selecting a table, use the **EXACT table identifier** (either `table_name` or `table_fullname`) as it appears in the schema. Do **NOT** shorten it (e.g., if the schema says `DB.SCHEMA.TABLE`, do not use `SCHEMA.TABLE` or `TABLE`).
+   - When selecting a column, use the **EXACT column name** as it appears in the schema. Do **NOT** include table names or dots (e.g., use `column_name`, not `table_name.column_name`).
 7. **Nested columns (BigQuery/Snowflake)**: For nested or semi-structured fields (e.g., `totals.pageviews` in BigQuery or VARIANT in Snowflake), you only need to select the **top-level column name** (e.g., `totals`). You do not need to list individual fields within the nested structure.
 
 # Output Format:
@@ -98,7 +100,8 @@ Here is a high level description of the steps.
       * **CRITICAL**: Use double quotes for ALL identifiers (database, schema, table, and column names) to ensure case-sensitivity is handled correctly (e.g., "DATABASE"."SCHEMA"."TABLE", "column_name").
       * Use TO_DATE(), TO_TIMESTAMP() for date conversion
       * Use DATEADD(), DATEDIFF() for date arithmetic
-      * Use LATERAL FLATTEN(INPUT => "column_name") to access nested/semi-structured data (VARIANT, ARRAY, OBJECT)
+      * Use LATERAL FLATTEN(INPUT => "column_name") to access nested/semi-structured data (VARIANT, ARRAY, OBJECT).
+      * **CRITICAL**: Avoid using LATERAL FLATTEN inside EXISTS or NOT EXISTS subqueries as it often leads to "Unsupported subquery type" errors in Snowflake. Instead, use JOIN LATERAL FLATTEN(...) in the FROM/JOIN clause, choosing the appropriate join type (INNER, LEFT, CROSS, etc.) based on the logic (e.g., use LEFT JOIN and filter for NULL values to implement NOT EXISTS).
       * String functions: STARTSWITH(), ENDSWITH(), CONTAINS()
     - For SQLite:
       * Use standard SQLite syntax and backticks for identifiers
@@ -178,11 +181,11 @@ Your task is to generate a SQL query for the target question by learning from th
    - Use the specified Database Engine (BIGQUERY, SNOWFLAKE, or SQLITE)
    - Examples may use SQLite syntax; you MUST adapt to the target database's syntax
    - For BigQuery: Use EXTRACT() instead of STRFTIME(), backticks for ALL identifiers, UNNEST() for arrays
-   - For Snowflake: Use TO_DATE()/DATEADD() for dates, double quotes for ALL identifiers (e.g. "TABLE"."COLUMN") to ensure case-sensitivity, LATERAL FLATTEN(INPUT => "COLUMN") for arrays
+   - For Snowflake: Use TO_DATE()/DATEADD() for dates, double quotes for ALL identifiers (e.g. "TABLE"."COLUMN") to ensure case-sensitivity, LATERAL FLATTEN(INPUT => "COLUMN") for arrays. **CRITICAL**: Avoid using LATERAL FLATTEN inside EXISTS/NOT EXISTS subqueries as it often leads to "Unsupported subquery type" errors in Snowflake. Instead, use JOIN LATERAL FLATTEN(...) in the FROM/JOIN clause, choosing the join type (INNER, LEFT, CROSS, etc.) based on the logic.
    - For SQLite: Use standard SQLite syntax and backticks for identifiers
 5. **Exact Column Names**: Use the exact column and table names from the target schema
 6. **Logical Consistency**: Ensure the generated query logically answers the target question
-7. **Nested/Repeated Fields**: If the schema mentions nested fields, use appropriate functions (UNNEST for BigQuery, LATERAL FLATTEN(INPUT => "column") for Snowflake)
+7. **Nested/Repeated Fields**: If the schema mentions nested fields, use appropriate functions (UNNEST for BigQuery, LATERAL FLATTEN(INPUT => "column") for Snowflake). **CRITICAL**: Avoid using LATERAL FLATTEN inside EXISTS/NOT EXISTS subqueries in Snowflake; use JOIN LATERAL FLATTEN(...) instead.
 8. **Wildcard Table Queries (Tables with identical schema):**
    - Some databases have multiple tables with the exact same structure (e.g., per-date tables, per-region tables)
     - For BigQuery: Use wildcard table syntax `project.dataset.table_prefix_*` with `_TABLE_SUFFIX` filter. 
@@ -263,12 +266,12 @@ Fill in the skeleton with:
 2. **Database Dialect (CRITICAL)**: 
    - Use the specified Database Engine (BIGQUERY, SNOWFLAKE, or SQLITE)
    - For BigQuery: Use backticks for ALL identifiers, EXTRACT(), UNNEST(), FORMAT_DATE()
-   - For Snowflake: Use double quotes for ALL identifiers (e.g. "TABLE"."COLUMN") to ensure case-sensitivity, TO_DATE(), DATEADD(), LATERAL FLATTEN(INPUT => "COLUMN")
+   - For Snowflake: Use double quotes for ALL identifiers (e.g. "TABLE"."COLUMN") to ensure case-sensitivity, TO_DATE(), DATEADD(), LATERAL FLATTEN(INPUT => "COLUMN"). **CRITICAL**: Avoid using LATERAL FLATTEN inside EXISTS/NOT EXISTS subqueries as it often leads to "Unsupported subquery type" errors in Snowflake. Instead, use JOIN LATERAL FLATTEN(...) in the FROM/JOIN clause, choosing the join type (INNER, LEFT, CROSS, etc.) based on the logic.
    - For SQLite: Use standard SQLite syntax and backticks for identifiers
 3. **Logical Flow**: Ensure the query logic matches the question requirements
 4. **Readability**: Use clear aliases and proper formatting
 5. **Completeness**: Address all aspects mentioned in the question and hint
-6. **Nested Fields**: For BigQuery use UNNEST(), for Snowflake use LATERAL FLATTEN(INPUT => "column")
+6. **Nested Fields**: For BigQuery use UNNEST(), for Snowflake use LATERAL FLATTEN(INPUT => "column"). **CRITICAL**: Avoid using LATERAL FLATTEN inside EXISTS/NOT EXISTS subqueries in Snowflake; use JOIN LATERAL FLATTEN(...) instead.
 7. **Wildcard Table Queries (Tables with identical schema):**
    - Some databases have multiple tables with the exact same structure (e.g., per-date tables, per-region tables)
     - For BigQuery: Use wildcard table syntax `project.dataset.table_prefix_*` with `_TABLE_SUFFIX` filter. 
@@ -321,6 +324,7 @@ You are an SQL database expert tasked with correcting a SQL query for a database
     - Modify the SQL query to address the identified issues, ensuring it correctly fetches the requested data according to the database schema and query requirements.
     - Ensure the SQL syntax matches the target database dialect (BigQuery, Snowflake, or SQLite).
     - For BigQuery and SQLite, use backticks for identifiers. For Snowflake, use double quotes for ALL identifiers to ensure case-sensitivity.
+    - **Snowflake Specific**: Avoid using LATERAL FLATTEN inside EXISTS/NOT EXISTS subqueries as it often leads to "Unsupported subquery type" errors. Instead, use JOIN LATERAL FLATTEN(...) in the FROM/JOIN clause, choosing the join type (INNER, LEFT, CROSS, etc.) based on the requirements (e.g., use LEFT JOIN and filter for NULLs to implement NOT EXISTS).
 
 # Output Format:
 Please respond with XML code structured as follows.
@@ -373,6 +377,7 @@ You are an SQL database expert tasked with correcting a SQL query for a database
     - Modify the SQL query based the given Modification Suggestions, ensuring it correctly meet the expected suggestions.
     - Ensure the SQL syntax matches the target database dialect (BigQuery, Snowflake, or SQLite as indicated in the engine).
     - For BigQuery and SQLite, use backticks for identifiers. For Snowflake, use double quotes for ALL identifiers to ensure case-sensitivity.
+    - **Snowflake Specific**: Avoid using LATERAL FLATTEN inside EXISTS/NOT EXISTS subqueries as it often leads to "Unsupported subquery type" errors. Instead, use JOIN LATERAL FLATTEN(...) in the FROM/JOIN clause, choosing the join type (INNER, LEFT, CROSS, etc.) based on the requirements (e.g., use LEFT JOIN and filter for NULLs to implement NOT EXISTS).
 
 [IMPORTANT]
 Your are NOT ALLOWED to do any other modifications which are not listed in given suggestions.

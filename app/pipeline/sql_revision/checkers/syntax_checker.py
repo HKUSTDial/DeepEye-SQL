@@ -6,6 +6,7 @@ from app.prompt import PromptFactory
 from app.llm_extractor import LLMExtractor
 from app.db_utils import execute_sql, execute_sql_for_data_item, get_database_schema_profile
 from app.config import config
+from app.pipeline.utils import get_execution_result_hash
 from typing import Dict, List, Any, Optional, Tuple
 import re
 from collections import Counter
@@ -60,7 +61,7 @@ class SyntaxChecker(BaseChecker):
             # Use execute_sql_for_data_item to support cloud databases
             execution_result = execute_sql_for_data_item(data_item, sql_candidate)
             if execution_result.result_type in ["success", "empty_result", "all_null_result"]:
-                valid_sql_candidates.append((sql_candidate, frozenset(self._make_hashable(execution_result.result_rows))))
+                valid_sql_candidates.append((sql_candidate, get_execution_result_hash(data_item, execution_result.result_rows)))
         
         if len(valid_sql_candidates) == 0:
             return None

@@ -124,7 +124,7 @@ class SQLRevisionRunner:
             norm_to_result = {}
             has_failure = False
             
-            for future in tqdm(as_completed(future_to_norm), total=len(future_to_norm), desc=f"Revising unique candidates for item {data_item.question_id}", leave=False):
+            for future in tqdm(as_completed(future_to_norm), total=len(future_to_norm), desc=f"Revising unique candidates for item {data_item.question_id}", disable=True):
                 norm = future_to_norm[future]
                 try:
                     revised_sql, tokens = future.result()

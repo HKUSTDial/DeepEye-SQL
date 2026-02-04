@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional, List, Tuple, Any, Dict
 import pandas as pd
 from app.logger import logger
+from app.config import config
 from .execution import SQLExecutionResult
     
 
@@ -32,7 +33,7 @@ def execute_bigquery_sql(
     sql: str,
     db_path: str,
     credential_path: Optional[str] = None,
-    timeout: int = 60
+    timeout: Optional[int] = None
 ) -> SQLExecutionResult:
     """
     Execute SQL on BigQuery.
@@ -46,6 +47,8 @@ def execute_bigquery_sql(
     Returns:
         SQLExecutionResult with query results.
     """
+    if timeout is None:
+        timeout = config.dataset_config.sql_execution_timeout
     try:
         from google.cloud import bigquery
     except ImportError:
@@ -109,7 +112,7 @@ def execute_snowflake_sql(
     sql: str,
     db_path: str,
     credential_path: Optional[str] = None,
-    timeout: int = 60
+    timeout: Optional[int] = None
 ) -> SQLExecutionResult:
     """
     Execute SQL on Snowflake.
@@ -123,6 +126,8 @@ def execute_snowflake_sql(
     Returns:
         SQLExecutionResult with query results.
     """
+    if timeout is None:
+        timeout = config.dataset_config.sql_execution_timeout
     try:
         import snowflake.connector
     except ImportError:
@@ -205,7 +210,7 @@ def execute_cloud_sql(
     db_type: str,
     db_path: str,
     credential_path: Optional[str] = None,
-    timeout: int = 60
+    timeout: Optional[int] = None
 ) -> SQLExecutionResult:
     """
     Execute SQL on cloud database.
@@ -220,6 +225,8 @@ def execute_cloud_sql(
     Returns:
         SQLExecutionResult with query results.
     """
+    if timeout is None:
+        timeout = config.dataset_config.sql_execution_timeout
     if db_type == "bigquery":
         return execute_bigquery_sql(sql, db_path, credential_path, timeout)
     elif db_type == "snowflake":
@@ -238,7 +245,7 @@ def execute_sql_for_spider2(
     db_type: str,
     db_path: str,
     credential_path: Optional[str] = None,
-    timeout: int = 60
+    timeout: Optional[int] = None
 ) -> SQLExecutionResult:
     """
     Execute SQL for Spider2 datasets. Handles both local SQLite and cloud databases.
@@ -253,6 +260,8 @@ def execute_sql_for_spider2(
     Returns:
         SQLExecutionResult with query results.
     """
+    if timeout is None:
+        timeout = config.dataset_config.sql_execution_timeout
     if db_type == "sqlite":
         # Use existing SQLite execution
         from app.db_utils.execution import execute_sql

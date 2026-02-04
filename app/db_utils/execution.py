@@ -8,6 +8,7 @@ import time
 import numpy as np
 from collections import Counter
 from app.logger import logger
+from app.config import config
 
 
 class SQLExecutionResult(BaseModel):
@@ -40,11 +41,11 @@ class SQLExecutionResult(BaseModel):
 
 
 class SQLExecutionThread(threading.Thread):
-    def __init__(self, db_path: str, sql: str, timeout: int = 30):
+    def __init__(self, db_path: str, sql: str, timeout: Optional[int] = None):
         super().__init__()
         self.db_path = db_path
         self.sql = sql
-        self.timeout = timeout
+        self.timeout = timeout or config.dataset_config.sql_execution_timeout
         self.result_rows = None
         self.result_cols = None
         self.exception = None
@@ -68,7 +69,9 @@ class SQLExecutionThread(threading.Thread):
 
 
 @lru_cache(maxsize=1000)
-def execute_sql(db_path: str, sql: str, timeout: int = 30) -> SQLExecutionResult:
+def execute_sql(db_path: str, sql: str, timeout: Optional[int] = None) -> SQLExecutionResult:
+    if timeout is None:
+        timeout = config.dataset_config.sql_execution_timeout
     thread = SQLExecutionThread(db_path, sql, timeout)
     thread.daemon = True
     thread.start()
@@ -116,7 +119,9 @@ def execute_sql(db_path: str, sql: str, timeout: int = 30) -> SQLExecutionResult
     )
     
 
-def execute_sql_without_cache(db_path: str, sql: str, timeout: int = 30) -> SQLExecutionResult:
+def execute_sql_without_cache(db_path: str, sql: str, timeout: Optional[int] = None) -> SQLExecutionResult:
+    if timeout is None:
+        timeout = config.dataset_config.sql_execution_timeout
     thread = SQLExecutionThread(db_path, sql, timeout)
     thread.daemon = True
     thread.start()
@@ -164,7 +169,7 @@ def execute_sql_without_cache(db_path: str, sql: str, timeout: int = 30) -> SQLE
     )
     
 
-def measure_execution_time(db_path: str, sql: str, timeout: int = 30, repeat: int = 10) -> float:
+def measure_execution_time(db_path: str, sql: str, timeout: Optional[int] = None, repeat: int = 10) -> float:
     """
     Measure SQL execution time for SQLite databases.
     
@@ -177,6 +182,8 @@ def measure_execution_time(db_path: str, sql: str, timeout: int = 30, repeat: in
     Returns:
         Average execution time in seconds, or np.inf if execution fails.
     """
+    if timeout is None:
+        timeout = config.dataset_config.sql_execution_timeout
     execution_times = []
     for _ in range(repeat):
         start_time = time.time()
@@ -193,7 +200,7 @@ def measure_execution_time(db_path: str, sql: str, timeout: int = 30, repeat: in
     return float(np.mean(execution_times))
 
 
-def measure_execution_time_for_data_item(data_item, sql: str, timeout: int = 30, repeat: int = 10) -> float:
+def measure_execution_time_for_data_item(data_item, sql: str, timeout: Optional[int] = None, repeat: int = 10) -> float:
     """
     Measure SQL execution time based on the data item's database type.
     
@@ -210,6 +217,8 @@ def measure_execution_time_for_data_item(data_item, sql: str, timeout: int = 30,
     Returns:
         Average execution time in seconds, or np.inf for cloud databases or if execution fails.
     """
+    if timeout is None:
+        timeout = config.dataset_config.sql_execution_timeout
     # Check if it's a cloud database
     db_type = getattr(data_item, "db_type", None)
     
@@ -222,7 +231,7 @@ def measure_execution_time_for_data_item(data_item, sql: str, timeout: int = 30,
     return measure_execution_time(data_item.database_path, sql, timeout, repeat)
 
 
-def execute_sql_for_data_item(data_item, sql: str, timeout: int = 60) -> SQLExecutionResult:
+def execute_sql_for_data_item(data_item, sql: str, timeout: Optional[int] = None) -> SQLExecutionResult:
     """
     Execute SQL based on the data item's database type.
     Automatically handles SQLite, BigQuery, and Snowflake databases.
@@ -235,6 +244,8 @@ def execute_sql_for_data_item(data_item, sql: str, timeout: int = 60) -> SQLExec
     Returns:
         SQLExecutionResult with query results.
     """
+    if timeout is None:
+        timeout = config.dataset_config.sql_execution_timeout
     # Check if it's a Spider2 data item with db_type
     db_type = getattr(data_item, "db_type", None)
     
@@ -244,7 +255,6 @@ def execute_sql_for_data_item(data_item, sql: str, timeout: int = 60) -> SQLExec
     
     # Cloud database execution
     from .cloud_execution import execute_cloud_sql
-    from app.config import config
     
     # Get credential path from config
     credential_path = None

@@ -79,22 +79,3 @@ class BaseChecker(ABC):
             logger.error(f"Error parsing LLM response: {e}")
             logger.debug(f"Response content: {response}")
             return None
-
-    def _make_hashable(self, obj: Any) -> Any:
-        """
-        Recursively convert unhashable objects (lists, dicts, numpy arrays) 
-        into hashable equivalents (tuples).
-        """
-        if hasattr(obj, "tolist") and callable(obj.tolist):
-            # Handles numpy arrays and other objects with tolist()
-            obj = obj.tolist()
-            
-        if isinstance(obj, list):
-            return tuple(self._make_hashable(item) for item in obj)
-        if isinstance(obj, tuple):
-            return tuple(self._make_hashable(item) for item in obj)
-        if isinstance(obj, dict):
-            # Sort dict items by key to ensure consistent hashable representation
-            return tuple(sorted((k, self._make_hashable(v)) for k, v in obj.items()))
-        
-        return obj

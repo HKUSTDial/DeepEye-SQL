@@ -416,8 +416,8 @@ def get_database_schema_profile(
     
     profile += f"Database ID: `{db_id}`\n"
     
-    # Show database type for cloud databases
-    if db_type in ["bigquery", "snowflake"]:
+    # Show database type
+    if db_type in ["bigquery", "snowflake", "sqlite"]:
         profile += f"Database Type: {db_type.upper()}\n"
     
     profile += f"Schema:\n"

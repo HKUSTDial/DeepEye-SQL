@@ -71,13 +71,15 @@ class LLM:
             "total_tokens": 0
         }
         
+        current_max_tokens = kwargs.pop("max_tokens", self._config.max_tokens)
+        
         while len(all_choices) < target_n:
             current_n = min(target_n - len(all_choices), max_request_n)
             try:
                 request_params = {
                     "model": self._config.model,
                     "messages": messages,
-                    "max_tokens": self._config.max_tokens,
+                    "max_tokens": current_max_tokens,
                     "temperature": self._config.temperature,
                     "timeout": timeout,
                     "n": current_n,
@@ -111,6 +113,16 @@ class LLM:
                     logger.error(f"OpenAI error: {e}")
                     logger.error("Authentication error, please check your api key.")
                 elif isinstance(e, BadRequestError):
+                    error_msg = str(e).lower()
+                    if "context" in error_msg or "tokens" in error_msg or "length" in error_msg:
+                        new_max_tokens = int(current_max_tokens * 0.9) if current_max_tokens else 0
+                        if new_max_tokens > 0:
+                            logger.warning(f"Context length exceeded. Reducing max_tokens from {current_max_tokens} to {new_max_tokens} and retrying.")
+                            current_max_tokens = new_max_tokens
+                            continue
+                        else:
+                            logger.error(f"Context length exceeded, but max_tokens cannot be reduced further (current: {current_max_tokens}).")
+                    
                     logger.error(f"OpenAI error: {e}")
                     logger.error("Bad request, please check your request parameters.")
                 raise e

@@ -41,6 +41,7 @@ class DatasetConfig(BaseModel):
     snowflake_credential_path: Optional[str] = Field(default=None, description="Path to Snowflake credential JSON file")
     bigquery_credential_path: Optional[str] = Field(default=None, description="Path to BigQuery credential JSON file")
     
+    sql_execution_timeout: int = Field(default=60, description="The timeout for SQL execution in seconds")
     max_value_example_length: int = Field(default=100, description="The maximum length of the value examples in the schema")
     
     @model_validator(mode="after")
@@ -204,6 +205,7 @@ class Config:
             # Spider2 specific configurations
             "snowflake_credential_path": dataset_config.get("snowflake_credential_path", None),
             "bigquery_credential_path": dataset_config.get("bigquery_credential_path", None),
+            "sql_execution_timeout": dataset_config.get("sql_execution_timeout", 600),
             "max_value_example_length": dataset_config.get("max_value_example_length", 100),
         }
         

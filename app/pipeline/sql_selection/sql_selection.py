@@ -7,6 +7,7 @@ from app.prompt import PromptFactory
 from app.llm_extractor import LLMExtractor
 from app.db_utils import execute_sql, execute_sql_for_data_item, get_database_schema_profile, measure_execution_time_for_data_item
 from app.pipeline.validation import validate_pipeline_step
+from app.pipeline.utils import get_execution_result_hash
 from typing import Dict, List, Any, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from app.config import config
@@ -57,25 +58,6 @@ class SQLSelectionRunner:
             logger.error(f"Error parsing LLM response: {e}")
             logger.debug(f"Response content: {response}")
             return None
-        
-    def _make_hashable(self, obj: Any) -> Any:
-        """
-        Recursively convert unhashable objects (lists, dicts, numpy arrays) 
-        into hashable equivalents (tuples).
-        """
-        if hasattr(obj, "tolist") and callable(obj.tolist):
-            # Handles numpy arrays and other objects with tolist()
-            obj = obj.tolist()
-            
-        if isinstance(obj, list):
-            return tuple(self._make_hashable(item) for item in obj)
-        if isinstance(obj, tuple):
-            return tuple(self._make_hashable(item) for item in obj)
-        if isinstance(obj, dict):
-            # Sort dict items by key to ensure consistent hashable representation
-            return tuple(sorted((k, self._make_hashable(v)) for k, v in obj.items()))
-        
-        return obj
 
     def _get_top_k_sql_candidates(self, data_item: DataItem) -> List[Tuple[str, str]]:
         valid_sql_candidates = []
@@ -84,7 +66,7 @@ class SQLSelectionRunner:
             # Use execute_sql_for_data_item to support cloud databases
             execution_result = execute_sql_for_data_item(data_item, sql_candidate)
             if execution_result.result_rows is not None and len(execution_result.result_rows) > 0:
-                valid_sql_candidates.append((sql_candidate, frozenset(self._make_hashable(execution_result.result_rows))))
+                valid_sql_candidates.append((sql_candidate, get_execution_result_hash(data_item, execution_result.result_rows)))
                 sql_map_to_result_str[sql_candidate] = execution_result.result_table_str
         
         if len(valid_sql_candidates) == 0:
@@ -93,7 +75,7 @@ class SQLSelectionRunner:
                 # Use execute_sql_for_data_item to support cloud databases
                 execution_result = execute_sql_for_data_item(data_item, sql_candidate)
                 if execution_result.result_rows is not None:
-                    valid_sql_candidates.append((sql_candidate, frozenset(self._make_hashable(execution_result.result_rows))))
+                    valid_sql_candidates.append((sql_candidate, get_execution_result_hash(data_item, execution_result.result_rows)))
                     sql_map_to_result_str[sql_candidate] = execution_result.result_table_str
                     
         if len(valid_sql_candidates) == 0:

@@ -18,7 +18,7 @@ def run_spider2_evaluation(
     dataset_type: str = "spider2-lite",
     sql_output_dir: str = None,
     max_workers: int = 8,
-    timeout: int = 60,
+    timeout: int = None,
     skip_conversion: bool = False
 ):
     """
@@ -34,6 +34,8 @@ def run_spider2_evaluation(
     """
     # Determine paths
     from app.config import config
+    if timeout is None:
+        timeout = config.dataset_config.sql_execution_timeout
     if pkl_path is None:
         pkl_path = config.sql_selection_config.save_path
     
@@ -150,8 +152,8 @@ def main():
     parser.add_argument(
         "--timeout",
         type=int,
-        default=60,
-        help="SQL execution timeout in seconds"
+        default=None,
+        help="SQL execution timeout in seconds (default: use config)"
     )
     parser.add_argument(
         "--skip_conversion",

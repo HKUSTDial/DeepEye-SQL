@@ -109,7 +109,7 @@ def _process_one_column(
     WHERE `{column_name}` IS NOT NULL 
     AND LENGTH(CAST(`{column_name}` AS TEXT)) <= {max_value_length};
     """
-    result = execute_sql(db_path, query_sql, timeout=300)
+    result = execute_sql(db_path, query_sql)
     if result.result_type in ["success", "empty_result"]:
         value_examples = [str(row[0]) for row in result.result_rows]
         
