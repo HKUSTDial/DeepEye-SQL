@@ -83,7 +83,7 @@ DeepEye-SQL follows a **5-stage pipeline** inspired by the Software Development 
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     Natural Language Question                    │
+│                     Natural Language Question                   │
 └─────────────────────┬───────────────────────────────────────────┘
                       │
         ┌─────────────▼──────────────┐
@@ -149,9 +149,8 @@ DeepEye-SQL/
 │   ├── run_sql_generation.py
 │   ├── run_sql_revision.py
 │   ├── run_sql_selection.py
-│   ├── convert_pkl_to_sql.py
-│   ├── evaluation.py
-│   └── evaluation_spider2.py
+│   ├── convert_pkl_to_sql.py       # Unified conversion (auto-detects format)
+│   └── evaluation.py               # Unified evaluation (all datasets)
 ├── script/                    # Automation scripts
 │   ├── download_dataset.sh
 │   └── run_pipeline.sh
@@ -315,14 +314,14 @@ uv run runner/run_sql_selection.py
 #### Step 3: Evaluate Results
 
 ```bash
-# Convert results to JSON format
+# Convert results to JSON format (auto-detects format from config)
 uv run runner/convert_pkl_to_sql.py
 
-# Run evaluation
+# Run evaluation (auto-detects dataset type from config)
 uv run runner/evaluation.py
 ```
 
-The evaluation script will output execution accuracy metrics.
+The evaluation script will automatically detect the dataset type and output execution accuracy metrics.
 
 ---
 
@@ -350,8 +349,10 @@ bash script/run_pipeline.sh
 #### Step 3: Evaluate Results
 
 ```bash
-# Convert and evaluate
+# Convert to JSON format (auto-detects format from config)
 uv run runner/convert_pkl_to_sql.py
+
+# Run evaluation (auto-detects dataset type from config)
 uv run runner/evaluation.py
 ```
 
@@ -421,18 +422,19 @@ bash script/run_pipeline.sh
 #### Step 5: Evaluate Results
 
 ```bash
-# Convert to SQL files (Spider2 uses individual .sql files)
+# Convert to SQL files (auto-detects format and creates individual .sql files for Spider2)
 uv run runner/convert_pkl_to_sql.py
 
-# Run Spider2 evaluation
-uv run runner/evaluation_spider2.py --dataset_split lite  # or "snow"
+# Run evaluation (auto-detects Spider2 and uses official evaluation script)
+uv run runner/evaluation.py
 ```
 
 **Spider2-Specific Notes:**
 - Spider2 has larger schemas → ensure enough model context length
-- Cloud database execution may be slower
-- Set higher `sql_execution_timeout` (e.g., 120s)
+- Cloud database execution may be slower (set higher `sql_execution_timeout`, e.g., 120s)
+- The evaluation script automatically converts to SQL files and calls the official Spider2 evaluator
 - Some queries may require external knowledge documents
+- Results will be compared against official gold SQLs using the Spider2 evaluation suite
 
 ---
 
@@ -540,7 +542,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - Spider dataset: [Yu et al., 2018](https://arxiv.org/abs/1809.08887)
 - BIRD dataset: [Li et al., 2023](https://arxiv.org/abs/2305.03111)
 - Spider2.0 dataset: [Lei et al., 2024](https://arxiv.org/abs/2411.07763)
-- Alpha-SQL: [Li et al., 2025]()
 
 ---
 
