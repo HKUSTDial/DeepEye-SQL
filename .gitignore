@@ -39,4 +39,5 @@ bigquery_credential.json
 snowflake_credential.json
 
 # docs
-docs/config/*-ds-reasoner.toml
+docs/
+config/*-ds-reasoner.toml
