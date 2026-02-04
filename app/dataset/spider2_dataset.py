@@ -34,13 +34,13 @@ class Spider2DataItem(DataItem):
     difficulty: str = Field(default="", description="Difficulty level (not available in Spider2)")
 
 
-def get_db_type_from_instance_id(instance_id: str, dataset_type: str = "spider2-lite") -> str:
+def get_db_type_from_instance_id(instance_id: str, dataset_split: str = "lite") -> str:
     """
     Infer database type from instance_id prefix.
     
     Args:
         instance_id: Instance ID string.
-        dataset_type: Dataset type ("spider2-lite" or "spider2-snow").
+        dataset_split: Dataset split ("lite" or "snow").
         
     Returns:
         Database type string: "snowflake", "bigquery", or "sqlite".
@@ -48,7 +48,7 @@ def get_db_type_from_instance_id(instance_id: str, dataset_type: str = "spider2-
     Raises:
         ValueError: If instance_id has an unknown prefix.
     """
-    if dataset_type == "spider2-snow":
+    if dataset_split == "snow":
         # All Spider2-Snow databases are Snowflake
         return "snowflake"
     
@@ -69,7 +69,8 @@ class Spider2LiteDataset(BaseDataset):
     Contains Snowflake, BigQuery, and SQLite databases.
     """
     
-    _name = "spider2-lite"
+    _name = "spider2"
+    _split = "lite"
     
     def __init__(self, dataset_config: DatasetConfig):
         self._config = dataset_config
@@ -131,7 +132,7 @@ class Spider2LiteDataset(BaseDataset):
             external_knowledge_file = item.get("external_knowledge")
             
             # Determine database type
-            db_type = get_db_type_from_instance_id(instance_id, "spider2-lite")
+            db_type = get_db_type_from_instance_id(instance_id, "lite")
             
             # Load external knowledge as evidence
             evidence = ""
@@ -176,7 +177,8 @@ class Spider2SnowDataset(BaseDataset):
     All databases are Snowflake.
     """
     
-    _name = "spider2-snow"
+    _name = "spider2"
+    _split = "snow"
     
     def __init__(self, dataset_config: DatasetConfig):
         self._config = dataset_config

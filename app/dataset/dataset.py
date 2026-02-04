@@ -204,11 +204,13 @@ class DatasetFactory:
             return BirdDataset(dataset_config)
         elif dataset_config.type == "spider":
             return SpiderDataset(dataset_config)
-        elif dataset_config.type == "spider2-lite":
-            from .spider2_dataset import Spider2LiteDataset
-            return Spider2LiteDataset(dataset_config)
-        elif dataset_config.type == "spider2-snow":
-            from .spider2_dataset import Spider2SnowDataset
-            return Spider2SnowDataset(dataset_config)
+        elif dataset_config.type == "spider2":
+            from .spider2_dataset import Spider2LiteDataset, Spider2SnowDataset
+            if dataset_config.split == "lite":
+                return Spider2LiteDataset(dataset_config)
+            elif dataset_config.split == "snow":
+                return Spider2SnowDataset(dataset_config)
+            else:
+                raise ValueError(f"Invalid spider2 split: {dataset_config.split}. Expected 'lite' or 'snow'")
         else:
             raise ValueError(f"Invalid dataset type: {dataset_config.type}")

@@ -24,8 +24,6 @@ def _eval_ex_after_selection(pred_sql: str, gold_sql: str, db_path: str) -> Opti
 def run_evaluation():
     from app.config import config
     from app.dataset import load_dataset
-    # dataset = load_dataset("bak_workspace/bird-dev/qwen3-coder-30b-a3b/sql_selection/bird/dev.pkl")
-    # dataset = load_dataset("workspace/gemini3flash-limit100/sql_selection/bird/dev.pkl")
     dataset = load_dataset(config.sql_selection_config.save_path)
     executor = ProcessPoolExecutor(max_workers=32)
     all_futures = [ executor.submit(_eval_ex_after_selection, data_item.final_selected_sql, data_item.gold_sql, data_item.database_path) for data_item in dataset ]

@@ -31,8 +31,8 @@ class LLMConfig(BaseModel):
 
 
 class DatasetConfig(BaseModel):
-    type: Literal["spider", "bird", "spider2-lite", "spider2-snow"] = Field(..., description="The type of the dataset")
-    split: Optional[str] = Field(default="", description="The split of the dataset (not used for spider2)")
+    type: Literal["spider", "bird", "spider2"] = Field(..., description="The type of the dataset")
+    split: Optional[str] = Field(default="", description="The split of the dataset")
     root_path: Optional[str] = Field(..., description="The root path of the dataset")
     save_path: str = Field(default=WORKSPACE_ROOT / "dataset" / f"{type}" / f"{split}.pkl", description="The save path of the dataset")
     max_samples: Optional[int] = Field(default=None, description="The maximum number of samples to load")
@@ -53,9 +53,10 @@ class DatasetConfig(BaseModel):
             # only dev split is supported for bird dataset
             if self.split not in ["dev"]:
                 raise ValueError(f"Invalid split: {self.split}")
-        elif self.type in ["spider2-lite", "spider2-snow"]:
-            # Spider2 datasets don't use traditional splits
-            pass
+        elif self.type == "spider2":
+            # Spider2 supports lite and snow splits
+            if self.split not in ["lite", "snow"]:
+                raise ValueError(f"Invalid split for spider2: {self.split}. Expected 'lite' or 'snow'")
         else:
             raise ValueError(f"Invalid dataset type: {self.type}")
         return self

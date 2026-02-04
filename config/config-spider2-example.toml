@@ -1,0 +1,116 @@
+########## Logger configuration ##########
+[logger]
+print_level = "INFO"      # Console log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+########## Dataset configuration ##########
+[dataset]
+type = "spider2"
+split = "lite"            # Options: "lite" or "snow"
+root_path = "data/spider2-lite"  # Use "data/spider2-snow" for snow split
+save_path = "workspace/dataset/spider2/lite.pkl"
+
+# Spider2 cloud database credentials (required for cloud database access)
+snowflake_credential_path = "snowflake_credential.json"
+bigquery_credential_path = "bigquery_credential.json"
+
+sql_execution_timeout = 120
+max_value_example_length = 50
+
+########## Vector database configuration ##########
+[vector_database]
+api_type = "openai"
+embedding_model_name_or_path = "your-embedding-model-name"
+base_url = "your-embedding-model-base-url"
+api_key = "your-embedding-model-api-key"
+store_root_path = "workspace/vector_database/spider/test"
+max_value_length = 100
+lower_meta_data = true
+batch_size = 128
+n_parallel = 8
+
+########## Value retrieval configuration ##########
+[value_retrieval]
+n_results = 5
+n_parallel = 8
+save_path = "workspace/value_retrieval/spider2/lite.pkl"
+
+[value_retrieval.llm]
+model = "your-value-retrieval-model-name"
+base_url = "your-value-retrieval-model-base-url"
+api_key = "your-value-retrieval-model-api-key"
+max_tokens = 4096
+temperature = 0.7
+api_type = "openai"
+max_model_len = 128000
+
+########## Schema linking configuration ##########
+[schema_linking]
+n_parallel = 8
+save_path = "workspace/schema_linking/spider2/lite.pkl"
+direct_linking_sampling_budget = 4
+reversed_linking_sampling_budget = 4
+value_distance_threshold = 0.02
+
+[schema_linking.llm]
+model = "your-schema-linking-model-name"
+base_url = "your-schema-linking-model-base-url"
+api_key = "your-schema-linking-model-api-key"
+max_tokens = 4096
+temperature = 0.7
+api_type = "openai"
+max_model_len = 128000
+
+########## SQL generation configuration ##########
+[sql_generation]
+n_parallel = 8
+save_path = "workspace/sql_generation/spider2/lite.pkl"
+dc_sampling_budget = 4
+skeleton_sampling_budget = 4
+icl_sampling_budget = 4
+
+[sql_generation.llm]
+model = "your-sql-generation-model-name"
+base_url = "your-sql-generation-model-base-url"
+api_key = "your-sql-generation-model-api-key"
+max_tokens = 4096
+temperature = 0.7
+api_type = "openai"
+max_model_len = 128000
+
+########## SQL revision configuration ##########
+[sql_revision]
+n_parallel = 8
+save_path = "workspace/sql_revision/spider2/lite.pkl"
+checker_sampling_budget = 3
+# For Spider2, recommend using only SyntaxChecker and ResultChecker
+checkers = ["SyntaxChecker", "ResultChecker"]
+
+[sql_revision.llm]
+model = "your-sql-revision-model-name"
+base_url = "your-sql-revision-model-base-url"
+api_key = "your-sql-revision-model-api-key"
+max_tokens = 4096
+temperature = 0.7
+api_type = "openai"
+max_model_len = 128000
+
+########## SQL selection configuration ##########
+[sql_selection]
+n_parallel = 8
+save_path = "workspace/sql_selection/spider2/lite.pkl"
+filter_top_k_sql = 2
+evaluator_sampling_budget = 3
+shortcut_consistency_score_threshold = 0.6
+
+[sql_selection.llm]
+model = "your-sql-selection-model-name"
+base_url = "your-sql-selection-model-base-url"
+api_key = "your-sql-selection-model-api-key"
+max_tokens = 4096
+temperature = 0.7
+api_type = "openai"
+max_model_len = 128000
+
+########## LLM extractor configuration ##########
+[llm_extractor]
+max_retry = 5

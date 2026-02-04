@@ -15,7 +15,7 @@ from app.logger import logger
 
 def run_spider2_evaluation(
     pkl_path: str = None,
-    dataset_type: str = "spider2-lite",
+    dataset_split: str = "lite",
     sql_output_dir: str = None,
     max_workers: int = 8,
     timeout: int = None,
@@ -26,7 +26,7 @@ def run_spider2_evaluation(
     
     Args:
         pkl_path: Path to the pkl file with results.
-        dataset_type: "spider2-lite" or "spider2-snow".
+        dataset_split: "lite" or "snow".
         sql_output_dir: Directory for SQL output files.
         max_workers: Number of parallel workers for evaluation.
         timeout: SQL execution timeout in seconds.
@@ -52,29 +52,41 @@ def run_spider2_evaluation(
     # Step 1: Convert pkl to SQL files (if not skipping)
     if not skip_conversion:
         logger.info(f"Step 1: Converting {pkl_path} to SQL files...")
-        from runner.convert_pkl_to_spider2_sql import convert_to_spider2_sql_files
-        convert_to_spider2_sql_files(
+        from runner.convert_pkl_to_sql import convert_to_sql_files
+        convert_to_sql_files(
             pkl_path=str(pkl_path),
-            output_dir=str(sql_output_dir),
-            use_sc_fallback=True
+            output_dir=str(sql_output_dir)
         )
     else:
         logger.info("Step 1: Skipping pkl conversion (using existing SQL files)")
     
     # Step 2: Run official evaluation script
-    logger.info(f"Step 2: Running official {dataset_type} evaluation...")
+    logger.info(f"Step 2: Running official {dataset_split} evaluation...")
     
     # Determine paths based on dataset type
     project_root = Path(__file__).resolve().parent.parent
     
-    if dataset_type == "spider2-lite":
-        eval_script = project_root / "data" / "spider2-lite" / "evaluation_suite" / "evaluate.py"
-        gold_dir = project_root / "data" / "spider2-lite" / "evaluation_suite" / "gold"
-    elif dataset_type == "spider2-snow":
-        eval_script = project_root / "data" / "spider2-snow" / "evaluation_suite" / "evaluate.py"
-        gold_dir = project_root / "data" / "spider2-snow" / "evaluation_suite" / "gold"
+    # Support both old path format and new unified format
+    if dataset_split == "lite":
+        # Try new format first, fall back to old format
+        eval_script_new = project_root / "data" / "spider2" / "evaluation_suite" / "evaluate.py"
+        eval_script_old = project_root / "data" / "spider2-lite" / "evaluation_suite" / "evaluate.py"
+        eval_script = eval_script_new if eval_script_new.exists() else eval_script_old
+        
+        gold_dir_new = project_root / "data" / "spider2" / "evaluation_suite" / "gold"
+        gold_dir_old = project_root / "data" / "spider2-lite" / "evaluation_suite" / "gold"
+        gold_dir = gold_dir_new if gold_dir_new.exists() else gold_dir_old
+    elif dataset_split == "snow":
+        # Try new format first, fall back to old format
+        eval_script_new = project_root / "data" / "spider2" / "evaluation_suite" / "evaluate.py"
+        eval_script_old = project_root / "data" / "spider2-snow" / "evaluation_suite" / "evaluate.py"
+        eval_script = eval_script_new if eval_script_new.exists() else eval_script_old
+        
+        gold_dir_new = project_root / "data" / "spider2" / "evaluation_suite" / "gold"
+        gold_dir_old = project_root / "data" / "spider2-snow" / "evaluation_suite" / "gold"
+        gold_dir = gold_dir_new if gold_dir_new.exists() else gold_dir_old
     else:
-        raise ValueError(f"Unknown dataset type: {dataset_type}")
+        raise ValueError(f"Unknown dataset type: {dataset_split}")
     
     if not eval_script.exists():
         logger.error(f"Evaluation script not found: {eval_script}")
@@ -131,10 +143,10 @@ def main():
         help="Path to the pkl file with results (default: use config)"
     )
     parser.add_argument(
-        "--dataset_type",
+        "--dataset_split",
         type=str,
-        choices=["spider2-lite", "spider2-snow"],
-        default="spider2-lite",
+        choices=["lite", "snow"],
+        default="lite",
         help="Dataset type to evaluate"
     )
     parser.add_argument(
@@ -165,7 +177,7 @@ def main():
     
     run_spider2_evaluation(
         pkl_path=args.pkl_path,
-        dataset_type=args.dataset_type,
+        dataset_split=args.dataset_split,
         sql_output_dir=args.sql_output_dir,
         max_workers=args.max_workers,
         timeout=args.timeout,
