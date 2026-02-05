@@ -7,7 +7,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-[Features](#-key-features) • [Performance](#-performance) • [Installation](#-installation) • [Quick Start](#-quick-start) • [Documentation](#-documentation)
+[Performance](#-performance) • [Installation](#-installation) • [Quick Start](#-quick-start) • [Documentation](#-documentation)
 
 </div>
 
@@ -118,6 +118,9 @@ DeepEye-SQL/
 │   ├── run_sql_selection.py
 │   ├── convert_pkl_to_sql.py       # Unified conversion (auto-detects format)
 │   └── evaluation.py               # Unified evaluation (all datasets)
+├── results/                   # Pre-processed few-shots and evaluation results
+│   ├── spider_test_few_shots.json # DAIL-SQL few-shots for Spider
+│   └── bird_dev_few_shots.json   # DAIL-SQL few-shots for BIRD
 ├── script/                    # Automation scripts
 │   ├── download_dataset.sh
 │   └── run_pipeline.sh
@@ -460,6 +463,20 @@ icl_sampling_budget = 8           # In-context learning samples
 ```
 
 Lower budgets = faster + cheaper, Higher budgets = more diverse candidates.
+
+### Reproducing Results (DAIL-SQL Few-shots)
+
+For the **In-Context Learning (ICL) Generator**, we utilize few-shot examples selected using the **DAIL-SQL** strategy. To ensure easy reproduction of our results, we have provided the pre-processed few-shot files in the `results/` directory:
+
+- **Spider**: `results/spider_test_few_shots.json`
+- **BIRD**: `results/bird_dev_few_shots.json`
+
+To use these files, update the `icl_few_shot_examples_path` in your configuration file:
+
+```toml
+[sql_generation]
+icl_few_shot_examples_path = "results/spider_test_few_shots.json"
+```
 
 ### Resume from Checkpoint
 
