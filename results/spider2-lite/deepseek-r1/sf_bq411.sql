@@ -1,0 +1,1 @@
+SELECT "refresh_date", LISTAGG("term", ', ') WITHIN GROUP (ORDER BY "week", "rank") AS "terms", COUNT(*) AS "term_count" FROM "GOOGLE_TRENDS"."GOOGLE_TRENDS"."TOP_TERMS" WHERE "rank" IN (1, 2, 3) AND "week" BETWEEN '2024-09-01' AND '2024-09-14' GROUP BY "refresh_date" ORDER BY "refresh_date" DESC;

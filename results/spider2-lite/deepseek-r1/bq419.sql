@@ -1,0 +1,1 @@
+SELECT state, COUNT(*) AS event_count FROM `bigquery-public-data.noaa_historic_severe_storms.storms_*` WHERE _TABLE_SUFFIX BETWEEN '1980' AND '1995' GROUP BY state ORDER BY event_count DESC LIMIT 5

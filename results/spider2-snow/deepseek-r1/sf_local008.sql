@@ -1,0 +1,43 @@
+WITH "max_values" AS (
+  SELECT
+    MAX("G") AS "max_g",
+    MAX(CAST("R" AS INTEGER)) AS "max_r",
+    MAX(CAST("H" AS INTEGER)) AS "max_h",
+    MAX(CAST("HR" AS INTEGER)) AS "max_hr"
+  FROM "BASEBALL"."BASEBALL"."BATTING"
+)
+SELECT DISTINCT
+  p."NAME_GIVEN",
+  'games played' AS "metric",
+  b."G" AS "value"
+FROM "BASEBALL"."BASEBALL"."BATTING" b
+JOIN "BASEBALL"."BASEBALL"."PLAYER" p ON b."PLAYER_ID" = p."PLAYER_ID"
+CROSS JOIN "max_values" mv
+WHERE b."G" = mv."max_g"
+UNION ALL
+SELECT DISTINCT
+  p."NAME_GIVEN",
+  'runs' AS "metric",
+  CAST(b."R" AS INTEGER) AS "value"
+FROM "BASEBALL"."BASEBALL"."BATTING" b
+JOIN "BASEBALL"."BASEBALL"."PLAYER" p ON b."PLAYER_ID" = p."PLAYER_ID"
+CROSS JOIN "max_values" mv
+WHERE CAST(b."R" AS INTEGER) = mv."max_r"
+UNION ALL
+SELECT DISTINCT
+  p."NAME_GIVEN",
+  'hits' AS "metric",
+  CAST(b."H" AS INTEGER) AS "value"
+FROM "BASEBALL"."BASEBALL"."BATTING" b
+JOIN "BASEBALL"."BASEBALL"."PLAYER" p ON b."PLAYER_ID" = p."PLAYER_ID"
+CROSS JOIN "max_values" mv
+WHERE CAST(b."H" AS INTEGER) = mv."max_h"
+UNION ALL
+SELECT DISTINCT
+  p."NAME_GIVEN",
+  'home runs' AS "metric",
+  CAST(b."HR" AS INTEGER) AS "value"
+FROM "BASEBALL"."BASEBALL"."BATTING" b
+JOIN "BASEBALL"."BASEBALL"."PLAYER" p ON b."PLAYER_ID" = p."PLAYER_ID"
+CROSS JOIN "max_values" mv
+WHERE CAST(b."HR" AS INTEGER) = mv."max_hr"

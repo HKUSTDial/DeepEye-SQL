@@ -1,0 +1,7 @@
+SELECT "id", "name"
+FROM "GHCN_D"."GHCN_D"."GHCND_STATIONS"
+WHERE 6371 * ACOS(
+  SIN(RADIANS("latitude")) * SIN(RADIANS(41.8319)) + 
+  COS(RADIANS("latitude")) * COS(RADIANS(41.8319)) * 
+  COS(RADIANS(-87.6847) - RADIANS("longitude"))
+) <= 50

@@ -1,0 +1,1 @@
+SELECT "indicator_name", MAX("value") AS "highest_value" FROM "WORLD_BANK"."WORLD_BANK_INTL_DEBT"."INTERNATIONAL_DEBT" WHERE "country_name" = 'Russian Federation' AND "value" IS NOT NULL GROUP BY "indicator_code", "indicator_name" ORDER BY "highest_value" DESC LIMIT 3

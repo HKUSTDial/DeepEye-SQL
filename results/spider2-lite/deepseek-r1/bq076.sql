@@ -1,0 +1,1 @@
+SELECT MAX(monthly_count) AS highest_number FROM (SELECT EXTRACT(MONTH FROM date) AS month, COUNT(*) AS monthly_count FROM `bigquery-public-data.chicago_crime.crime` WHERE primary_type = 'MOTOR VEHICLE THEFT' AND year = 2016 GROUP BY month)

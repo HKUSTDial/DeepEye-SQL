@@ -1,0 +1,7 @@
+SELECT "source", "year", "race_asian", "race_black", "race_hispanic_latinx", "race_white", "gender_women", "gender_men" FROM (
+  SELECT 'Google Hiring' AS "source", "report_year" AS "year", "race_asian", "race_black", "race_hispanic_latinx", "race_white", "gender_us_women" AS "gender_women", "gender_us_men" AS "gender_men" FROM "GOOGLE_DEI"."GOOGLE_DEI"."DAR_NON_INTERSECTIONAL_HIRING" WHERE "report_year" = 2021 AND "workforce" = 'overall'
+  UNION ALL
+  SELECT 'Google Representation' AS "source", "report_year" AS "year", "race_asian", "race_black", "race_hispanic_latinx", "race_white", "gender_us_women" AS "gender_women", "gender_us_men" AS "gender_men" FROM "GOOGLE_DEI"."GOOGLE_DEI"."DAR_NON_INTERSECTIONAL_REPRESENTATION" WHERE "report_year" = 2021 AND "workforce" = 'overall'
+  UNION ALL
+  SELECT "sector" AS "source", "year", "percent_asian" AS "race_asian", "percent_black_or_african_american" AS "race_black", "percent_hispanic_or_latino" AS "race_hispanic_latinx", "percent_white" AS "race_white", "percent_women" AS "gender_women", (1 - "percent_women") AS "gender_men" FROM "GOOGLE_DEI"."BLS"."CPSAAT18" WHERE "year" = 2021 AND "sector" IN ('Internet publishing and broadcasting and web search portals', 'Computer systems design and related services')
+) ORDER BY "source"

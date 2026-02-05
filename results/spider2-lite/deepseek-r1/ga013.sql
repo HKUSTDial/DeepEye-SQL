@@ -1,0 +1,83 @@
+SELECT 
+  DISTINCT 
+  params.value.string_value AS page_location,
+  CASE 
+    WHEN ARRAY_LENGTH(SPLIT(params.value.string_value, '/')) >= 5 THEN
+      CASE 
+        WHEN (LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%accessories%' 
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%apparel%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%brands%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%campus%collection%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%drinkware%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%electronics%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%google%redesign%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%lifestyle%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%nest%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%new%2015%logo%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%notebooks%journals%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%office%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%shop%by%brand%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%small%goods%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%stationery%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%wearables%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%accessories%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%apparel%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%brands%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%campus%collection%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%drinkware%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%electronics%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%google%redesign%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%lifestyle%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%nest%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%new%2015%logo%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%notebooks%journals%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%office%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%shop%by%brand%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%small%goods%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%stationery%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%wearables%')
+          AND (SPLIT(params.value.string_value, '/')[OFFSET(3)] NOT LIKE '%+%' AND SPLIT(params.value.string_value, '/')[OFFSET(4)] NOT LIKE '%+%') THEN 'PLP'
+        WHEN (LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%accessories%' 
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%apparel%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%brands%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%campus%collection%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%drinkware%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%electronics%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%google%redesign%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%lifestyle%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%nest%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%new%2015%logo%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%notebooks%journals%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%office%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%shop%by%brand%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%small%goods%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%stationery%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(3)]) LIKE '%wearables%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%accessories%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%apparel%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%brands%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%campus%collection%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%drinkware%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%electronics%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%google%redesign%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%lifestyle%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%nest%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%new%2015%logo%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%notebooks%journals%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%office%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%shop%by%brand%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%small%goods%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%stationery%'
+               OR LOWER(SPLIT(params.value.string_value, '/')[OFFSET(4)]) LIKE '%wearables%')
+          AND SPLIT(params.value.string_value, '/')[OFFSET(ARRAY_LENGTH(SPLIT(params.value.string_value, '/')) - 1)] LIKE '%+%' THEN 'PDP'
+        ELSE params.value.string_value
+      END
+    ELSE params.value.string_value
+  END AS adjusted_page_name
+FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
+CROSS JOIN UNNEST(event_params) AS params
+WHERE _TABLE_SUFFIX = '20210102'
+  AND event_name = 'page_view'
+  AND user_pseudo_id = '1402138.5184246691'
+  AND params.key = 'page_location'
+ORDER BY page_location

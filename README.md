@@ -30,15 +30,15 @@ DeepEye-SQL is a cutting-edge Text-to-SQL framework that revolutionizes SQL gene
 
 ## 📊 Performance
 
-DeepEye-SQL achieves **state-of-the-art results** on major Text-to-SQL benchmarks without any model fine-tuning:
+DeepEye-SQL achieves **state-of-the-art results** on major Text-to-SQL benchmarks without any model fine-tuning. Detailed prediction files are available in the `results/` directory for verification.
 
-| Benchmark | Execution Accuracy (EX) | Model Used |
-|-----------|------------------------|------------|
-| **BIRD-Dev** | **73.5%** | Qwen3-Coder-30B-A3B |
-| **BIRD-Test** | **75.1%** | Qwen3-Coder-30B-A3B |
-| **Spider-Test** | **89.8%** | Qwen3-Coder-30B-A3B |
-| **Spider2.0-Lite** | **38.2%** | DeepSeek-R1 |
-| **Spider2.0-Snow** | **50.5%** | DeepSeek-R1 |
+| Benchmark | Execution Accuracy (EX) | Model Used | Prediction File |
+|-----------|------------------------|------------|-----------------|
+| **BIRD-Dev** | **73.5%** | Qwen3-Coder-30B-A3B | [`results/bird-dev/qwen3...json`](results/bird-dev/qwen3-coder-30b-a3b.json) |
+| **BIRD-Test** | **75.1%** | Qwen3-Coder-30B-A3B | - |
+| **Spider-Test** | **89.8%** | Qwen3-Coder-30B-A3B | [`results/spider-test/qwen3...json`](results/spider-test/qwen3-coder-30b-a3b.json) |
+| **Spider2.0-Lite** | **38.2%** | DeepSeek-R1 | [`results/spider2-lite/`](results/spider2-lite/deepseek-r1/) |
+| **Spider2.0-Snow** | **50.5%** | DeepSeek-R1 | [`results/spider2-snow/`](results/spider2-snow) |
 
 > 💡 **Note**: Results are achieved with off-the-shelf LLMs (no fine-tuning required). Performance may vary with different backbone models.
 
@@ -118,9 +118,13 @@ DeepEye-SQL/
 │   ├── run_sql_selection.py
 │   ├── convert_pkl_to_sql.py       # Unified conversion (auto-detects format)
 │   └── evaluation.py               # Unified evaluation (all datasets)
-├── results/                   # Pre-processed few-shots and evaluation results
+├── results/                   # Few-shots and experimental prediction files
 │   ├── spider_test_few_shots.json # DAIL-SQL few-shots for Spider
-│   └── bird_dev_few_shots.json   # DAIL-SQL few-shots for BIRD
+│   ├── bird_dev_few_shots.json   # DAIL-SQL few-shots for BIRD
+│   ├── spider-test/              # Prediction SQLs for Spider
+│   ├── bird-dev/                 # Prediction SQLs for BIRD
+│   ├── spider2-lite/             # Prediction SQLs for Spider2-Lite
+│   └── spider2-snow/             # Prediction SQLs for Spider2-Snow
 ├── script/                    # Automation scripts
 │   ├── download_dataset.sh
 │   └── run_pipeline.sh
@@ -464,8 +468,9 @@ icl_sampling_budget = 8           # In-context learning samples
 
 Lower budgets = faster + cheaper, Higher budgets = more diverse candidates.
 
-### Reproducing Results (DAIL-SQL Few-shots)
+### Reproducing Results (DAIL-SQL Few-shots & Predictions)
 
+#### 1. DAIL-SQL Few-shots
 For the **In-Context Learning (ICL) Generator**, we utilize few-shot examples selected using the **DAIL-SQL** strategy. To ensure easy reproduction of our results, we have provided the pre-processed few-shot files in the `results/` directory:
 
 - **Spider**: `results/spider_test_few_shots.json`
@@ -477,6 +482,24 @@ To use these files, update the `icl_few_shot_examples_path` in your configuratio
 [sql_generation]
 icl_few_shot_examples_path = "results/spider_test_few_shots.json"
 ```
+
+#### 2. Experimental Predictions
+We have also uploaded the final prediction SQL files generated during our experiments. You can find them in the following directories:
+- `results/spider-test/` (JSON format)
+- `results/bird-dev/` (JSON format)
+- `results/spider2-lite/` (SQL files)
+- `results/spider2-snow/` (SQL files)
+
+These files can be used to directly run the evaluation script to verify our reported performance:
+
+```bash
+# Example 1: Evaluate BIRD predictions
+uv run runner/evaluation.py --dataset_type bird --split dev --sql_output_dir results/bird-dev/qwen3-coder-30b-a3b.json
+
+# Example 2: Evaluate Spider2-Lite predictions
+uv run runner/evaluation.py --dataset_type spider2 --split lite --sql_output_dir results/spider2-lite/deepseek-r1/
+```
+
 
 ### Resume from Checkpoint
 

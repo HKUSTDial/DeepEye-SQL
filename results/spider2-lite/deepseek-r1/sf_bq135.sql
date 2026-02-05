@@ -1,0 +1,1 @@
+SELECT transaction_date FROM (SELECT DATE(TO_TIMESTAMP("block_timestamp" / 1000000)) AS transaction_date, SUM("amount") AS total_amount FROM "CRYPTO"."CRYPTO_ZILLIQA"."TRANSACTIONS" WHERE "success" = TRUE AND EXTRACT(YEAR FROM TO_TIMESTAMP("block_timestamp" / 1000000)) < 2022 GROUP BY transaction_date) daily_totals ORDER BY total_amount DESC LIMIT 1

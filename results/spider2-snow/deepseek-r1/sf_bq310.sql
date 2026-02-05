@@ -1,0 +1,1 @@
+SELECT "title" FROM "STACKOVERFLOW"."STACKOVERFLOW"."POSTS_QUESTIONS" WHERE "title" ILIKE 'How%' AND REGEXP_LIKE("tags", '(^|\\|)android-[^|]*') ORDER BY "view_count" DESC LIMIT 1

@@ -1,0 +1,1 @@
+SELECT COUNT(DISTINCT "StudyInstanceUID") FROM "IDC"."IDC_V17"."DICOM_PIVOT" WHERE "collection_id" = 'qin_prostate_repeatability' AND ("SeriesDescription" IN ('DWI', 'T2 Weighted Axial', 'Apparent Diffusion Coefficient') OR ("SeriesDescription" ILIKE '%T2 Weighted Axial%' AND "SeriesDescription" ILIKE '%Segmentation%'))
