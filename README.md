@@ -28,39 +28,6 @@ DeepEye-SQL is a cutting-edge Text-to-SQL framework that revolutionizes SQL gene
 
 ---
 
-## 🎯 Key Features
-
-### 1. **Semantic Value Retrieval**
-Intelligently extracts and retrieves relevant database values using vector similarity search, grounding queries in actual data.
-
-### 2. **Robust Schema Linking**
-Three-stage schema linking strategy:
-- **Direct Linking**: Question → Schema elements
-- **Reversed Linking**: Schema → Question relevance
-- **Value Linking**: Similar value discovery
-
-### 3. **N-Version SQL Generation**
-Multiple generation strategies for diversity:
-- **Divide-and-Conquer (DC)**: Break complex queries into sub-problems
-- **Skeleton-Based**: Generate query structure first, then fill details
-- **In-Context Learning (ICL)**: Learn from similar examples
-
-### 4. **Execution-Based Revision**
-8 specialized checkers validate and fix SQL queries:
-- `SyntaxChecker`: SQL syntax validation
-- `ResultChecker`: Execution result verification
-- `SelectChecker`: SELECT clause validation
-- `JoinChecker`: JOIN conditions validation
-- `MaxMinChecker`: MAX/MIN aggregation fixes
-- `OrderByLimitChecker`: Ordering and limit fixes
-- `OrderByNullChecker`: NULL handling in ORDER BY
-- `TimeChecker`: Date/time function validation
-
-### 5. **Pairwise SQL Selection**
-Pairwise selection where LLM adjudicators compare SQL candidates pairwise, ensuring the best query is selected.
-
----
-
 ## 📊 Performance
 
 DeepEye-SQL achieves **state-of-the-art results** on major Text-to-SQL benchmarks without any model fine-tuning:
