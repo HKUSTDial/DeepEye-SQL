@@ -34,11 +34,11 @@ DeepEye-SQL achieves **state-of-the-art results** on major Text-to-SQL benchmark
 
 | Benchmark | Execution Accuracy (EX) | Model Used | Prediction File |
 |-----------|------------------------|------------|-----------------|
-| **BIRD-Dev** | **73.5%** | Qwen3-Coder-30B-A3B | [`results/bird-dev/qwen3...json`](results/bird-dev/qwen3-coder-30b-a3b.json) |
-| **BIRD-Test** | **75.1%** | Qwen3-Coder-30B-A3B | - |
-| **Spider-Test** | **89.8%** | Qwen3-Coder-30B-A3B | [`results/spider-test/qwen3...json`](results/spider-test/qwen3-coder-30b-a3b.json) |
-| **Spider2.0-Lite** | **38.2%** | DeepSeek-R1 | [`results/spider2-lite/`](results/spider2-lite/deepseek-r1/) |
-| **Spider2.0-Snow** | **50.5%** | DeepSeek-R1 | [`results/spider2-snow/`](results/spider2-snow) |
+| **BIRD-Dev** | **73.5%** | Qwen3-Coder-30B-A3B | [`results/bird-dev/qwen3-coder-30b-a3b.json`](results/bird-dev/qwen3-coder-30b-a3b.json) |
+| **BIRD-Test** | **75.1%** | Qwen3-Coder-30B-A3B | Not Available |
+| **Spider-Test** | **89.8%** | Qwen3-Coder-30B-A3B | [`results/spider-test/qwen3-coder-30b-a3b.json`](results/spider-test/qwen3-coder-30b-a3b.json) |
+| **Spider2.0-Lite** | **38.2%** | DeepSeek-R1 | [`results/spider2-lite/deepseek-r1`](results/spider2-lite/deepseek-r1/) |
+| **Spider2.0-Snow** | **50.5%** | DeepSeek-R1 | [`results/spider2-snow/deepseek-r1`](results/spider2-snow/deepseek-r1/) |
 
 > 💡 **Note**: Results are achieved with off-the-shelf LLMs (no fine-tuning required). Performance may vary with different backbone models.
 
