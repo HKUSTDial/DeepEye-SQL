@@ -3,7 +3,6 @@ Cloud SQL execution utilities for Spider2 datasets.
 Executes SQL on Snowflake and BigQuery cloud databases.
 """
 
-import os
 import json
 from pathlib import Path
 from typing import Optional, List, Tuple, Any, Dict
@@ -238,33 +237,3 @@ def execute_cloud_sql(
             sql=sql,
             error_message=f"Unsupported cloud database type: {db_type}"
         )
-
-
-def execute_sql_for_spider2(
-    sql: str,
-    db_type: str,
-    db_path: str,
-    credential_path: Optional[str] = None,
-    timeout: Optional[int] = None
-) -> SQLExecutionResult:
-    """
-    Execute SQL for Spider2 datasets. Handles both local SQLite and cloud databases.
-    
-    Args:
-        sql: SQL query to execute.
-        db_type: Database type ("sqlite", "bigquery", or "snowflake").
-        db_path: Path to SQLite database or database identifier for cloud.
-        credential_path: Path to credential JSON file (required for cloud types).
-        timeout: Query timeout in seconds.
-        
-    Returns:
-        SQLExecutionResult with query results.
-    """
-    if timeout is None:
-        timeout = config.dataset_config.sql_execution_timeout
-    if db_type == "sqlite":
-        # Use existing SQLite execution
-        from app.db_utils.execution import execute_sql
-        return execute_sql(db_path, sql, timeout=timeout)
-    else:
-        return execute_cloud_sql(sql, db_type, db_path, credential_path, timeout)

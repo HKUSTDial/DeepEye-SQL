@@ -41,7 +41,7 @@ class SQLGenerationRunner:
         total_token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         
         # Parallelize different generation methods within a single data item
-        with ThreadPoolExecutor(max_workers=3) as executor:
+        with ThreadPoolExecutor(max_workers=min(config.sql_generation_config.n_internal_parallel, 3)) as executor:
             generation_tasks = {
                 "dc": executor.submit(self._dc_generator.generate, data_item, self._llm, config.sql_generation_config.dc_sampling_budget),
                 "skeleton": executor.submit(self._skeleton_generator.generate, data_item, self._llm, config.sql_generation_config.skeleton_sampling_budget),

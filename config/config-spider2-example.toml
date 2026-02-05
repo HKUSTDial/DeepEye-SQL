@@ -8,6 +8,8 @@ type = "spider2"
 split = "lite"            # Options: "lite" or "snow"
 root_path = "data/spider2-lite"  # Use "data/spider2-snow" for snow split
 save_path = "workspace/dataset/spider2/lite.pkl"
+# max_samples = 100       # Limit total samples to load (optional)
+# max_samples_per_db = 5  # Limit samples per database (optional, None means load all samples from each database)
 
 # Spider2 cloud database credentials (required for cloud database access)
 snowflake_credential_path = "snowflake_credential.json"
@@ -32,6 +34,7 @@ n_parallel = 8
 [value_retrieval]
 n_results = 5
 n_parallel = 8
+n_internal_parallel = 32   # max workers within a single sample (column retrieval)
 save_path = "workspace/value_retrieval/spider2/lite.pkl"
 
 [value_retrieval.llm]
@@ -46,6 +49,7 @@ max_model_len = 128000
 ########## Schema linking configuration ##########
 [schema_linking]
 n_parallel = 8
+n_internal_parallel = 3   # max workers within a single sample (direct/reversed/value linkers)
 save_path = "workspace/schema_linking/spider2/lite.pkl"
 direct_linking_sampling_budget = 4
 reversed_linking_sampling_budget = 4
@@ -63,6 +67,7 @@ max_model_len = 128000
 ########## SQL generation configuration ##########
 [sql_generation]
 n_parallel = 8
+n_internal_parallel = 3   # max workers within a single sample (dc/skeleton/icl generators)
 save_path = "workspace/sql_generation/spider2/lite.pkl"
 dc_sampling_budget = 4
 skeleton_sampling_budget = 4
@@ -80,6 +85,7 @@ max_model_len = 128000
 ########## SQL revision configuration ##########
 [sql_revision]
 n_parallel = 8
+n_internal_parallel = 16   # max workers within a single sample (revising unique candidates)
 save_path = "workspace/sql_revision/spider2/lite.pkl"
 checker_sampling_budget = 3
 # For Spider2, recommend using only SyntaxChecker and ResultChecker
@@ -97,6 +103,7 @@ max_model_len = 128000
 ########## SQL selection configuration ##########
 [sql_selection]
 n_parallel = 8
+n_internal_parallel = 8   # max workers within a single sample (pairwise SQL comparison)
 save_path = "workspace/sql_selection/spider2/lite.pkl"
 filter_top_k_sql = 2
 evaluator_sampling_budget = 3

@@ -3,6 +3,7 @@ from typing import Dict, List, Optional, Tuple, Any, Union
 import json
 from functools import lru_cache
 from .execution import execute_sql
+from .constants import SPECIAL_CASES_FOR_BIRD_TRAIN_DATABASES
 from app.logger import logger
 import chardet
 import pandas as pd
@@ -62,27 +63,9 @@ def load_foreign_keys(db_path: Path, table_name: str) -> List[Tuple[str, str, st
         foreign_key_tuple = (source_table_name, source_column_name, target_table_name, target_column_name)
 
         # Special cases for bird train databases
-        spcial_cases_for_bird_trian_databases = {
-            ("works_cycles", "SalesOrderHeader", "ShipMethodID", "Address", "AddressID"): ("SalesOrderHeader", "ShipMethodID", "ShipMethod", "ShipMethodID"),
-            ("mondial_geo", "city", "Province", "province", None): ("city", "Province", "province", "Name"),
-            ("mondial_geo", "geo_desert", "Province", "province", None): ("geo_desert", "Province", "province", "Name"),
-            ("mondial_geo", "geo_estuary", "Province", "province", None): ("geo_estuary", "Province", "province", "Name"),
-            ("mondial_geo", "geo_island", "Province", "province", None): ("geo_island", "Province", "province", "Name"),
-            ("mondial_geo", "geo_lake", "Province", "province", None): ("geo_lake", "Province", "province", "Name"),
-            ("mondial_geo", "geo_mountain", "Province", "province", None): ("geo_mountain", "Province", "province", "Name"),
-            ("mondial_geo", "geo_river", "Province", "province", None): ("geo_river", "Province", "province", "Name"),
-            ("mondial_geo", "geo_sea", "Province", "province", None): ("geo_sea", "Province", "province", "Name"),
-            ("mondial_geo", "geo_source", "Province", "province", None): ("geo_source", "Province", "province", "Name"),
-            ("mondial_geo", "located", "Province", "province", None): ("located", "Province", "province", "Name"),
-            ("mondial_geo", "located", "City", "city", None): ("located", "City", "city", "Name"),
-            ("mondial_geo", "locatedOn", "Province", "province", None): ("locatedOn", "Province", "province", "Name"),
-            ("mondial_geo", "locatedOn", "City", "city", None): ("locatedOn", "City", "city", "Name"),
-            ("mondial_geo", "organization", "Province", "province", None): ("organization", "Province", "province", "Name"),
-            ("mondial_geo", "organization", "City", "city", None): ("organization", "City", "city", "Name")
-        }
         current_db_id = db_path.stem
-        if (current_db_id, *foreign_key_tuple) in spcial_cases_for_bird_trian_databases:
-            foreign_key_tuple = spcial_cases_for_bird_trian_databases[(current_db_id, *foreign_key_tuple)]
+        if (current_db_id, *foreign_key_tuple) in SPECIAL_CASES_FOR_BIRD_TRAIN_DATABASES:
+            foreign_key_tuple = SPECIAL_CASES_FOR_BIRD_TRAIN_DATABASES[(current_db_id, *foreign_key_tuple)]
 
         assert None not in foreign_key_tuple, f"Foreign key tuple contains None: {foreign_key_tuple}"
         fixed_foreign_keys.append(foreign_key_tuple)
@@ -240,43 +223,6 @@ def load_database_schema_dict(db_path: Union[str, Path]) -> Dict[str, Any]:
                     column_schema_dict["foreign_keys"].remove((target_table_name, target_column_name))
         
     return database_schema_dict
-
-
-def get_table_profile(table_schema_dict: Dict[str, Any]) -> str:
-    representation = f"- Table: `{table_schema_dict['table_name']}`\n"
-    representation += f"[\n"
-    column_representations = []
-    for column_name, column_schema_dict in table_schema_dict["columns"].items():
-        column_representation = f"`{column_name}`: {column_schema_dict['column_type']}"
-        if column_schema_dict["description"]:
-            column_representation += f" | {column_schema_dict['description']}"
-        if column_schema_dict["value_statistics"]:
-            stats = column_schema_dict["value_statistics"]
-            column_representation += f" | Value Statistics: {stats['null_count']} NULL values, {stats['distinct_count']} distinct values, {stats['total_count']} total values"
-        if column_schema_dict["value_examples"]:
-            column_representation += f" | Value Examples: {column_schema_dict['value_examples']}"
-        column_representations.append(f"({column_representation})")
-    column_reps_str = ",\n".join(column_representations)
-    representation += f"{column_reps_str}\n"
-    representation += f"]\n"
-
-    all_primary_keys = []
-    for column_name, column_schema_dict in table_schema_dict["columns"].items():
-        if column_schema_dict["primary_key"]:
-            all_primary_keys.append(f"`{column_name}`")
-    if all_primary_keys:
-        representation += "Primary Key:\n"
-        representation += f"({', '.join(all_primary_keys)})"
-    
-    all_foreign_keys = []
-    for column_name, column_schema_dict in table_schema_dict["columns"].items():
-        for target_table_name, target_column_name in column_schema_dict["foreign_keys"]:
-            all_foreign_keys.append(f"`{table_schema_dict['table_name']}`.`{column_name}` = `{target_table_name}`.`{target_column_name}`")
-    if all_foreign_keys:
-        representation += "Foreign Keys:\n"
-        foreign_keys_str = "\n".join(all_foreign_keys)
-    representation += f"{foreign_keys_str}"
-    return representation
 
 
 def _compute_table_schema_signature(table_schema_dict: Dict[str, Any]) -> str:

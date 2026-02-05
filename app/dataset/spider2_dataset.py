@@ -124,8 +124,10 @@ class Spider2LiteDataset(BaseDataset):
         
         data = []
         resource_dir = self._get_resource_dir()
+        db_sample_count = {}  # Track samples per database
+        idx = 0
         
-        for idx, item in tqdm(enumerate(data_list), desc="Loading Spider2-Lite data", total=len(data_list)):
+        for item in tqdm(data_list, desc="Loading Spider2-Lite data", total=len(data_list)):
             instance_id = item.get("instance_id", "")
             db_id = item.get("db", "")
             question = item.get("question", "")
@@ -133,6 +135,11 @@ class Spider2LiteDataset(BaseDataset):
             
             # Determine database type
             db_type = get_db_type_from_instance_id(instance_id, "lite")
+            
+            # Check if we've reached the max samples per database limit
+            if self._config.max_samples_per_db is not None:
+                if db_sample_count.get(db_id, 0) >= self._config.max_samples_per_db:
+                    continue  # Skip this sample
             
             # Load external knowledge as evidence
             evidence = ""
@@ -163,12 +170,12 @@ class Spider2LiteDataset(BaseDataset):
                 external_knowledge_path=external_knowledge_file
             )
             data.append(data_item)
+            
+            # Increment the count for this database
+            db_sample_count[db_id] = db_sample_count.get(db_id, 0) + 1
+            idx += 1
         
         return data
-    
-    def get_items_by_db_type(self, db_type: str) -> List[Spider2DataItem]:
-        """Get all items of a specific database type."""
-        return [item for item in self._data if item.db_type == db_type]
 
 
 class Spider2SnowDataset(BaseDataset):
@@ -223,8 +230,10 @@ class Spider2SnowDataset(BaseDataset):
         
         data = []
         resource_dir = self._get_resource_dir()
+        db_sample_count = {}  # Track samples per database
+        idx = 0
         
-        for idx, item in tqdm(enumerate(data_list), desc="Loading Spider2-Snow data", total=len(data_list)):
+        for item in tqdm(data_list, desc="Loading Spider2-Snow data", total=len(data_list)):
             instance_id = item.get("instance_id", "")
             # Spider2-Snow uses "db_id" instead of "db", and it's uppercase
             db_id = item.get("db_id", "")
@@ -234,6 +243,11 @@ class Spider2SnowDataset(BaseDataset):
             
             # All Spider2-Snow databases are Snowflake
             db_type = "snowflake"
+            
+            # Check if we've reached the max samples per database limit
+            if self._config.max_samples_per_db is not None:
+                if db_sample_count.get(db_id, 0) >= self._config.max_samples_per_db:
+                    continue  # Skip this sample
             
             # Load external knowledge as evidence
             evidence = ""
@@ -264,5 +278,9 @@ class Spider2SnowDataset(BaseDataset):
                 external_knowledge_path=external_knowledge_file
             )
             data.append(data_item)
+            
+            # Increment the count for this database
+            db_sample_count[db_id] = db_sample_count.get(db_id, 0) + 1
+            idx += 1
         
         return data

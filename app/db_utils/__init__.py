@@ -10,7 +10,6 @@ __all__ = [
     "load_primary_keys",
     "load_foreign_keys",
     "load_database_schema_dict",
-    "get_table_profile",
     "get_database_schema_profile",
     "map_lower_table_name_to_original_table_name",
     "map_lower_column_name_to_original_column_name",
@@ -25,7 +24,6 @@ __all__ = [
     "SQLExecutionResult",
     # Cloud schema utilities (Spider2)
     "load_cloud_database_schema_dict",
-    "get_cloud_database_schema_profile",
     "load_external_knowledge",
     "load_snowflake_database_schema",
     "load_bigquery_database_schema",
@@ -33,5 +31,4 @@ __all__ = [
     "execute_cloud_sql",
     "execute_bigquery_sql",
     "execute_snowflake_sql",
-    "execute_sql_for_spider2",
 ]

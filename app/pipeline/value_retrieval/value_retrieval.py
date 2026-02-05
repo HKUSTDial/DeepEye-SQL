@@ -106,7 +106,7 @@ class ValueRetrievalRunner:
         
         if column_tasks:
             # Use a local executor to avoid deadlock with the main thread pool
-            with ThreadPoolExecutor(max_workers=min(len(column_tasks), 8)) as col_executor:
+            with ThreadPoolExecutor(max_workers=min(len(column_tasks), config.value_retrieval_config.n_internal_parallel)) as col_executor:
                 future_to_col = {
                     col_executor.submit(
                         retrieve_values_for_one_column,

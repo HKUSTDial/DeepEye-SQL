@@ -36,12 +36,13 @@ class DatasetConfig(BaseModel):
     root_path: Optional[str] = Field(..., description="The root path of the dataset")
     save_path: str = Field(default=WORKSPACE_ROOT / "dataset" / f"{type}" / f"{split}.pkl", description="The save path of the dataset")
     max_samples: Optional[int] = Field(default=None, description="The maximum number of samples to load")
+    max_samples_per_db: Optional[int] = Field(default=None, description="The maximum number of samples to load per database")
     
     # Spider2 specific configurations
     snowflake_credential_path: Optional[str] = Field(default=None, description="Path to Snowflake credential JSON file")
     bigquery_credential_path: Optional[str] = Field(default=None, description="Path to BigQuery credential JSON file")
     
-    sql_execution_timeout: int = Field(default=60, description="The timeout for SQL execution in seconds")
+    sql_execution_timeout: int = Field(default=600, description="The timeout for SQL execution in seconds")
     max_value_example_length: int = Field(default=100, description="The maximum length of the value examples in the schema")
     
     @model_validator(mode="after")
@@ -81,12 +82,14 @@ class ValueRetrievalConfig(BaseModel):
     llm: LLMConfig = Field(..., description="The llm config, used to extract keywords")
     n_results: int = Field(default=5, description="The number of results to retrieve")
     n_parallel: int = Field(default=16, description="The number of parallel threads to use")
+    n_internal_parallel: int = Field(default=32, description="Max parallel workers within a single sample (e.g. column retrieval)")
     save_path: str = Field(default=WORKSPACE_ROOT / "value_retrieval", description="The save path of the value retrieval result")
 
 
 class SchemaLinkingConfig(BaseModel):
     llm: LLMConfig = Field(..., description="The llm config, used to link tables and columns")
     n_parallel: int = Field(default=16, description="The number of parallel threads to use")
+    n_internal_parallel: int = Field(default=3, description="Max parallel workers within a single sample (direct/reversed/value linkers)")
     save_path: str = Field(default=WORKSPACE_ROOT / "schema_linking", description="The save path of the schema linking result")
     direct_linking_sampling_budget: int = Field(default=5, description="The sampling budget of the direct linking")
     reversed_linking_sampling_budget: int = Field(default=5, description="The sampling budget of the reversed linking")
@@ -96,6 +99,7 @@ class SchemaLinkingConfig(BaseModel):
 class SQLGenerationConfig(BaseModel):
     llm: LLMConfig = Field(..., description="The llm config, used to generate sql")
     n_parallel: int = Field(default=16, description="The number of parallel threads to use")
+    n_internal_parallel: int = Field(default=3, description="Max parallel workers within a single sample (dc/skeleton/icl generators)")
     save_path: str = Field(default=WORKSPACE_ROOT / "sql_generation", description="The save path of the sql generation result")
     dc_sampling_budget: int = Field(default=5, description="The sampling budget of the dc generation")
     skeleton_sampling_budget: int = Field(default=5, description="The sampling budget of the skeleton generation")
@@ -106,6 +110,7 @@ class SQLGenerationConfig(BaseModel):
 class SQLRevisionConfig(BaseModel):
     llm: LLMConfig = Field(..., description="The llm config, used to revise sql")
     n_parallel: int = Field(default=16, description="The number of parallel threads to use")
+    n_internal_parallel: int = Field(default=16, description="Max parallel workers within a single sample (revising unique candidates)")
     save_path: str = Field(default=WORKSPACE_ROOT / "sql_revision", description="The save path of the sql revision result")
     checker_sampling_budget: int = Field(default=5, description="The sampling budget of the checker")
     checkers: List[str] = Field(default=[], description="The list of checkers to enable")
@@ -114,6 +119,7 @@ class SQLRevisionConfig(BaseModel):
 class SQLSelectionConfig(BaseModel):
     llm: LLMConfig = Field(..., description="The llm config, used to select sql")
     n_parallel: int = Field(default=16, description="The number of parallel threads to use")
+    n_internal_parallel: int = Field(default=8, description="Max parallel workers within a single sample (pairwise SQL comparison)")
     save_path: str = Field(default=WORKSPACE_ROOT / "sql_selection", description="The save path of the sql selection result")
     filter_top_k_sql: int = Field(default=2, description="The number of top k sql to filter")
     evaluator_sampling_budget: int = Field(default=1, description="The sampling budget of the evaluator")
@@ -203,6 +209,7 @@ class Config:
             "root_path": dataset_config.get("root_path"),
             "save_path": dataset_config.get("save_path", WORKSPACE_ROOT / "dataset" / f"{dataset_type}" / f"{dataset_split}.pkl"),
             "max_samples": dataset_config.get("max_samples", None),
+            "max_samples_per_db": dataset_config.get("max_samples_per_db", None),
             # Spider2 specific configurations
             "snowflake_credential_path": dataset_config.get("snowflake_credential_path", None),
             "bigquery_credential_path": dataset_config.get("bigquery_credential_path", None),
@@ -231,6 +238,7 @@ class Config:
             "llm": LLMConfig(**value_retrieval_config.get("llm")),
             "n_results": value_retrieval_config.get("n_results", 5),
             "n_parallel": value_retrieval_config.get("n_parallel", 16),
+            "n_internal_parallel": value_retrieval_config.get("n_internal_parallel", 32),
             "save_path": value_retrieval_config.get("save_path", WORKSPACE_ROOT / "value_retrieval"),
         }
         
@@ -239,6 +247,7 @@ class Config:
         schema_linking_settings = {
             "llm": LLMConfig(**schema_linking_config.get("llm")),
             "n_parallel": schema_linking_config.get("n_parallel", 16),
+            "n_internal_parallel": schema_linking_config.get("n_internal_parallel", 3),
             "save_path": schema_linking_config.get("save_path", WORKSPACE_ROOT / "schema_linking"),
             "direct_linking_sampling_budget": schema_linking_config.get("direct_linking_sampling_budget", 5),
             "reversed_linking_sampling_budget": schema_linking_config.get("reversed_linking_sampling_budget", 5),
@@ -250,6 +259,7 @@ class Config:
         sql_generation_settings = {
             "llm": LLMConfig(**sql_generation_config.get("llm")),
             "n_parallel": sql_generation_config.get("n_parallel", 16),
+            "n_internal_parallel": sql_generation_config.get("n_internal_parallel", 3),
             "save_path": sql_generation_config.get("save_path", WORKSPACE_ROOT / "sql_generation"),
             "dc_sampling_budget": sql_generation_config.get("dc_sampling_budget", 5),
             "skeleton_sampling_budget": sql_generation_config.get("skeleton_sampling_budget", 5),
@@ -262,6 +272,7 @@ class Config:
         sql_revision_settings = {
             "llm": LLMConfig(**sql_revision_config.get("llm")),
             "n_parallel": sql_revision_config.get("n_parallel", 16),
+            "n_internal_parallel": sql_revision_config.get("n_internal_parallel", 16),
             "save_path": sql_revision_config.get("save_path", WORKSPACE_ROOT / "sql_revision"),
             "checker_sampling_budget": sql_revision_config.get("checker_sampling_budget", 5),
             "checkers": sql_revision_config.get("checkers", []),
@@ -272,6 +283,7 @@ class Config:
         sql_selection_settings = {
             "llm": LLMConfig(**sql_selection_config.get("llm")),
             "n_parallel": sql_selection_config.get("n_parallel", 16),
+            "n_internal_parallel": sql_selection_config.get("n_internal_parallel", 8),
             "save_path": sql_selection_config.get("save_path", WORKSPACE_ROOT / "sql_selection"),
             "filter_top_k_sql": sql_selection_config.get("filter_top_k_sql", 10),
             "evaluator_sampling_budget": sql_selection_config.get("evaluator_sampling_budget", 1),

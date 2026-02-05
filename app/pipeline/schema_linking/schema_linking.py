@@ -42,8 +42,7 @@ class SchemaLinkingRunner:
         total_token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         
         # Parallelize different linking methods within a single data item
-        # We use a max_workers=3 because we have three independent linkers
-        with ThreadPoolExecutor(max_workers=3) as executor:
+        with ThreadPoolExecutor(max_workers=min(config.schema_linking_config.n_internal_parallel, 3)) as executor:
             linker_tasks = {
                 "direct": executor.submit(self._direct_linker.link, data_item, self._llm, config.schema_linking_config.direct_linking_sampling_budget),
                 "reversed": executor.submit(self._reversed_linker.link, data_item, self._llm, config.schema_linking_config.reversed_linking_sampling_budget),

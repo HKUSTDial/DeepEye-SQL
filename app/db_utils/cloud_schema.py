@@ -334,58 +334,6 @@ def load_cloud_database_schema_dict(
         raise ValueError(f"Unsupported database type: {db_type}")
 
 
-def get_cloud_database_schema_profile(database_schema_dict: Dict[str, Any]) -> str:
-    """
-    Generate schema profile string for cloud databases.
-    Extends the standard profile with nested column information for BigQuery.
-    
-    Args:
-        database_schema_dict: Database schema dictionary.
-        
-    Returns:
-        Schema profile string.
-    """
-    db_type = database_schema_dict.get("db_type", "unknown")
-    profile = ""
-    db_id = database_schema_dict["db_id"]
-    profile += f"Database ID: `{db_id}`\n"
-    profile += f"Database Type: {db_type.upper()}\n"
-    profile += f"Schema:\n"
-    
-    for table_key, table_schema_dict in database_schema_dict["tables"].items():
-        table_name = table_schema_dict.get("table_fullname", table_schema_dict["table_name"])
-        profile += f"- Table: `{table_name}`\n"
-        profile += f"[\n"
-        
-        column_profiles = []
-        for column_name, column_schema_dict in table_schema_dict["columns"].items():
-            column_profile = f"`{column_name}`: {column_schema_dict['column_type']}"
-            if column_schema_dict.get("description"):
-                column_profile += f" | {column_schema_dict['description']}"
-            if column_schema_dict.get("value_examples"):
-                column_profile += f" | Value Examples: {column_schema_dict['value_examples']}"
-            column_profiles.append(f"({column_profile})")
-        
-        profile += f"{','.join(column_profiles)}\n"
-        profile += f"]\n"
-        
-        # Add nested columns section for BigQuery
-        nested_columns = table_schema_dict.get("nested_columns", {})
-        if nested_columns:
-            profile += "Nested Fields (accessible via UNNEST):\n"
-            for nested_col_name, nested_col_info in nested_columns.items():
-                profile += f"  - {nested_col_name}: {nested_col_info['column_type']}\n"
-    
-    # Add database-specific notes
-    if db_type == "bigquery":
-        profile += "\nNote: For nested/repeated fields (ARRAY, STRUCT), use UNNEST() to access nested data.\n"
-        profile += "Example: SELECT ep.key, ep.value.string_value FROM `table`, UNNEST(event_params) AS ep\n"
-    elif db_type == "snowflake":
-        profile += "\nNote: This is a Snowflake database. Use Snowflake SQL syntax.\n"
-    
-    return profile
-
-
 def load_external_knowledge(doc_name: Optional[str], resource_dir: Path) -> str:
     """
     Load external knowledge document.

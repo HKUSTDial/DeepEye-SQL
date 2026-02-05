@@ -1,4 +1,3 @@
-import token
 from tenacity import retry
 from app.dataset import BaseDataset, load_dataset, save_dataset, DataItem
 from app.llm import LLM
@@ -221,7 +220,7 @@ class SQLSelectionRunner:
         
         # Parallelize the pairwise comparisons
         has_failure = False
-        with ThreadPoolExecutor(max_workers=min(len(pair_sqls_to_eval), 4)) as executor:
+        with ThreadPoolExecutor(max_workers=min(len(pair_sqls_to_eval), config.sql_selection_config.n_internal_parallel)) as executor:
             future_to_pair = {
                 executor.submit(self._compare_sqls, sql_a[0], sql_a[1], sql_b[0], sql_b[1], data_item): (sql_a, sql_b)
                 for sql_a, sql_b in pair_sqls_to_eval

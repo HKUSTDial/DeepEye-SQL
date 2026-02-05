@@ -114,7 +114,7 @@ class SQLRevisionRunner:
         
         # Parallelize the revision of UNIQUE candidates only
         unique_norms = list(unique_candidates_map.keys())
-        with ThreadPoolExecutor(max_workers=min(len(unique_norms), 8)) as executor:
+        with ThreadPoolExecutor(max_workers=min(len(unique_norms), config.sql_revision_config.n_internal_parallel)) as executor:
             future_to_norm = {
                 executor.submit(self._revise_one_candidate, unique_candidates_map[norm], data_item): norm 
                 for norm in unique_norms

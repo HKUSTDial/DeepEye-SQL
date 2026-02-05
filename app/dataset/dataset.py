@@ -117,6 +117,8 @@ class BirdDataset(BaseDataset):
             data_list = data_list[:self._config.max_samples]
             
         data = []
+        db_sample_count = {}  # Track samples per database
+        
         for data_item in tqdm(data_list, desc="Loading data"):
             question_id = data_item.get("question_id")
             question = data_item.get("question")
@@ -124,6 +126,12 @@ class BirdDataset(BaseDataset):
             gold_sql = data_item.get("SQL")
             difficulty = data_item.get("difficulty")
             database_id = data_item.get("db_id")
+            
+            # Check if we've reached the max samples per database limit
+            if self._config.max_samples_per_db is not None:
+                if db_sample_count.get(database_id, 0) >= self._config.max_samples_per_db:
+                    continue  # Skip this sample
+            
             database_path = self._get_database_path(database_id)
             database_schema = self._load_database_schema(database_id)
             data.append(
@@ -138,6 +146,9 @@ class BirdDataset(BaseDataset):
                     database_schema=database_schema,
                 )
             )
+            
+            # Increment the count for this database
+            db_sample_count[database_id] = db_sample_count.get(database_id, 0) + 1
         
         return data
         
@@ -164,12 +175,21 @@ class SpiderDataset(BaseDataset):
             data_list = data_list[:self._config.max_samples]
             
         data = []
-        for question_id, data_item in tqdm(enumerate(data_list), desc="Loading data"):
+        db_sample_count = {}  # Track samples per database
+        question_id = 0
+        
+        for data_item in tqdm(data_list, desc="Loading data"):
             question = data_item.get("question")
             evidence = ""
             gold_sql = data_item.get("query")
             difficulty = ""
             database_id = data_item.get("db_id")
+            
+            # Check if we've reached the max samples per database limit
+            if self._config.max_samples_per_db is not None:
+                if db_sample_count.get(database_id, 0) >= self._config.max_samples_per_db:
+                    continue  # Skip this sample
+            
             database_path = self._get_database_path(database_id)
             database_schema = self._load_database_schema(database_id)
             data.append(
@@ -184,6 +204,10 @@ class SpiderDataset(BaseDataset):
                     database_schema=database_schema,
                 )
             )
+            
+            # Increment the count for this database
+            db_sample_count[database_id] = db_sample_count.get(database_id, 0) + 1
+            question_id += 1
         
         return data
     

@@ -6,7 +6,6 @@ from typing import List, Dict, Any, Literal, Optional, Tuple
 import threading
 import time
 import numpy as np
-from collections import Counter
 from app.logger import logger
 from app.config import config
 
@@ -265,17 +264,5 @@ def execute_sql_for_data_item(data_item, sql: str, timeout: Optional[int] = None
     
     # Execute on cloud - cloud_execution now returns proper SQLExecutionResult directly
     result = execute_cloud_sql(sql, db_type, data_item.database_path, credential_path, timeout)
-    
-    # Check for all_null_result (not handled by cloud_execution)
-    if result.result_type == "success" and result.result_rows is not None:
-        if not any(any(val is not None for val in row) for row in result.result_rows):
-            return SQLExecutionResult(
-                result_type="all_null_result",
-                db_path=data_item.database_path,
-                sql=sql,
-                result_cols=result.result_cols,
-                result_rows=result.result_rows,
-                error_message="The SQL query returned a result table with all null values."
-            )
     
     return result
