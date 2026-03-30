@@ -7,7 +7,7 @@ print_level = "INFO"      # Console log level: DEBUG, INFO, WARNING, ERROR, CRIT
 type = "spider"
 split = "test"
 root_path = "data/spider"
-save_path = "workspace/dataset/spider/test.pkl"
+save_path = "workspace/dataset/spider/test.snapshot"
 # max_samples = 100       # Limit total samples to load (optional)
 # max_samples_per_db = 5  # Limit samples per database (optional, None means load all samples from each database)
 
@@ -28,7 +28,7 @@ n_parallel = 8
 n_results = 5
 n_parallel = 8
 n_internal_parallel = 32   # max workers within a single sample (column retrieval)
-save_path = "workspace/value_retrieval/spider/test.pkl"
+save_path = "workspace/value_retrieval/spider/test.snapshot"
 
 [value_retrieval.llm]
 model = "your-value-retrieval-model-name"
@@ -43,7 +43,7 @@ max_model_len = 128000
 [schema_linking]
 n_parallel = 8
 n_internal_parallel = 3   # max workers within a single sample (direct/reversed/value linkers)
-save_path = "workspace/schema_linking/spider/test.pkl"
+save_path = "workspace/schema_linking/spider/test.snapshot"
 direct_linking_sampling_budget = 4
 reversed_linking_sampling_budget = 4
 value_distance_threshold = 0.02
@@ -61,7 +61,7 @@ max_model_len = 128000
 [sql_generation]
 n_parallel = 8
 n_internal_parallel = 3   # max workers within a single sample (dc/skeleton/icl generators)
-save_path = "workspace/sql_generation/spider/test.pkl"
+save_path = "workspace/sql_generation/spider/test.snapshot"
 dc_sampling_budget = 4
 skeleton_sampling_budget = 4
 icl_sampling_budget = 4
@@ -80,7 +80,7 @@ max_model_len = 128000
 [sql_revision]
 n_parallel = 8
 n_internal_parallel = 16   # max workers within a single sample (revising unique candidates)
-save_path = "workspace/sql_revision/spider/test.pkl"
+save_path = "workspace/sql_revision/spider/test.snapshot"
 checker_sampling_budget = 3
 
 [sql_revision.llm]
@@ -96,7 +96,7 @@ max_model_len = 128000
 [sql_selection]
 n_parallel = 16
 n_internal_parallel = 8   # max workers within a single sample (pairwise SQL comparison)
-save_path = "workspace/sql_selection/spider/test.pkl"
+save_path = "workspace/sql_selection/spider/test.snapshot"
 filter_top_k_sql = 2
 evaluator_sampling_budget = 5
 shortcut_consistency_score_threshold = 0.6

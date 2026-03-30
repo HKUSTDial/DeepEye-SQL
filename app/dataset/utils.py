@@ -131,4 +131,4 @@ def _load_class(module_name: str, class_name: str):
 
 
 def _get_snapshot_root(save_path: Path) -> Path:
-    return save_path.with_name(f"{save_path.name}.snapshot")
+    return save_path.with_name(f"{save_path.name}.data")
