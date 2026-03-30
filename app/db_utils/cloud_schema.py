@@ -9,8 +9,15 @@ import json
 from functools import lru_cache
 from app.logger import logger
 
+from .defaults import DEFAULT_MAX_VALUE_EXAMPLE_LENGTH
 
-def _get_value_examples_from_sample_rows(sample_rows: List[Dict], column_name: str, max_examples: int = 3, max_length: int = 100) -> List[str]:
+
+def _get_value_examples_from_sample_rows(
+    sample_rows: List[Dict],
+    column_name: str,
+    max_examples: int = 3,
+    max_length: int = DEFAULT_MAX_VALUE_EXAMPLE_LENGTH,
+) -> List[str]:
     """
     Extract value examples from sample rows.
     
@@ -25,10 +32,6 @@ def _get_value_examples_from_sample_rows(sample_rows: List[Dict], column_name: s
     """
     if not sample_rows:
         return []
-    
-    from app.config import config
-    if config.dataset_config is not None:
-        max_length = config.dataset_config.max_value_example_length
     
     examples = []
     for row in sample_rows:
@@ -55,7 +58,11 @@ def _get_value_examples_from_sample_rows(sample_rows: List[Dict], column_name: s
     return examples
 
 
-def load_table_schema_from_json(json_path: Path) -> Dict[str, Any]:
+def load_table_schema_from_json(
+    json_path: Path,
+    *,
+    max_value_example_length: int = DEFAULT_MAX_VALUE_EXAMPLE_LENGTH,
+) -> Dict[str, Any]:
     """
     Load a single table schema from a JSON file.
     
@@ -107,7 +114,11 @@ def load_table_schema_from_json(json_path: Path) -> Dict[str, Any]:
             "primary_key": False,  # Cloud databases don't provide PK info in JSON
             "foreign_keys": [],    # Cloud databases don't provide FK info in JSON
             "description": description,
-            "value_examples": _get_value_examples_from_sample_rows(sample_rows, column_name),
+            "value_examples": _get_value_examples_from_sample_rows(
+                sample_rows,
+                column_name,
+                max_length=max_value_example_length,
+            ),
             "value_statistics": None  # Not available for cloud databases
         }
         
@@ -131,7 +142,12 @@ def load_table_schema_from_json(json_path: Path) -> Dict[str, Any]:
     return table_schema_dict
 
 
-def load_snowflake_database_schema(db_id: str, snowflake_db_dir: Path) -> Dict[str, Any]:
+def load_snowflake_database_schema(
+    db_id: str,
+    snowflake_db_dir: Path,
+    *,
+    max_value_example_length: int = DEFAULT_MAX_VALUE_EXAMPLE_LENGTH,
+) -> Dict[str, Any]:
     """
     Load Snowflake database schema from JSON files.
     
@@ -167,7 +183,10 @@ def load_snowflake_database_schema(db_id: str, snowflake_db_dir: Path) -> Dict[s
             continue
         for json_file in schema_dir.glob("*.json"):
             try:
-                table_schema = load_table_schema_from_json(json_file)
+                table_schema = load_table_schema_from_json(
+                    json_file,
+                    max_value_example_length=max_value_example_length,
+                )
                 table_name = table_schema["table_name"]
                 # Use fullname as key to avoid conflicts
                 table_key = table_schema.get("table_fullname", table_name)
@@ -178,7 +197,12 @@ def load_snowflake_database_schema(db_id: str, snowflake_db_dir: Path) -> Dict[s
     return database_schema_dict
 
 
-def load_snowflake_database_schema_for_spider2_snow(db_id: str, databases_dir: Path) -> Dict[str, Any]:
+def load_snowflake_database_schema_for_spider2_snow(
+    db_id: str,
+    databases_dir: Path,
+    *,
+    max_value_example_length: int = DEFAULT_MAX_VALUE_EXAMPLE_LENGTH,
+) -> Dict[str, Any]:
     """
     Load Snowflake database schema from JSON files for Spider2-Snow dataset.
     
@@ -215,7 +239,10 @@ def load_snowflake_database_schema_for_spider2_snow(db_id: str, databases_dir: P
             continue
         for json_file in schema_dir.glob("*.json"):
             try:
-                table_schema = load_table_schema_from_json(json_file)
+                table_schema = load_table_schema_from_json(
+                    json_file,
+                    max_value_example_length=max_value_example_length,
+                )
                 table_name = table_schema["table_name"]
                 # Use fullname as key to avoid conflicts
                 table_key = table_schema.get("table_fullname", table_name)
@@ -226,7 +253,12 @@ def load_snowflake_database_schema_for_spider2_snow(db_id: str, databases_dir: P
     return database_schema_dict
 
 
-def load_bigquery_database_schema(db_id: str, bigquery_db_dir: Path) -> Dict[str, Any]:
+def load_bigquery_database_schema(
+    db_id: str,
+    bigquery_db_dir: Path,
+    *,
+    max_value_example_length: int = DEFAULT_MAX_VALUE_EXAMPLE_LENGTH,
+) -> Dict[str, Any]:
     """
     Load BigQuery database schema from JSON files.
     
@@ -262,7 +294,10 @@ def load_bigquery_database_schema(db_id: str, bigquery_db_dir: Path) -> Dict[str
             continue
         for json_file in dataset_dir.glob("*.json"):
             try:
-                table_schema = load_table_schema_from_json(json_file)
+                table_schema = load_table_schema_from_json(
+                    json_file,
+                    max_value_example_length=max_value_example_length,
+                )
                 table_name = table_schema["table_name"]
                 # Use fullname as key to avoid conflicts
                 table_key = table_schema.get("table_fullname", table_name)
@@ -300,7 +335,8 @@ def load_sqlite_database_schema_for_spider2(db_id: str, sqlite_db_dir: Path) -> 
 def load_cloud_database_schema_dict(
     db_id: str,
     db_type: str,
-    resource_dir: str
+    resource_dir: str,
+    max_value_example_length: int = DEFAULT_MAX_VALUE_EXAMPLE_LENGTH,
 ) -> Dict[str, Any]:
     """
     Load database schema for Spider2 datasets.
@@ -318,12 +354,14 @@ def load_cloud_database_schema_dict(
     if db_type == "snowflake":
         return load_snowflake_database_schema(
             db_id, 
-            resource_path / "databases" / "snowflake"
+            resource_path / "databases" / "snowflake",
+            max_value_example_length=max_value_example_length,
         )
     elif db_type == "bigquery":
         return load_bigquery_database_schema(
             db_id,
-            resource_path / "databases" / "bigquery"
+            resource_path / "databases" / "bigquery",
+            max_value_example_length=max_value_example_length,
         )
     elif db_type == "sqlite":
         return load_sqlite_database_schema_for_spider2(

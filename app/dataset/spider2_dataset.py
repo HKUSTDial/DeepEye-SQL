@@ -92,7 +92,12 @@ class Spider2LiteDataset(BaseDataset):
             return self._database_schema_cache[cache_key]
         
         resource_dir = self._get_resource_dir()
-        schema = load_cloud_database_schema_dict(db_id, db_type, str(resource_dir))
+        schema = load_cloud_database_schema_dict(
+            db_id,
+            db_type,
+            str(resource_dir),
+            max_value_example_length=self._config.max_value_example_length,
+        )
         self._database_schema_cache[cache_key] = schema
         return schema
     
@@ -207,7 +212,11 @@ class Spider2SnowDataset(BaseDataset):
         
         resource_dir = self._get_resource_dir()
         # Spider2-Snow has databases directly under databases/, not databases/snowflake/
-        schema = load_snowflake_database_schema_for_spider2_snow(db_id, resource_dir / "databases")
+        schema = load_snowflake_database_schema_for_spider2_snow(
+            db_id,
+            resource_dir / "databases",
+            max_value_example_length=self._config.max_value_example_length,
+        )
         self._database_schema_cache[db_id] = schema
         return schema
     

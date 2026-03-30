@@ -1,37 +1,55 @@
 import threading
 from typing import Any, Optional
 
+from app.db_utils.defaults import DEFAULT_SQL_EXECUTION_TIMEOUT
 from app.db_utils import execute_sql_for_data_item, measure_execution_time_for_data_item
 from app.pipeline.utils import get_execution_result_hash
 
 
 class ExecutionService:
-    def __init__(self):
+    def __init__(
+        self,
+        default_timeout: int = DEFAULT_SQL_EXECUTION_TIMEOUT,
+        *,
+        bigquery_credential_path: Optional[str] = None,
+        snowflake_credential_path: Optional[str] = None,
+    ):
         self._result_cache: dict[tuple[Any, ...], Any] = {}
         self._time_cache: dict[tuple[Any, ...], float] = {}
         self._lock = threading.Lock()
+        self._default_timeout = default_timeout
+        self._bigquery_credential_path = bigquery_credential_path
+        self._snowflake_credential_path = snowflake_credential_path
 
     def execute(self, data_item: Any, sql: str, timeout: Optional[int] = None, use_cache: bool = True):
-        cache_key = self._build_result_key(data_item, sql, timeout)
+        resolved_timeout = self._resolve_timeout(timeout)
+        cache_key = self._build_result_key(data_item, sql, resolved_timeout)
         if use_cache:
             with self._lock:
                 if cache_key in self._result_cache:
                     return self._result_cache[cache_key]
 
-        result = execute_sql_for_data_item(data_item, sql, timeout=timeout)
+        result = execute_sql_for_data_item(
+            data_item,
+            sql,
+            timeout=resolved_timeout,
+            bigquery_credential_path=self._bigquery_credential_path,
+            snowflake_credential_path=self._snowflake_credential_path,
+        )
         if use_cache:
             with self._lock:
                 self._result_cache[cache_key] = result
         return result
 
     def measure_time(self, data_item: Any, sql: str, timeout: Optional[int] = None, repeat: int = 10, use_cache: bool = True) -> float:
-        cache_key = self._build_time_key(data_item, sql, timeout, repeat)
+        resolved_timeout = self._resolve_timeout(timeout)
+        cache_key = self._build_time_key(data_item, sql, resolved_timeout, repeat)
         if use_cache:
             with self._lock:
                 if cache_key in self._time_cache:
                     return self._time_cache[cache_key]
 
-        execution_time = measure_execution_time_for_data_item(data_item, sql, timeout=timeout, repeat=repeat)
+        execution_time = measure_execution_time_for_data_item(data_item, sql, timeout=resolved_timeout, repeat=repeat)
         if use_cache:
             with self._lock:
                 self._time_cache[cache_key] = execution_time
@@ -45,8 +63,11 @@ class ExecutionService:
             self._result_cache.clear()
             self._time_cache.clear()
 
+    def _resolve_timeout(self, timeout: Optional[int]) -> int:
+        return timeout if timeout is not None else self._default_timeout
+
     @staticmethod
-    def _build_result_key(data_item: Any, sql: str, timeout: Optional[int]) -> tuple[Any, ...]:
+    def _build_result_key(data_item: Any, sql: str, timeout: int) -> tuple[Any, ...]:
         return (
             getattr(data_item, "db_type", "sqlite"),
             data_item.database_path,
@@ -55,7 +76,7 @@ class ExecutionService:
         )
 
     @staticmethod
-    def _build_time_key(data_item: Any, sql: str, timeout: Optional[int], repeat: int) -> tuple[Any, ...]:
+    def _build_time_key(data_item: Any, sql: str, timeout: int, repeat: int) -> tuple[Any, ...]:
         return (
             getattr(data_item, "db_type", "sqlite"),
             data_item.database_path,
@@ -71,7 +92,22 @@ _execution_service: ExecutionService | None = None
 def get_execution_service() -> ExecutionService:
     global _execution_service
     if _execution_service is None:
-        _execution_service = ExecutionService()
+        default_timeout = DEFAULT_SQL_EXECUTION_TIMEOUT
+        bigquery_credential_path = None
+        snowflake_credential_path = None
+        try:
+            from app.config import config
+        except FileNotFoundError:
+            config = None
+        if config is not None:
+            default_timeout = config.dataset_config.sql_execution_timeout
+            bigquery_credential_path = config.dataset_config.bigquery_credential_path
+            snowflake_credential_path = config.dataset_config.snowflake_credential_path
+        _execution_service = ExecutionService(
+            default_timeout=default_timeout,
+            bigquery_credential_path=bigquery_credential_path,
+            snowflake_credential_path=snowflake_credential_path,
+        )
     return _execution_service
 
 

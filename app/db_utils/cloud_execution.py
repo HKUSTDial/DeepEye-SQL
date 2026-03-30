@@ -4,16 +4,20 @@ Executes SQL on Snowflake and BigQuery cloud databases.
 """
 
 import json
-from pathlib import Path
-from typing import Optional, List, Tuple, Any, Dict
+from typing import Optional, Any, Dict
 import pandas as pd
 from app.logger import logger
-from app.config import config
+
+from .defaults import DEFAULT_SQL_EXECUTION_TIMEOUT
 from .execution import SQLExecutionResult
     
 
 # Global cache for BigQuery clients to avoid repeated creation in multi-threaded environments
 _bq_clients: Dict[str, Any] = {}
+
+
+def _resolve_timeout(timeout: Optional[int]) -> int:
+    return timeout if timeout is not None else DEFAULT_SQL_EXECUTION_TIMEOUT
 
 def _get_bigquery_client(credential_path: Optional[str] = None):
     """Get or create a thread-safe BigQuery client."""
@@ -46,8 +50,7 @@ def execute_bigquery_sql(
     Returns:
         SQLExecutionResult with query results.
     """
-    if timeout is None:
-        timeout = config.dataset_config.sql_execution_timeout
+    timeout = _resolve_timeout(timeout)
     try:
         from google.cloud import bigquery
     except ImportError:
@@ -125,8 +128,7 @@ def execute_snowflake_sql(
     Returns:
         SQLExecutionResult with query results.
     """
-    if timeout is None:
-        timeout = config.dataset_config.sql_execution_timeout
+    timeout = _resolve_timeout(timeout)
     try:
         import snowflake.connector
     except ImportError:
@@ -224,8 +226,7 @@ def execute_cloud_sql(
     Returns:
         SQLExecutionResult with query results.
     """
-    if timeout is None:
-        timeout = config.dataset_config.sql_execution_timeout
+    timeout = _resolve_timeout(timeout)
     if db_type == "bigquery":
         return execute_bigquery_sql(sql, db_path, credential_path, timeout)
     elif db_type == "snowflake":

@@ -2,8 +2,9 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any, Union
 import json
 from functools import lru_cache
-from .execution import execute_sql
 from .constants import SPECIAL_CASES_FOR_BIRD_TRAIN_DATABASES
+from .defaults import DEFAULT_MAX_VALUE_EXAMPLE_LENGTH
+from .execution import execute_sql
 from app.logger import logger
 import chardet
 import pandas as pd
@@ -72,10 +73,13 @@ def load_foreign_keys(db_path: Path, table_name: str) -> List[Tuple[str, str, st
     return fixed_foreign_keys
 
 
-def load_value_examples(db_path: str, table_name: str, column_name: str, max_num_examples: int = 3, max_example_length: int = 100) -> List[str]:
-    from app.config import config
-    if config.dataset_config is not None:
-        max_example_length = config.dataset_config.max_value_example_length
+def load_value_examples(
+    db_path: str,
+    table_name: str,
+    column_name: str,
+    max_num_examples: int = 3,
+    max_example_length: int = DEFAULT_MAX_VALUE_EXAMPLE_LENGTH,
+) -> List[str]:
     # Query the values not NULL and not empty
     result = execute_sql(db_path, f"SELECT DISTINCT `{column_name}` FROM `{table_name}` WHERE `{column_name}` IS NOT NULL AND `{column_name}` != '' AND length(cast(`{column_name}` as text)) <= {max_example_length} LIMIT {max_num_examples};")
     if result.result_type != "success" and result.result_type != "empty_result":

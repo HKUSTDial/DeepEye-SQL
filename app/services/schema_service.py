@@ -2,16 +2,18 @@ import threading
 from pathlib import Path
 from typing import Any, Dict
 
+from app.db_utils.defaults import DEFAULT_MAX_VALUE_EXAMPLE_LENGTH
 from app.db_utils.schema import load_database_schema_dict, load_value_examples, load_value_statistics
 
 
 class SchemaService:
-    def __init__(self):
+    def __init__(self, max_value_example_length: int = DEFAULT_MAX_VALUE_EXAMPLE_LENGTH):
         self._sqlite_schema_cache: dict[str, Dict[str, Any]] = {}
         self._value_examples_cache: dict[tuple[str, str, str], list[str]] = {}
         self._value_statistics_cache: dict[tuple[str, str, str], Dict[str, Any]] = {}
         self._schema_locks: dict[str, threading.RLock] = {}
         self._lock = threading.RLock()
+        self._max_value_example_length = max_value_example_length
 
     def load_sqlite_schema(self, db_path: str) -> Dict[str, Any]:
         cache_key = str(Path(db_path).resolve())
@@ -104,7 +106,12 @@ class SchemaService:
                 column_schema_dict["value_examples"] = []
             else:
                 if column_cache_key not in self._value_examples_cache:
-                    self._value_examples_cache[column_cache_key] = load_value_examples(db_path, table_name, column_name)
+                    self._value_examples_cache[column_cache_key] = load_value_examples(
+                        db_path,
+                        table_name,
+                        column_name,
+                        max_example_length=self._max_value_example_length,
+                    )
                 column_schema_dict["value_examples"] = self._value_examples_cache[column_cache_key]
 
         if include_value_statistics and column_schema_dict.get("value_statistics") is None:
@@ -126,7 +133,14 @@ _schema_service: SchemaService | None = None
 def get_schema_service() -> SchemaService:
     global _schema_service
     if _schema_service is None:
-        _schema_service = SchemaService()
+        max_value_example_length = DEFAULT_MAX_VALUE_EXAMPLE_LENGTH
+        try:
+            from app.config import config
+        except FileNotFoundError:
+            config = None
+        if config is not None:
+            max_value_example_length = config.dataset_config.max_value_example_length
+        _schema_service = SchemaService(max_value_example_length=max_value_example_length)
     return _schema_service
 
 
