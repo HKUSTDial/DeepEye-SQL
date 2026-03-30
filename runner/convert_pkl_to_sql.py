@@ -1,5 +1,5 @@
 """
-Convert dataset pkl results to SQL files for evaluation.
+Convert dataset snapshots to SQL files for evaluation.
 Automatically detects dataset type and chooses appropriate output format:
 - Spider/Bird: Single JSON file with {question_id: sql}
 - Spider2: Individual SQL files per instance_id
@@ -18,16 +18,23 @@ from app.dataset import load_dataset
 from app.logger import logger
 
 
-def convert_to_json_file(pkl_path: str, output_path: Optional[str] = None):
+def _default_json_output_path(snapshot_path: str) -> str:
+    snapshot = Path(snapshot_path)
+    if snapshot.suffix:
+        return str(snapshot.with_suffix(".json"))
+    return f"{snapshot_path}.json"
+
+
+def convert_to_json_file(snapshot_path: str, output_path: Optional[str] = None):
     """
-    Convert pkl dataset to a single JSON file (for Spider/Bird datasets).
+    Convert a dataset snapshot to a single JSON file (for Spider/Bird datasets).
     Format: {question_id: sql_string}
     
     Args:
-        pkl_path: Path to the pkl file with results.
-        output_path: Optional output path. If None, replaces .pkl with .json
+        snapshot_path: Path to the dataset snapshot with results.
+        output_path: Optional output path. If None, uses the snapshot path with a .json suffix.
     """
-    dataset = load_dataset(pkl_path)
+    dataset = load_dataset(snapshot_path)
     data = {}
     
     for item in dataset:
@@ -46,7 +53,7 @@ def convert_to_json_file(pkl_path: str, output_path: Optional[str] = None):
     
     # Determine output path
     if output_path is None:
-        output_path = pkl_path.replace(".pkl", ".json")
+        output_path = _default_json_output_path(snapshot_path)
     
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4)
@@ -56,20 +63,20 @@ def convert_to_json_file(pkl_path: str, output_path: Optional[str] = None):
     logger.info(f"Total items: {len(dataset)}")
 
 
-def convert_to_sql_files(pkl_path: str, output_dir: Optional[str] = None):
+def convert_to_sql_files(snapshot_path: str, output_dir: Optional[str] = None):
     """
-    Convert pkl dataset to individual SQL files (for Spider2 datasets).
+    Convert a dataset snapshot to individual SQL files (for Spider2 datasets).
     Format: One SQL file per instance_id (e.g., bq011.sql, sf_bq001.sql)
     
     Args:
-        pkl_path: Path to the pkl file with results.
+        snapshot_path: Path to the dataset snapshot with results.
         output_dir: Directory to save SQL files. If None, creates sql_output dir.
     """
-    dataset = load_dataset(pkl_path)
+    dataset = load_dataset(snapshot_path)
     
     # Determine output directory
     if output_dir is None:
-        output_dir = str(Path(pkl_path).parent / "sql_output")
+        output_dir = str(Path(snapshot_path).parent / "sql_output")
     
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -102,7 +109,7 @@ def convert_to_sql_files(pkl_path: str, output_dir: Optional[str] = None):
 
 
 def auto_convert(
-    pkl_path: str,
+    snapshot_path: str,
     output_path: Optional[str] = None,
     force_format: Optional[str] = None
 ):
@@ -110,7 +117,7 @@ def auto_convert(
     Automatically detect dataset type and convert to appropriate format.
     
     Args:
-        pkl_path: Path to the pkl file with results.
+        snapshot_path: Path to the dataset snapshot with results.
         output_path: Optional output path (for json) or directory (for sql files).
         force_format: Force a specific format ('json' or 'sql_files'). 
                      If None, auto-detects from config.
@@ -134,22 +141,24 @@ def auto_convert(
     
     # Convert based on format
     if output_format == "json":
-        convert_to_json_file(pkl_path, output_path)
+        convert_to_json_file(snapshot_path, output_path)
     elif output_format == "sql_files":
-        convert_to_sql_files(pkl_path, output_path)
+        convert_to_sql_files(snapshot_path, output_path)
     else:
         raise ValueError(f"Invalid output format: {output_format}")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Convert pkl results to SQL files (auto-detects format based on dataset type)"
+        description="Convert dataset snapshots to SQL files (auto-detects format based on dataset type)"
     )
     parser.add_argument(
+        "--snapshot_path",
         "--pkl_path",
+        dest="snapshot_path",
         type=str,
         default=None,
-        help="Path to the pkl file (default: use config sql_selection save_path)"
+        help="Path to the dataset snapshot (legacy alias: --pkl_path). Default: use config sql_selection save_path"
     )
     parser.add_argument(
         "--output",
@@ -168,15 +177,15 @@ def main():
     
     from app.config import config
     
-    # Determine pkl path
-    pkl_path = args.pkl_path
-    if pkl_path is None:
-        pkl_path = config.sql_selection_config.save_path
+    # Determine snapshot path
+    snapshot_path = args.snapshot_path
+    if snapshot_path is None:
+        snapshot_path = config.sql_selection_config.save_path
     
-    logger.info(f"Converting {pkl_path}")
+    logger.info(f"Converting dataset snapshot {snapshot_path}")
     
     auto_convert(
-        pkl_path=pkl_path,
+        snapshot_path=snapshot_path,
         output_path=args.output,
         force_format=args.format
     )

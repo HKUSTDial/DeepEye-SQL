@@ -37,13 +37,14 @@ def _eval_ex_after_selection(pred_sql: str, gold_sql: str, db_path: str) -> Opti
     return 1 if set(pred_result.result_rows) == set(gold_result.result_rows) else 0
 
 
-def evaluate_spider_bird(pkl_path: str = None, max_workers: int = 32) -> float:
+def evaluate_spider_bird(snapshot_path: str = None, max_workers: int = 32, pkl_path: str = None) -> float:
     """
     Evaluate Spider or BIRD dataset using direct SQL execution comparison.
     
     Args:
-        pkl_path: Path to the pkl file with results.
+        snapshot_path: Path to the dataset snapshot with results.
         max_workers: Number of parallel workers.
+        pkl_path: Deprecated alias for dataset snapshot path.
         
     Returns:
         Execution accuracy as a float (0.0 to 1.0).
@@ -51,11 +52,13 @@ def evaluate_spider_bird(pkl_path: str = None, max_workers: int = 32) -> float:
     from app.config import config
     from app.dataset import load_dataset
     
-    if pkl_path is None:
-        pkl_path = config.sql_selection_config.save_path
+    if snapshot_path is None:
+        snapshot_path = pkl_path
+    if snapshot_path is None:
+        snapshot_path = config.sql_selection_config.save_path
     
-    logger.info(f"Loading dataset from: {pkl_path}")
-    dataset = load_dataset(pkl_path)
+    logger.info(f"Loading dataset snapshot from: {snapshot_path}")
+    dataset = load_dataset(snapshot_path)
     
     logger.info(f"Evaluating {len(dataset)} queries with {max_workers} workers...")
     executor = ProcessPoolExecutor(max_workers=max_workers)
@@ -92,23 +95,25 @@ def evaluate_spider_bird(pkl_path: str = None, max_workers: int = 32) -> float:
 
 
 def evaluate_spider2(
-    pkl_path: str = None,
+    snapshot_path: str = None,
     dataset_split: str = "lite",
     sql_output_dir: str = None,
     max_workers: int = 8,
     timeout: int = None,
-    skip_conversion: bool = False
+    skip_conversion: bool = False,
+    pkl_path: str = None,
 ) -> Optional[int]:
     """
     Evaluate Spider2 dataset using official evaluation script.
     
     Args:
-        pkl_path: Path to the pkl file with results.
+        snapshot_path: Path to the dataset snapshot with results.
         dataset_split: "lite" or "snow".
         sql_output_dir: Directory for SQL output files.
         max_workers: Number of parallel workers for evaluation.
         timeout: SQL execution timeout in seconds.
-        skip_conversion: Skip pkl to SQL conversion (use existing SQL files).
+        skip_conversion: Skip snapshot-to-SQL conversion (use existing SQL files).
+        pkl_path: Deprecated alias for dataset snapshot path.
         
     Returns:
         Return code from evaluation script (0 = success, None = error).
@@ -118,29 +123,31 @@ def evaluate_spider2(
     # Determine paths
     if timeout is None:
         timeout = config.dataset_config.sql_execution_timeout
-    if pkl_path is None:
-        pkl_path = config.sql_selection_config.save_path
+    if snapshot_path is None:
+        snapshot_path = pkl_path
+    if snapshot_path is None:
+        snapshot_path = config.sql_selection_config.save_path
     
-    pkl_path = Path(pkl_path)
+    snapshot_path = Path(snapshot_path)
     
     if sql_output_dir is None:
-        sql_output_dir = pkl_path.parent / "sql_output"
+        sql_output_dir = snapshot_path.parent / "sql_output"
     else:
         sql_output_dir = Path(sql_output_dir)
     
     # Ensure absolute path for sql_output_dir as we'll change CWD
     sql_output_dir = sql_output_dir.resolve()
     
-    # Step 1: Convert pkl to SQL files (if not skipping)
+    # Step 1: Convert dataset snapshot to SQL files (if not skipping)
     if not skip_conversion:
-        logger.info(f"Step 1: Converting {pkl_path} to SQL files...")
+        logger.info(f"Step 1: Converting dataset snapshot {snapshot_path} to SQL files...")
         from runner.convert_pkl_to_sql import convert_to_sql_files
         convert_to_sql_files(
-            pkl_path=str(pkl_path),
+            snapshot_path=str(snapshot_path),
             output_dir=str(sql_output_dir)
         )
     else:
-        logger.info("Step 1: Skipping pkl conversion (using existing SQL files)")
+        logger.info("Step 1: Skipping snapshot conversion (using existing SQL files)")
     
     # Step 2: Run official evaluation script
     logger.info(f"Step 2: Running official Spider2-{dataset_split} evaluation...")
@@ -205,27 +212,32 @@ def evaluate_spider2(
 
 
 def run_evaluation(
-    pkl_path: str = None,
+    snapshot_path: str = None,
     dataset_type: str = None,
     dataset_split: str = None,
     max_workers: int = None,
     timeout: int = None,
     sql_output_dir: str = None,
-    skip_conversion: bool = False
+    skip_conversion: bool = False,
+    pkl_path: str = None,
 ):
     """
     Unified evaluation entry point. Auto-detects dataset type and uses appropriate method.
     
     Args:
-        pkl_path: Path to the pkl file with results.
+        snapshot_path: Path to the dataset snapshot with results.
         dataset_type: Override dataset type (auto-detected from config if None).
         dataset_split: Dataset split (required for Spider2).
         max_workers: Number of parallel workers.
         timeout: SQL execution timeout (Spider2 only).
         sql_output_dir: SQL output directory (Spider2 only).
         skip_conversion: Skip SQL conversion (Spider2 only).
+        pkl_path: Deprecated alias for dataset snapshot path.
     """
     from app.config import config
+
+    if snapshot_path is None:
+        snapshot_path = pkl_path
     
     # Auto-detect dataset type from config if not provided
     if dataset_type is None:
@@ -244,7 +256,7 @@ def run_evaluation(
     # Route to appropriate evaluation method
     if dataset_type in ["spider", "bird"]:
         logger.info(f"=== Evaluating {dataset_type.upper()} Dataset ===")
-        accuracy = evaluate_spider_bird(pkl_path=pkl_path, max_workers=max_workers)
+        accuracy = evaluate_spider_bird(snapshot_path=snapshot_path, max_workers=max_workers)
         logger.info(f"\n{'='*60}")
         logger.info(f"  Overall Execution Accuracy: {accuracy * 100:.2f}%")
         logger.info(f"{'='*60}\n")
@@ -253,7 +265,7 @@ def run_evaluation(
     elif dataset_type == "spider2":
         logger.info(f"=== Evaluating Spider2-{dataset_split.upper()} Dataset ===")
         result = evaluate_spider2(
-            pkl_path=pkl_path,
+            snapshot_path=snapshot_path,
             dataset_split=dataset_split,
             sql_output_dir=sql_output_dir,
             max_workers=max_workers,
@@ -272,13 +284,15 @@ def run_evaluation(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Unified evaluation script for Spider, BIRD, and Spider2 datasets"
+        description="Unified evaluation script for Spider, BIRD, and Spider2 dataset snapshots"
     )
     parser.add_argument(
+        "--snapshot_path",
         "--pkl_path",
+        dest="snapshot_path",
         type=str,
         default=None,
-        help="Path to the pkl file with results (default: use config)"
+        help="Path to the dataset snapshot (legacy alias: --pkl_path). Default: use config"
     )
     parser.add_argument(
         "--dataset_type",
@@ -317,13 +331,13 @@ def main():
     parser.add_argument(
         "--skip_conversion",
         action="store_true",
-        help="Skip pkl to SQL conversion for Spider2 (use existing SQL files)"
+        help="Skip snapshot-to-SQL conversion for Spider2 (use existing SQL files)"
     )
     
     args = parser.parse_args()
     
     run_evaluation(
-        pkl_path=args.pkl_path,
+        snapshot_path=args.snapshot_path,
         dataset_type=args.dataset_type,
         dataset_split=args.dataset_split,
         max_workers=args.max_workers,

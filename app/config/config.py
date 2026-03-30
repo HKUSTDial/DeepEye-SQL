@@ -34,7 +34,7 @@ class DatasetConfig(BaseModel):
     type: Literal["spider", "bird", "spider2"] = Field(..., description="The type of the dataset")
     split: Optional[str] = Field(default="", description="The split of the dataset")
     root_path: Optional[str] = Field(..., description="The root path of the dataset")
-    save_path: str = Field(default=WORKSPACE_ROOT / "dataset" / f"{type}" / f"{split}.pkl", description="The save path of the dataset")
+    save_path: str = Field(default=WORKSPACE_ROOT / "dataset" / f"{type}" / f"{split}.pkl", description="The save path of the dataset snapshot manifest")
     max_samples: Optional[int] = Field(default=None, description="The maximum number of samples to load")
     max_samples_per_db: Optional[int] = Field(default=None, description="The maximum number of samples to load per database")
     
