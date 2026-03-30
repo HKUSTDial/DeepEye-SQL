@@ -4,7 +4,6 @@ from app.llm import LLM
 from app.logger import logger
 from app.prompt import PromptFactory
 from app.llm_extractor import LLMExtractor
-from app.db_utils import get_database_schema_profile
 from app.pipeline.validation import validate_pipeline_step
 from typing import Dict, List, Any, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -120,12 +119,11 @@ class SQLSelectionRunner:
         """
         Compare the two sqls.
         """
-        get_schema_service().ensure_schema_features(
+        database_schema_profile = get_schema_service().build_schema_profile(
             data_item.database_schema_after_schema_linking,
             include_value_statistics=True,
             include_value_examples=True,
         )
-        database_schema_profile = get_database_schema_profile(data_item.database_schema_after_schema_linking)
         db_type = getattr(data_item, "db_type", None)
         prompt = PromptFactory.format_br_pair_selection_prompt(database_schema_profile, data_item.question, data_item.evidence, sql_a, execution_result_table_str_a, sql_b, execution_result_table_str_b, db_type=db_type)
         

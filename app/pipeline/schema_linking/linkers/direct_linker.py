@@ -6,11 +6,10 @@ from app.llm import LLM
 from app.logger import logger
 from app.prompt import PromptFactory
 from app.llm_extractor import LLMExtractor
-from app.db_utils import get_database_schema_profile, map_lower_table_name_to_original_table_name, map_lower_column_name_to_original_column_name
+from app.db_utils import map_lower_table_name_to_original_table_name, map_lower_column_name_to_original_column_name
 from app.services import get_schema_service
 from typing import Dict, List, Optional, Any
 import re
-import json
 
 
 class DirectLinker(BaseSchemaLinker):
@@ -21,52 +20,25 @@ class DirectLinker(BaseSchemaLinker):
         
         db_type = getattr(data_item, "db_type", None)
         
-        # Define progressive stripping levels
-        # Order: 
-        # 0. Full (all included)
-        # 1. Remove Value Examples & Value Statistics
-        # 2. Remove Nested Columns
-        # 3. Remove Description
-        stripping_levels = [
-            {"include_description": True, "include_value_statistics": True, "include_value_examples": True, "include_nested_columns": True},
-            {"include_description": True, "include_value_statistics": False, "include_value_examples": False, "include_nested_columns": True},
-            {"include_description": True, "include_value_statistics": False, "include_value_examples": False, "include_nested_columns": False},
-            {"include_description": False, "include_value_statistics": False, "include_value_examples": False, "include_nested_columns": False},
-        ]
-        
-        import tiktoken
-        try:
-            encoding = tiktoken.encoding_for_model(llm.llm_config.model)
-        except Exception:
-            encoding = tiktoken.get_encoding("cl100k_base")
-            
         max_prompt_len = llm.llm_config.max_model_len - llm.llm_config.max_tokens
         schema_service = get_schema_service()
-        
-        final_prompt = None
-        for level_idx, levels in enumerate(stripping_levels):
-            schema_service.ensure_schema_features(
-                data_item.database_schema_after_value_retrieval,
-                include_value_statistics=levels["include_value_statistics"],
-                include_value_examples=levels["include_value_examples"],
-            )
-            database_schema_profile = get_database_schema_profile(
-                data_item.database_schema_after_value_retrieval, 
-                **levels
-            )
-            prompt = PromptFactory.format_direct_linking_prompt(database_schema_profile, data_item.question, data_item.evidence, db_type=db_type).strip()
-            
-            token_count = len(encoding.encode(prompt))
-            if token_count <= max_prompt_len:
-                final_prompt = prompt
-                if level_idx > 0:
-                    logger.warning(f"Prompt for item {data_item.question_id} was too large. Compressed using level {level_idx} (tokens: {token_count})")
-                break
-            else:
-                logger.info(f"Level {level_idx} prompt for item {data_item.question_id} too large ({token_count} tokens). Trying next level...")
-                
+        final_prompt, level_idx = schema_service.build_prompt_with_progressive_schema_stripping(
+            data_item.database_schema_after_value_retrieval,
+            encoding_model_name=llm.llm_config.model,
+            max_prompt_len=max_prompt_len,
+            prompt_format_func=lambda database_schema_profile: PromptFactory.format_direct_linking_prompt(
+                database_schema_profile,
+                data_item.question,
+                data_item.evidence,
+                db_type=db_type,
+            ),
+            item_id=data_item.question_id,
+            log_prefix="Schema Linking",
+        )
+        if final_prompt is not None and level_idx > 0:
+            logger.warning(f"Prompt for item {data_item.question_id} was too large. Compressed using level {level_idx}")
         if final_prompt is None:
-            logger.error(f"CRITICAL: Even minimal prompt for item {data_item.question_id} exceeds token limit ({token_count} tokens). Returning empty result.")
+            logger.error(f"CRITICAL: Even minimal prompt for item {data_item.question_id} exceeds token limit. Returning empty result.")
             return {}, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
         extractor = LLMExtractor()

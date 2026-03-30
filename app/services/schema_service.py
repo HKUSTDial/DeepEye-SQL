@@ -1,9 +1,18 @@
 import threading
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Callable, Dict
 
 from app.db_utils.defaults import DEFAULT_MAX_VALUE_EXAMPLE_LENGTH
-from app.db_utils.schema import load_database_schema_dict, load_value_examples, load_value_statistics
+from app.db_utils.schema import get_database_schema_profile, load_database_schema_dict, load_value_examples, load_value_statistics
+from app.logger import logger
+
+
+PROFILE_STRIPPING_LEVELS = [
+    {"include_description": True, "include_value_statistics": True, "include_value_examples": True, "include_nested_columns": True},
+    {"include_description": True, "include_value_statistics": False, "include_value_examples": False, "include_nested_columns": True},
+    {"include_description": True, "include_value_statistics": False, "include_value_examples": False, "include_nested_columns": False},
+    {"include_description": False, "include_value_statistics": False, "include_value_examples": False, "include_nested_columns": False},
+]
 
 
 class SchemaService:
@@ -79,6 +88,65 @@ class SchemaService:
                 include_value_statistics=include_value_statistics,
             )
         return database_schema_dict
+
+    def build_schema_profile(
+        self,
+        database_schema_dict: Dict[str, Any],
+        *,
+        compress_identical_schemas: bool = True,
+        include_description: bool = True,
+        include_value_statistics: bool = True,
+        include_value_examples: bool = True,
+        include_nested_columns: bool = True,
+    ) -> str:
+        self.ensure_schema_features(
+            database_schema_dict,
+            include_value_statistics=include_value_statistics,
+            include_value_examples=include_value_examples,
+        )
+        return get_database_schema_profile(
+            database_schema_dict,
+            compress_identical_schemas=compress_identical_schemas,
+            include_description=include_description,
+            include_value_statistics=include_value_statistics,
+            include_value_examples=include_value_examples,
+            include_nested_columns=include_nested_columns,
+        )
+
+    def build_prompt_with_progressive_schema_stripping(
+        self,
+        database_schema_dict: Dict[str, Any],
+        *,
+        encoding_model_name: str,
+        max_prompt_len: int,
+        prompt_format_func: Callable[[str], str],
+        item_id: Any,
+        log_prefix: str,
+    ) -> tuple[str | None, int]:
+        import tiktoken
+
+        try:
+            encoding = tiktoken.encoding_for_model(encoding_model_name)
+        except Exception:
+            try:
+                encoding = tiktoken.get_encoding("cl100k_base")
+            except Exception as exc:
+                logger.warning(
+                    f"Falling back to approximate prompt length for {log_prefix} item {item_id}: {exc}"
+                )
+                encoding = None
+
+        for level_idx, levels in enumerate(PROFILE_STRIPPING_LEVELS):
+            database_schema_profile = self.build_schema_profile(
+                database_schema_dict,
+                **levels,
+            )
+            prompt = prompt_format_func(database_schema_profile).strip()
+            token_count = len(encoding.encode(prompt)) if encoding is not None else len(prompt) // 4
+            if token_count <= max_prompt_len:
+                return prompt, level_idx
+            logger.info(f"Level {level_idx} {log_prefix} prompt for item {item_id} too large ({token_count} tokens). Trying next level...")
+        return None, len(PROFILE_STRIPPING_LEVELS)
 
     def reset(self) -> None:
         with self._lock:
