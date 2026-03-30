@@ -2,9 +2,7 @@ from .base import BaseChecker
 from app.dataset import DataItem
 from app.llm import LLM
 from app.logger import logger
-from app.prompt import PromptFactory
-from app.db_utils import execute_sql, get_database_schema_profile
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, Optional, Tuple
 import re
 
 

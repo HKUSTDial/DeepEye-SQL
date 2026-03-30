@@ -5,7 +5,7 @@ import shutil
 from tqdm import tqdm
 from typing import List, Dict, Any
 from .qwen_embedding_function import QwenEmbeddingFunction
-from app.db_utils import load_table_names, load_column_names_and_types, execute_sql
+from app.db_utils import load_table_names, load_column_names_and_types, execute_sql_without_cache
 from app.logger import logger
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
@@ -110,7 +110,9 @@ def _process_one_column(
     AND LENGTH(CAST(`{column_name}` AS TEXT)) <= {max_value_length};
     """
     # Keep vector DB scans bounded so large/slow SQLite tables do not stall the pipeline indefinitely.
-    result = execute_sql(db_path, query_sql, timeout=300)
+    # These full-column scans are one-shot ingestion work; bypass the shared SQL cache
+    # so large result sets do not evict more valuable execution entries.
+    result = execute_sql_without_cache(db_path, query_sql, timeout=300)
     if result.result_type in ["success", "empty_result"]:
         value_examples = [str(row[0]) for row in result.result_rows]
         

@@ -4,9 +4,8 @@ from app.llm import LLM
 from app.logger import logger
 from app.prompt import PromptFactory
 from app.llm_extractor import LLMExtractor
-from app.db_utils import execute_sql, get_database_schema_profile
 from app.config import config
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, Optional, Tuple
 import re
 
 
@@ -69,4 +68,3 @@ class SelectChecker(BaseChecker):
             for idx, x in enumerate(select_amb, 1):
                 suggestion += f"{idx}. We have specified that the ambiguous query is the corresponding id column, please replace {x} with the corresponding id column in the above SQL\n"
         return suggestion
-

@@ -4,10 +4,8 @@ from app.llm import LLM
 from app.logger import logger
 from app.prompt import PromptFactory
 from app.llm_extractor import LLMExtractor
-from app.db_utils import get_database_schema_profile
 from app.config import config
-from typing import Dict, List, Any, Optional, Tuple
-import re
+from typing import Dict, List, Tuple
 from collections import Counter
 from app.services import get_execution_service
 
