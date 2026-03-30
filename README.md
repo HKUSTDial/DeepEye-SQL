@@ -116,7 +116,9 @@ DeepEye-SQL/
 │   ├── run_sql_generation.py
 │   ├── run_sql_revision.py
 │   ├── run_sql_selection.py
-│   ├── convert_pkl_to_sql.py       # Unified conversion (auto-detects format)
+│   ├── convert_snapshot_to_sql.py  # Unified conversion (auto-detects format)
+│   ├── convert_pkl_to_sql.py       # Deprecated compatibility wrapper
+│   ├── migrate_legacy_snapshot.py  # One-off legacy pickle migration
 │   └── evaluation.py               # Unified evaluation (all datasets)
 ├── results/                   # Few-shots and experimental prediction files
 │   ├── spider_test_few_shots.json # DAIL-SQL few-shots for Spider
@@ -289,7 +291,7 @@ uv run runner/run_sql_selection.py
 
 ```bash
 # Convert results to JSON format (auto-detects format from config)
-uv run runner/convert_pkl_to_sql.py
+uv run runner/convert_snapshot_to_sql.py
 
 # Run evaluation (auto-detects dataset type from config)
 uv run runner/evaluation.py
@@ -324,7 +326,7 @@ bash script/run_pipeline.sh
 
 ```bash
 # Convert to JSON format (auto-detects format from config)
-uv run runner/convert_pkl_to_sql.py
+uv run runner/convert_snapshot_to_sql.py
 
 # Run evaluation (auto-detects dataset type from config)
 uv run runner/evaluation.py
@@ -397,7 +399,7 @@ bash script/run_pipeline.sh
 
 ```bash
 # Convert to SQL files (auto-detects format and creates individual .sql files for Spider2)
-uv run runner/convert_pkl_to_sql.py
+uv run runner/convert_snapshot_to_sql.py
 
 # Run evaluation (auto-detects Spider2 and uses official evaluation script)
 uv run runner/evaluation.py

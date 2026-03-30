@@ -141,7 +141,7 @@ def evaluate_spider2(
     # Step 1: Convert dataset snapshot to SQL files (if not skipping)
     if not skip_conversion:
         logger.info(f"Step 1: Converting dataset snapshot {snapshot_path} to SQL files...")
-        from runner.convert_pkl_to_sql import convert_to_sql_files
+        from runner.convert_snapshot_to_sql import convert_to_sql_files
         convert_to_sql_files(
             snapshot_path=str(snapshot_path),
             output_dir=str(sql_output_dir)

@@ -1,6 +1,5 @@
 import importlib
 import json
-import pickle
 from pathlib import Path
 from typing import Any
 
@@ -63,10 +62,9 @@ def load_dataset(load_path: str) -> BaseDataset:
         logger.info(f"Dataset loaded from structured snapshot {load_path}")
         return dataset
 
-    with open(load_path, "rb") as f:
-        dataset = pickle.load(f)
-    logger.info(f"Dataset loaded from legacy pickle {load_path}")
-    return dataset
+    from .legacy import load_legacy_pickle_dataset
+
+    return load_legacy_pickle_dataset(load_path)
 
 
 def _try_load_structured_manifest(load_path: Path) -> dict[str, Any] | None:

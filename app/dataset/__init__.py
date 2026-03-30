@@ -10,12 +10,15 @@ from .artifacts import (
     ValueRetrievalArtifact,
 )
 from .spider2_dataset import Spider2DataItem, Spider2LiteDataset, Spider2SnowDataset, get_db_type_from_instance_id
+from .legacy import load_legacy_pickle_dataset, migrate_legacy_pickle_dataset
 from .utils import save_dataset, load_dataset
 
 __all__ = [
     "DatasetFactory", 
     "save_dataset", 
     "load_dataset", 
+    "load_legacy_pickle_dataset",
+    "migrate_legacy_pickle_dataset",
     "BaseDataset", 
     "DataItem", 
     "DataItemInput",
