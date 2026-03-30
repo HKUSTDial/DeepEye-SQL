@@ -4,19 +4,19 @@ from app.llm import LLM
 from app.logger import logger
 from app.prompt import PromptFactory
 from app.llm_extractor import LLMExtractor
-from app.db_utils import execute_sql, execute_sql_for_data_item, get_database_schema_profile
+from app.db_utils import get_database_schema_profile
 from app.config import config
-from app.pipeline.utils import get_execution_result_hash
 from typing import Dict, List, Any, Optional, Tuple
 import re
 from collections import Counter
+from app.services import get_execution_service
 
 
 class SyntaxChecker(BaseChecker):
     
     def check_and_revise(self, sql: str, data_item: DataItem, llm: LLM, sampling_budget: int = 1) -> Tuple[str, Dict[str, int]]:
-        # Execute the sql - use execute_sql_for_data_item to support cloud databases
-        execution_result = execute_sql_for_data_item(data_item, sql)
+        execution_service = get_execution_service()
+        execution_result = execution_service.execute(data_item, sql)
         if execution_result.result_type in ["success", "empty_result", "all_null_result"]:
             return sql, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         else:
@@ -56,12 +56,12 @@ class SyntaxChecker(BaseChecker):
                 return sql, total_token_usage
     
     def _select_sql_candidate(self, all_sql_candidates: List[str], data_item: DataItem) -> str:
+        execution_service = get_execution_service()
         valid_sql_candidates = []
         for sql_candidate in all_sql_candidates:
-            # Use execute_sql_for_data_item to support cloud databases
-            execution_result = execute_sql_for_data_item(data_item, sql_candidate)
+            execution_result = execution_service.execute(data_item, sql_candidate)
             if execution_result.result_type in ["success", "empty_result", "all_null_result"]:
-                valid_sql_candidates.append((sql_candidate, get_execution_result_hash(data_item, execution_result.result_rows)))
+                valid_sql_candidates.append((sql_candidate, execution_service.hash_result(data_item, execution_result.result_rows)))
         
         if len(valid_sql_candidates) == 0:
             return None

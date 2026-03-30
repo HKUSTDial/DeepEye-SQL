@@ -1,11 +1,21 @@
 from app.config import config, DatasetConfig
-from app.db_utils import load_database_schema_dict
 from pydantic import BaseModel, Field
 from typing import List, Optional, Any, Dict
 from pathlib import Path
 import json
 from abc import ABC, abstractmethod
 from tqdm import tqdm
+from app.services import get_schema_service
+from .artifacts import (
+    AggregateMetrics,
+    DataItemInput,
+    PIPELINE_METRIC_FIELDS,
+    PipelineArtifacts,
+    STAGE_ARTIFACT_FIELDS,
+    STAGE_ARTIFACT_MODELS,
+    STAGE_VALIDATION_FIELDS,
+    StageName,
+)
 
 
 class DataItem(BaseModel):
@@ -61,24 +71,137 @@ class DataItem(BaseModel):
     sql_selection_llm_cost: Optional[Dict[str, Any]] = Field(default=None, description="The llm cost of sql selection of the data item")
     total_llm_cost: Optional[Dict[str, Any]] = Field(default=None, description="The total llm cost of the data item")
 
+    def get_input_record(self) -> DataItemInput:
+        return DataItemInput(
+            question_id=self.question_id,
+            question=self.question,
+            evidence=self.evidence,
+            gold_sql=self.gold_sql,
+            difficulty=self.difficulty,
+            database_id=self.database_id,
+            database_path=self.database_path,
+            database_schema=self.database_schema,
+            instance_id=getattr(self, "instance_id", None),
+            db_type=getattr(self, "db_type", None),
+            external_knowledge_path=getattr(self, "external_knowledge_path", None),
+        )
+
+    def apply_input_record(self, input_record: DataItemInput | Dict[str, Any]) -> None:
+        if isinstance(input_record, dict):
+            input_record = DataItemInput(**input_record)
+
+        base_fields = (
+            "question_id",
+            "question",
+            "evidence",
+            "gold_sql",
+            "difficulty",
+            "database_id",
+            "database_path",
+            "database_schema",
+        )
+        for field_name in base_fields:
+            setattr(self, field_name, getattr(input_record, field_name))
+
+        for optional_field in ("instance_id", "db_type", "external_knowledge_path"):
+            optional_value = getattr(input_record, optional_field)
+            if optional_value is not None and hasattr(self, optional_field):
+                setattr(self, optional_field, optional_value)
+
+    def get_stage_artifact(self, stage_name: StageName) -> BaseModel:
+        artifact_model = STAGE_ARTIFACT_MODELS[stage_name]
+        artifact_fields = STAGE_ARTIFACT_FIELDS[stage_name]
+        return artifact_model(**{field_name: getattr(self, field_name) for field_name in artifact_fields})
+
+    def apply_stage_artifact(self, stage_name: StageName, artifact: BaseModel | Dict[str, Any]) -> None:
+        artifact_model = STAGE_ARTIFACT_MODELS[stage_name]
+        artifact_fields = STAGE_ARTIFACT_FIELDS[stage_name]
+        if isinstance(artifact, dict):
+            artifact = artifact_model(**artifact)
+
+        for field_name in artifact_fields:
+            setattr(self, field_name, getattr(artifact, field_name))
+
+    def get_metrics_record(self) -> AggregateMetrics:
+        return AggregateMetrics(
+            total_time=self.total_time,
+            total_llm_cost=self.total_llm_cost,
+        )
+
+    def apply_metrics_record(self, metrics: AggregateMetrics | Dict[str, Any]) -> None:
+        if isinstance(metrics, dict):
+            metrics = AggregateMetrics(**metrics)
+
+        self.total_time = metrics.total_time
+        self.total_llm_cost = metrics.total_llm_cost
+
+    def get_pipeline_artifacts(self) -> PipelineArtifacts:
+        return PipelineArtifacts(
+            value_retrieval=self.get_stage_artifact("value_retrieval"),
+            schema_linking=self.get_stage_artifact("schema_linking"),
+            sql_generation=self.get_stage_artifact("sql_generation"),
+            sql_revision=self.get_stage_artifact("sql_revision"),
+            sql_selection=self.get_stage_artifact("sql_selection"),
+            metrics=self.get_metrics_record(),
+        )
+
+    def apply_pipeline_artifacts(self, pipeline_artifacts: PipelineArtifacts | Dict[str, Any]) -> None:
+        if isinstance(pipeline_artifacts, dict):
+            pipeline_artifacts = PipelineArtifacts(**pipeline_artifacts)
+
+        self.apply_stage_artifact("value_retrieval", pipeline_artifacts.value_retrieval)
+        self.apply_stage_artifact("schema_linking", pipeline_artifacts.schema_linking)
+        self.apply_stage_artifact("sql_generation", pipeline_artifacts.sql_generation)
+        self.apply_stage_artifact("sql_revision", pipeline_artifacts.sql_revision)
+        self.apply_stage_artifact("sql_selection", pipeline_artifacts.sql_selection)
+        self.apply_metrics_record(pipeline_artifacts.metrics)
+
+    def get_item_id(self) -> str:
+        if hasattr(self, "instance_id") and getattr(self, "instance_id"):
+            return str(getattr(self, "instance_id"))
+        return str(self.question_id)
+
+    def is_stage_complete(self, stage_name: StageName) -> bool:
+        artifact = self.get_stage_artifact(stage_name)
+        if any(getattr(artifact, field_name) is None for field_name in STAGE_VALIDATION_FIELDS[stage_name]):
+            return False
+
+        metrics = self.get_metrics_record()
+        return all(getattr(metrics, field_name) is not None for field_name in PIPELINE_METRIC_FIELDS)
+
+    def get_stage_validation_errors(self, stage_name: StageName) -> List[Dict[str, str]]:
+        errors: List[Dict[str, str]] = []
+        artifact = self.get_stage_artifact(stage_name)
+        for field_name in STAGE_VALIDATION_FIELDS[stage_name]:
+            if getattr(artifact, field_name) is None:
+                errors.append({"field": field_name, "error": f"Field '{field_name}' is None"})
+
+        metrics = self.get_metrics_record()
+        for field_name in PIPELINE_METRIC_FIELDS:
+            if getattr(metrics, field_name) is None:
+                errors.append({"field": field_name, "error": f"Metric '{field_name}' is None"})
+
+        return errors
+
 
 class BaseDataset(ABC):
     _config: DatasetConfig = None
     _data: List[DataItem] = None
-    _database_schema_cache: Dict[str, Any] = {}
 
     def __init__(self, dataset_config: DatasetConfig):
         self._config = dataset_config
+        self._database_schema_cache: Dict[str, Any] = {}
         self._data = self._load_data()
 
     def _load_database_schema(self, database_id: str):
-        if database_id in self._database_schema_cache:
-            return self._database_schema_cache[database_id]
-        else:
-            database_path = self._get_database_path(database_id)
-            database_schema = load_database_schema_dict(database_path)
-            self._database_schema_cache[database_id] = database_schema
-            return database_schema
+        database_path = self._get_database_path(database_id)
+        cache_key = str(Path(database_path).resolve())
+        if cache_key in self._database_schema_cache:
+            return self._database_schema_cache[cache_key]
+
+        database_schema = get_schema_service().load_sqlite_schema(database_path)
+        self._database_schema_cache[cache_key] = database_schema
+        return database_schema
     
     @abstractmethod
     def _load_data(self):

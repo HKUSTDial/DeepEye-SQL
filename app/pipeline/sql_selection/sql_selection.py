@@ -4,9 +4,8 @@ from app.llm import LLM
 from app.logger import logger
 from app.prompt import PromptFactory
 from app.llm_extractor import LLMExtractor
-from app.db_utils import execute_sql, execute_sql_for_data_item, get_database_schema_profile, measure_execution_time_for_data_item
+from app.db_utils import get_database_schema_profile
 from app.pipeline.validation import validate_pipeline_step
-from app.pipeline.utils import get_execution_result_hash
 from typing import Dict, List, Any, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from app.config import config
@@ -17,6 +16,7 @@ from collections import Counter
 from tqdm import tqdm
 import time
 from pathlib import Path
+from app.services import ArtifactStore, STAGE_ARTIFACT_FIELDS, get_execution_service, get_schema_service, load_stage_dataset, reset_execution_service
 
 
 class SQLSelectionRunner:
@@ -24,16 +24,26 @@ class SQLSelectionRunner:
     _llm: LLM = None
     _dataset: BaseDataset = None
     _thread_pool_executor: ThreadPoolExecutor = None
+    _artifact_store: ArtifactStore = None
+    _execution_service = None
     
     def __init__(self):
         self._llm = LLM(config.sql_selection_config.llm)
-        if Path(config.sql_selection_config.save_path).exists():
-            logger.info(f"Resuming SQL selection checkpoint from {config.sql_selection_config.save_path}")
-            self._dataset = load_dataset(config.sql_selection_config.save_path)
-        else:
-            logger.info(f"Loading dataset from {config.sql_revision_config.save_path}")
-            self._dataset = load_dataset(config.sql_revision_config.save_path)
+        self._artifact_store = ArtifactStore(
+            config.sql_selection_config.save_path,
+            "sql_selection",
+            STAGE_ARTIFACT_FIELDS["sql_selection"],
+        )
+        self._dataset, checkpoint_source = load_stage_dataset(
+            load_dataset_fn=load_dataset,
+            current_save_path=config.sql_selection_config.save_path,
+            fallback_load_path=config.sql_revision_config.save_path,
+            artifact_store=self._artifact_store,
+            stage_name="sql_selection",
+        )
+        logger.info(f"Initialized SQL selection dataset from {checkpoint_source}")
         self._thread_pool_executor = ThreadPoolExecutor(max_workers=config.sql_selection_config.n_parallel)
+        self._execution_service = get_execution_service()
     
     def _parse_llm_response(self, response: str) -> Optional[List[Dict[str, Any]]]:
         """
@@ -62,19 +72,17 @@ class SQLSelectionRunner:
         valid_sql_candidates = []
         sql_map_to_result_str = {}
         for sql_candidate in data_item.sql_candidates_after_revision:
-            # Use execute_sql_for_data_item to support cloud databases
-            execution_result = execute_sql_for_data_item(data_item, sql_candidate)
+            execution_result = self._execution_service.execute(data_item, sql_candidate)
             if execution_result.result_rows is not None and len(execution_result.result_rows) > 0:
-                valid_sql_candidates.append((sql_candidate, get_execution_result_hash(data_item, execution_result.result_rows)))
+                valid_sql_candidates.append((sql_candidate, self._execution_service.hash_result(data_item, execution_result.result_rows)))
                 sql_map_to_result_str[sql_candidate] = execution_result.result_table_str
         
         if len(valid_sql_candidates) == 0:
             logger.warning("No successful SQL candidates, backing to SQL candidates with not none result_rows")
             for sql_candidate in data_item.sql_candidates_after_revision:
-                # Use execute_sql_for_data_item to support cloud databases
-                execution_result = execute_sql_for_data_item(data_item, sql_candidate)
+                execution_result = self._execution_service.execute(data_item, sql_candidate)
                 if execution_result.result_rows is not None:
-                    valid_sql_candidates.append((sql_candidate, get_execution_result_hash(data_item, execution_result.result_rows)))
+                    valid_sql_candidates.append((sql_candidate, self._execution_service.hash_result(data_item, execution_result.result_rows)))
                     sql_map_to_result_str[sql_candidate] = execution_result.result_table_str
                     
         if len(valid_sql_candidates) == 0:
@@ -86,7 +94,7 @@ class SQLSelectionRunner:
         seen_result_set = set()
         for sql_candidate, execution_result in valid_sql_candidates:
             if execution_result not in seen_result_set:
-                execution_time = measure_execution_time_for_data_item(data_item, sql_candidate)
+                execution_time = self._execution_service.measure_time(data_item, sql_candidate)
                 deduplicated_valid_sql_candidates.append((sql_candidate, sql_map_to_result_str[sql_candidate], counter[execution_result] / len(valid_sql_candidates), execution_time))
                 seen_result_set.add(execution_result)
         valid_sql_candidates = deduplicated_valid_sql_candidates
@@ -112,6 +120,11 @@ class SQLSelectionRunner:
         """
         Compare the two sqls.
         """
+        get_schema_service().ensure_schema_features(
+            data_item.database_schema_after_schema_linking,
+            include_value_statistics=True,
+            include_value_examples=True,
+        )
         database_schema_profile = get_database_schema_profile(data_item.database_schema_after_schema_linking)
         db_type = getattr(data_item, "db_type", None)
         prompt = PromptFactory.format_br_pair_selection_prompt(database_schema_profile, data_item.question, data_item.evidence, sql_a, execution_result_table_str_a, sql_b, execution_result_table_str_b, db_type=db_type)
@@ -260,32 +273,37 @@ class SQLSelectionRunner:
         }
     
     def run(self):
-        all_futures = []
+        future_to_item = {}
         for data_item in self._dataset:
-            if hasattr(data_item, "final_selected_sql") and data_item.final_selected_sql is not None:
+            if data_item.is_stage_complete("sql_selection"):
                 logger.info(f"Skipping data item {data_item.question_id} because it has already been selected")
                 continue
             future = self._thread_pool_executor.submit(self._select_best_sql, data_item)
-            all_futures.append(future)
-        for idx, future in tqdm(enumerate(as_completed(all_futures), start=1), total=len(all_futures), desc="Selecting Best SQL"):
+            future_to_item[future] = data_item
+        for idx, future in tqdm(enumerate(as_completed(future_to_item), start=1), total=len(future_to_item), desc="Selecting Best SQL"):
             future.result()
+            self._artifact_store.record_item(future_to_item[future])
             if idx % 5 == 0:
-                logger.info(f"Selecting Best SQL {idx} / {len(all_futures)} completed")
+                logger.info(f"Selecting Best SQL {idx} / {len(future_to_item)} completed")
                 self.save_result()
         logger.info("Selecting Best SQL completed")
-        self.save_result()
+        self.save_result(materialize_snapshot=True)
         
         # Validate that all required fields are filled
         validate_pipeline_step(self._dataset, "sql_selection")
         
         self._clean_up()
 
-    def save_result(self):
-        save_dataset(self._dataset, config.sql_selection_config.save_path)
+    def save_result(self, materialize_snapshot: bool = False):
+        self._artifact_store.flush()
+        if materialize_snapshot:
+            save_dataset(self._dataset, config.sql_selection_config.save_path)
+            self._artifact_store.cleanup()
 
     def _clean_up(self):
         if self._thread_pool_executor is not None:
             self._thread_pool_executor.shutdown(wait=True)
             self._thread_pool_executor = None
+        reset_execution_service()
         self._llm = None
         self._dataset = None

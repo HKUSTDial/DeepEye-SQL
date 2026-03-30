@@ -5,63 +5,10 @@ Provides validation functions to check if all required fields are properly fille
 after each pipeline step.
 """
 
-from typing import List, Dict, Any, Optional, Tuple
-from app.dataset import BaseDataset, DataItem
+from typing import Dict, Any
+from app.dataset import BaseDataset
+from app.dataset.artifacts import STAGE_VALIDATION_FIELDS
 from app.logger import logger
-
-
-# Define required fields for each pipeline step
-STEP_REQUIRED_FIELDS = {
-    "value_retrieval": [
-        "question_keywords",
-        "retrieved_values", 
-        "database_schema_after_value_retrieval",
-        "value_retrieval_time",
-        "value_retrieval_llm_cost",
-    ],
-    "schema_linking": [
-        "direct_linked_tables_and_columns",
-        "reversed_linked_tables_and_columns",
-        "value_linked_tables_and_columns",
-        "final_linked_tables_and_columns",
-        "database_schema_after_schema_linking",
-        "schema_linking_time",
-        "schema_linking_llm_cost",
-    ],
-    "sql_generation": [
-        "sql_candidates",
-        "sql_generation_time",
-        "sql_generation_llm_cost",
-    ],
-    "sql_revision": [
-        "sql_candidates_after_revision",
-        "sql_revision_time",
-        "sql_revision_llm_cost",
-    ],
-    "sql_selection": [
-        "final_selected_sql",
-        "sql_selection_time",
-        "sql_selection_llm_cost",
-    ],
-}
-
-
-def validate_field(data_item: DataItem, field: str) -> Tuple[bool, str]:
-    """
-    Validate a single field for a data item.
-    
-    Returns:
-        Tuple of (is_valid, error_message)
-    """
-    if not hasattr(data_item, field):
-        return False, f"Field '{field}' does not exist"
-    
-    value = getattr(data_item, field)
-    
-    if value is None:
-        return False, f"Field '{field}' is None"
-    
-    return True, ""
 
 
 def validate_step(dataset: BaseDataset, step_name: str) -> Dict[str, Any]:
@@ -84,29 +31,25 @@ def validate_step(dataset: BaseDataset, step_name: str) -> Dict[str, Any]:
             ]
         }
     """
-    if step_name not in STEP_REQUIRED_FIELDS:
-        raise ValueError(f"Unknown step: {step_name}. Valid steps: {list(STEP_REQUIRED_FIELDS.keys())}")
-    
-    required_fields = STEP_REQUIRED_FIELDS[step_name]
+    if step_name not in STAGE_VALIDATION_FIELDS:
+        raise ValueError(f"Unknown step: {step_name}. Valid steps: {list(STAGE_VALIDATION_FIELDS.keys())}")
     
     total_items = len(dataset)
     valid_items = 0
     issues = []
     
     for data_item in dataset:
-        item_valid = True
-        for field in required_fields:
-            is_valid, error = validate_field(data_item, field)
-            if not is_valid:
-                item_valid = False
-                issues.append({
-                    "question_id": data_item.question_id,
-                    "field": field,
-                    "error": error,
-                })
-        
-        if item_valid:
+        item_issues = data_item.get_stage_validation_errors(step_name)
+        if not item_issues:
             valid_items += 1
+            continue
+
+        for issue in item_issues:
+            issues.append({
+                "question_id": data_item.get_item_id(),
+                "field": issue["field"],
+                "error": issue["error"],
+            })
     
     return {
         "total_items": total_items,

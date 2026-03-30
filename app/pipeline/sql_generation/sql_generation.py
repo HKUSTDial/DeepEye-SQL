@@ -9,6 +9,7 @@ from app.logger import logger
 from tqdm import tqdm
 from pathlib import Path
 import traceback
+from app.services import ArtifactStore, STAGE_ARTIFACT_FIELDS, load_stage_dataset
 
 
 class SQLGenerationRunner:
@@ -20,15 +21,23 @@ class SQLGenerationRunner:
     _dc_generator: DCGenerator = None
     _skeleton_generator: SkeletonGenerator = None
     _icl_generator: ICLGenerator = None
+    _artifact_store: ArtifactStore = None
     
     def __init__(self):
         self._llm = LLM(config.sql_generation_config.llm)
-        if Path(config.sql_generation_config.save_path).exists():
-            logger.info(f"Resuming SQL generation checkpoint from {config.sql_generation_config.save_path}")
-            self._dataset = load_dataset(config.sql_generation_config.save_path)
-        else:
-            logger.info(f"Loading dataset from {config.schema_linking_config.save_path}")
-            self._dataset = load_dataset(config.schema_linking_config.save_path)
+        self._artifact_store = ArtifactStore(
+            config.sql_generation_config.save_path,
+            "sql_generation",
+            STAGE_ARTIFACT_FIELDS["sql_generation"],
+        )
+        self._dataset, checkpoint_source = load_stage_dataset(
+            load_dataset_fn=load_dataset,
+            current_save_path=config.sql_generation_config.save_path,
+            fallback_load_path=config.schema_linking_config.save_path,
+            artifact_store=self._artifact_store,
+            stage_name="sql_generation",
+        )
+        logger.info(f"Initialized SQL generation dataset from {checkpoint_source}")
         self._thread_pool_executor = ThreadPoolExecutor(max_workers=config.sql_generation_config.n_parallel)
         self._dc_generator = DCGenerator()
         self._skeleton_generator = SkeletonGenerator()
@@ -93,28 +102,32 @@ class SQLGenerationRunner:
         }
         
     def run(self):
-        all_futures = []
+        future_to_item = {}
         for data_item in self._dataset:
-            if hasattr(data_item, "sql_candidates") and data_item.sql_candidates is not None:
+            if data_item.is_stage_complete("sql_generation"):
                 logger.info(f"Skipping data item {data_item.question_id} because it has already been generated")
                 continue
             future = self._thread_pool_executor.submit(self._generate_sql, data_item)
-            all_futures.append(future)
-        for idx, future in tqdm(enumerate(as_completed(all_futures), start=1), total=len(all_futures), desc="Generating SQL"):
+            future_to_item[future] = data_item
+        for idx, future in tqdm(enumerate(as_completed(future_to_item), start=1), total=len(future_to_item), desc="Generating SQL"):
             future.result()
+            self._artifact_store.record_item(future_to_item[future])
             if idx % 5 == 0:
-                logger.info(f"Generating SQL {idx} / {len(all_futures)} completed")
+                logger.info(f"Generating SQL {idx} / {len(future_to_item)} completed")
                 self.save_result()
         logger.info("Generating SQL completed")
-        self.save_result()
+        self.save_result(materialize_snapshot=True)
         
         # Validate that all required fields are filled
         validate_pipeline_step(self._dataset, "sql_generation")
         
         self._clean_up()
         
-    def save_result(self):
-        save_dataset(self._dataset, config.sql_generation_config.save_path)
+    def save_result(self, materialize_snapshot: bool = False):
+        self._artifact_store.flush()
+        if materialize_snapshot:
+            save_dataset(self._dataset, config.sql_generation_config.save_path)
+            self._artifact_store.cleanup()
         
     def _clean_up(self):
         if self._thread_pool_executor is not None:

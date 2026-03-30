@@ -10,6 +10,7 @@ from tqdm import tqdm
 from typing import List, Dict
 from pathlib import Path
 import traceback
+from app.services import ArtifactStore, STAGE_ARTIFACT_FIELDS, load_stage_dataset, reset_execution_service
 
 class SQLRevisionRunner:
     
@@ -18,15 +19,23 @@ class SQLRevisionRunner:
     _thread_pool_executor: ThreadPoolExecutor = None
     
     _checkers: List[BaseChecker] = None
+    _artifact_store: ArtifactStore = None
     
     def __init__(self):
         self._llm = LLM(config.sql_revision_config.llm)
-        if Path(config.sql_revision_config.save_path).exists():
-            logger.info(f"Resuming SQL revision checkpoint from {config.sql_revision_config.save_path}")
-            self._dataset = load_dataset(config.sql_revision_config.save_path)
-        else:
-            logger.info(f"Loading dataset from {config.sql_generation_config.save_path}")
-            self._dataset = load_dataset(config.sql_generation_config.save_path)
+        self._artifact_store = ArtifactStore(
+            config.sql_revision_config.save_path,
+            "sql_revision",
+            STAGE_ARTIFACT_FIELDS["sql_revision"],
+        )
+        self._dataset, checkpoint_source = load_stage_dataset(
+            load_dataset_fn=load_dataset,
+            current_save_path=config.sql_revision_config.save_path,
+            fallback_load_path=config.sql_generation_config.save_path,
+            artifact_store=self._artifact_store,
+            stage_name="sql_revision",
+        )
+        logger.info(f"Initialized SQL revision dataset from {checkpoint_source}")
         self._thread_pool_executor = ThreadPoolExecutor(max_workers=config.sql_revision_config.n_parallel)
         
         # Initialize checkers based on config or default list
@@ -164,33 +173,38 @@ class SQLRevisionRunner:
         }
         
     def run(self):
-        all_futures = []
+        future_to_item = {}
         for data_item in self._dataset:
-            if hasattr(data_item, "sql_candidates_after_revision") and data_item.sql_candidates_after_revision is not None:
+            if data_item.is_stage_complete("sql_revision"):
                 logger.info(f"Skipping data item {data_item.question_id} because it has already been revised")
                 continue
             future = self._thread_pool_executor.submit(self._revise_sql, data_item)
-            all_futures.append(future)
-        for idx, future in tqdm(enumerate(as_completed(all_futures), start=1), total=len(all_futures), desc="Revising SQL"):
+            future_to_item[future] = data_item
+        for idx, future in tqdm(enumerate(as_completed(future_to_item), start=1), total=len(future_to_item), desc="Revising SQL"):
             future.result()
+            self._artifact_store.record_item(future_to_item[future])
             if idx % 5 == 0:
-                logger.info(f"Revising SQL {idx} / {len(all_futures)} completed")
+                logger.info(f"Revising SQL {idx} / {len(future_to_item)} completed")
                 self.save_result()
         logger.info("Revising SQL completed")
-        self.save_result()
+        self.save_result(materialize_snapshot=True)
         
         # Validate that all required fields are filled
         validate_pipeline_step(self._dataset, "sql_revision")
         
         self._clean_up()
         
-    def save_result(self):
-        save_dataset(self._dataset, config.sql_revision_config.save_path)
+    def save_result(self, materialize_snapshot: bool = False):
+        self._artifact_store.flush()
+        if materialize_snapshot:
+            save_dataset(self._dataset, config.sql_revision_config.save_path)
+            self._artifact_store.cleanup()
         
     def _clean_up(self):
         if self._thread_pool_executor is not None:
             self._thread_pool_executor.shutdown(wait=True)
             self._thread_pool_executor = None
+        reset_execution_service()
         self._llm = None
         self._dataset = None
         self._checkers = None

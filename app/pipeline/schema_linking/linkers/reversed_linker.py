@@ -7,6 +7,7 @@ from app.prompt import PromptFactory
 from app.config import config
 from app.llm_extractor import LLMExtractor
 from app.db_utils import get_database_schema_profile, map_lower_table_name_to_original_table_name, map_lower_column_name_to_original_column_name
+from app.services import get_schema_service
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 import re
@@ -95,9 +96,15 @@ class ReversedLinker(BaseSchemaLinker):
             encoding = tiktoken.get_encoding("cl100k_base")
             
         max_prompt_len = llm.llm_config.max_model_len - llm.llm_config.max_tokens
+        schema_service = get_schema_service()
         
         final_prompt = None
         for level_idx, levels in enumerate(stripping_levels):
+            schema_service.ensure_schema_features(
+                data_item.database_schema_after_value_retrieval,
+                include_value_statistics=levels["include_value_statistics"],
+                include_value_examples=levels["include_value_examples"],
+            )
             database_schema_profile = get_database_schema_profile(
                 data_item.database_schema_after_value_retrieval, 
                 **levels
@@ -170,9 +177,15 @@ class ReversedLinker(BaseSchemaLinker):
             encoding = tiktoken.get_encoding("cl100k_base")
             
         max_prompt_len = llm.llm_config.max_model_len - llm.llm_config.max_tokens
+        schema_service = get_schema_service()
         
         final_prompt = None
         for level_idx, levels in enumerate(stripping_levels):
+            schema_service.ensure_schema_features(
+                data_item.database_schema_after_value_retrieval,
+                include_value_statistics=levels["include_value_statistics"],
+                include_value_examples=levels["include_value_examples"],
+            )
             database_schema_profile = get_database_schema_profile(
                 data_item.database_schema_after_value_retrieval, 
                 **levels

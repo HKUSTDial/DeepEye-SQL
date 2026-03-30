@@ -5,6 +5,7 @@ from app.logger import logger
 from app.db_utils import get_database_schema_profile
 from app.config import config
 from typing import Dict, List, Any, Tuple, Optional, Callable
+from app.services import get_schema_service
 import re
 import tiktoken
 
@@ -38,10 +39,16 @@ class BaseSQLGenerator(ABC):
             encoding = tiktoken.get_encoding("cl100k_base")
             
         max_prompt_len = llm.llm_config.max_model_len - llm.llm_config.max_tokens
+        schema_service = get_schema_service()
         
         for level_idx, levels in enumerate(stripping_levels):
             # Use database_schema_after_schema_linking if available, otherwise fallback
             schema_to_use = getattr(data_item, "database_schema_after_schema_linking", data_item.database_schema)
+            schema_service.ensure_schema_features(
+                schema_to_use,
+                include_value_statistics=levels["include_value_statistics"],
+                include_value_examples=levels["include_value_examples"],
+            )
             
             database_schema_profile = get_database_schema_profile(
                 schema_to_use, 

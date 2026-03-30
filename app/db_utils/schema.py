@@ -159,6 +159,7 @@ def load_database_schema_dict(db_path: Union[str, Path]) -> Dict[str, Any]:
     database_schema_dict = {}
     database_schema_dict["db_id"] = db_id
     database_schema_dict["db_path"] = str(db_path)
+    database_schema_dict["db_type"] = "sqlite"
     database_schema_dict["tables"] = {}
     table_names = load_table_names(db_path)
     for table_name in table_names:
@@ -202,14 +203,13 @@ def load_database_schema_dict(db_path: Union[str, Path]) -> Dict[str, Any]:
                 descriptions.append(f"Value Description: {database_description.get(table_name.lower(), {}).get(column_name.lower(), {}).get('value_description', '')}")
             column_schema_dict["description"] = " | ".join(descriptions) if descriptions else ""
             
-            # Set value examples
+            # Load expensive column profiles lazily when a stage actually needs them.
             if column_type.upper() != "BLOB":
-                column_schema_dict["value_examples"] = load_value_examples(db_path, table_name, column_name)
+                column_schema_dict["value_examples"] = None
             else:
                 column_schema_dict["value_examples"] = []
-            
-            # Set value statistics
-            column_schema_dict["value_statistics"] = load_value_statistics(db_path, table_name, column_name)
+
+            column_schema_dict["value_statistics"] = None
             
             table_schema_dict["columns"][column_name] = column_schema_dict
         database_schema_dict["tables"][table_name] = table_schema_dict
@@ -527,6 +527,7 @@ def filter_used_database_schema(database_schema_dict: Dict[str, Any], linked_tab
     filtered_database_schema_dict = {
         "db_id": database_schema_dict["db_id"],
         "db_path": database_schema_dict["db_path"],
+        "db_type": database_schema_dict.get("db_type", "sqlite"),
         "tables": {}
     }
 

@@ -11,6 +11,7 @@ from app.logger import logger
 from pathlib import Path
 import time
 import traceback
+from app.services import ArtifactStore, STAGE_ARTIFACT_FIELDS, load_stage_dataset
 
 class SchemaLinkingRunner:
     
@@ -21,15 +22,23 @@ class SchemaLinkingRunner:
     _direct_linker: DirectLinker = None
     _reversed_linker: ReversedLinker = None
     _value_linker: ValueLinker = None
+    _artifact_store: ArtifactStore = None
     
     def __init__(self):
         self._llm = LLM(config.schema_linking_config.llm)
-        if Path(config.schema_linking_config.save_path).exists():
-            logger.info(f"Resuming schema linking checkpoint from {config.schema_linking_config.save_path}")
-            self._dataset = load_dataset(config.schema_linking_config.save_path)
-        else:
-            logger.info(f"Loading dataset from {config.value_retrieval_config.save_path}")
-            self._dataset = load_dataset(config.value_retrieval_config.save_path)
+        self._artifact_store = ArtifactStore(
+            config.schema_linking_config.save_path,
+            "schema_linking",
+            STAGE_ARTIFACT_FIELDS["schema_linking"],
+        )
+        self._dataset, checkpoint_source = load_stage_dataset(
+            load_dataset_fn=load_dataset,
+            current_save_path=config.schema_linking_config.save_path,
+            fallback_load_path=config.value_retrieval_config.save_path,
+            artifact_store=self._artifact_store,
+            stage_name="schema_linking",
+        )
+        logger.info(f"Initialized schema linking dataset from {checkpoint_source}")
         self._thread_pool_executor = ThreadPoolExecutor(max_workers=config.schema_linking_config.n_parallel)
         self._direct_linker = DirectLinker()
         self._reversed_linker = ReversedLinker()
@@ -109,29 +118,27 @@ class SchemaLinkingRunner:
         
     def _is_linking_complete(self, data_item: DataItem) -> bool:
         """Check if schema linking step completed successfully."""
-        # Check database_schema_after_schema_linking - the final output of this step
-        if not hasattr(data_item, "database_schema_after_schema_linking") or data_item.database_schema_after_schema_linking is None:
-            return False
-        return True
+        return data_item.is_stage_complete("schema_linking")
     
     def run(self):
-        all_futures = []
+        future_to_item = {}
         for data_item in self._dataset:
             if self._is_linking_complete(data_item):
                 # If already linked but recall is missing, evaluate it now
-                if not hasattr(data_item, "final_linking_recall") or data_item.final_linking_recall is None:
+                if data_item.get_stage_artifact("schema_linking").final_linking_recall is None:
                     self._eval_schema_linking_recall(data_item)
                 logger.info(f"Skipping data item {data_item.question_id} because it has already been linked")
                 continue
             future = self._thread_pool_executor.submit(self._link_tables_and_columns, data_item)
-            all_futures.append(future)
-        for idx, future in tqdm(enumerate(as_completed(all_futures), start=1), total=len(all_futures), desc="Linking tables and columns"):
+            future_to_item[future] = data_item
+        for idx, future in tqdm(enumerate(as_completed(future_to_item), start=1), total=len(future_to_item), desc="Linking tables and columns"):
             future.result()
+            self._artifact_store.record_item(future_to_item[future])
             if idx % 5 == 0:
-                logger.info(f"Linking tables and columns {idx} / {len(all_futures)} completed")
+                logger.info(f"Linking tables and columns {idx} / {len(future_to_item)} completed")
                 self.save_result()
         logger.info("Linking tables and columns completed")
-        self.save_result()
+        self.save_result(materialize_snapshot=True)
         
         # Validate that all required fields are filled
         validate_pipeline_step(self._dataset, "schema_linking")
@@ -139,8 +146,11 @@ class SchemaLinkingRunner:
         self._clean_up()
         
     
-    def save_result(self):
-        save_dataset(self._dataset, config.schema_linking_config.save_path)
+    def save_result(self, materialize_snapshot: bool = False):
+        self._artifact_store.flush()
+        if materialize_snapshot:
+            save_dataset(self._dataset, config.schema_linking_config.save_path)
+            self._artifact_store.cleanup()
         
     def _eval_schema_linking_recall(self, data_item: DataItem):
         # Skip recall calculation if gold_sql is missing or empty (typical for Spider2 inference)

@@ -18,6 +18,7 @@ import threading
 from collections import defaultdict
 from app.logger import logger
 import traceback
+from app.services import ArtifactStore, STAGE_ARTIFACT_FIELDS, get_schema_service, load_stage_dataset
 
 
 def _is_spider2_item(data_item: DataItem) -> bool:
@@ -34,15 +35,23 @@ class ValueRetrievalRunner:
     _embedding_function: Any = None # Shared embedding function
     _thread_pool_executor: ThreadPoolExecutor = None
     _db_lock = threading.Lock()
+    _artifact_store: ArtifactStore = None
     
     def __init__(self):
         self._llm = LLM(config.value_retrieval_config.llm)
-        if Path(config.value_retrieval_config.save_path).exists():
-            logger.info(f"Resuming value retrieval checkpoint from {config.value_retrieval_config.save_path}")
-            self._dataset = load_dataset(config.value_retrieval_config.save_path)
-        else:
-            logger.info(f"Loading dataset from {config.dataset_config.save_path}")
-            self._dataset = load_dataset(config.dataset_config.save_path)
+        self._artifact_store = ArtifactStore(
+            config.value_retrieval_config.save_path,
+            "value_retrieval",
+            STAGE_ARTIFACT_FIELDS["value_retrieval"],
+        )
+        self._dataset, checkpoint_source = load_stage_dataset(
+            load_dataset_fn=load_dataset,
+            current_save_path=config.value_retrieval_config.save_path,
+            fallback_load_path=config.dataset_config.save_path,
+            artifact_store=self._artifact_store,
+            stage_name="value_retrieval",
+        )
+        logger.info(f"Initialized value retrieval dataset from {checkpoint_source}")
         
         # Initialize the shared embedding function once - ONLY if not Spider2
         if not config.dataset_config.type.startswith("spider2"):
@@ -141,9 +150,16 @@ class ValueRetrievalRunner:
 
     def _update_database_schema(self, data_item: DataItem):
         database_schema_after_value_retrieval = copy.deepcopy(data_item.database_schema)
+        schema_service = get_schema_service()
         for table_name, column_dict in data_item.retrieved_values.items():
             for column_name, values in column_dict.items():
-                original_values = data_item.database_schema["tables"][table_name]["columns"][column_name]["value_examples"]
+                schema_service.ensure_column_features(
+                    data_item.database_schema,
+                    table_name,
+                    column_name,
+                    include_value_examples=True,
+                )
+                original_values = data_item.database_schema["tables"][table_name]["columns"][column_name].get("value_examples") or []
                 new_values = [value["value"] for value in values] + original_values
                 new_values = new_values[:config.value_retrieval_config.n_results]
                 database_schema_after_value_retrieval["tables"][table_name]["columns"][column_name]["value_examples"] = new_values
@@ -156,8 +172,11 @@ class ValueRetrievalRunner:
         self._vector_db_client_dict = {}
         self._vector_db_collection_dict = {}
     
-    def save_result(self):
-        save_dataset(self._dataset, config.value_retrieval_config.save_path)
+    def save_result(self, materialize_snapshot: bool = False):
+        self._artifact_store.flush()
+        if materialize_snapshot:
+            save_dataset(self._dataset, config.value_retrieval_config.save_path)
+            self._artifact_store.cleanup()
     
     def _skip_value_retrieval_for_item(self, data_item: DataItem):
         """
@@ -177,39 +196,42 @@ class ValueRetrievalRunner:
         logger.info(f"Skipping value retrieval for item {data_item.question_id}")
 
     def run(self):
-        all_futures = []
+        future_to_item = {}
         skipped_spider2_count = 0
         
         for data_item in self._dataset:
-            if hasattr(data_item, "database_schema_after_value_retrieval") and data_item.database_schema_after_value_retrieval is not None:
+            if data_item.is_stage_complete("value_retrieval"):
                 logger.info(f"Skipping data item {data_item.question_id} because it has already been retrieved")
                 continue
             
             # Skip Spider2 datasets - Vector DB and Value Retrieval not needed
             if _is_spider2_item(data_item):
                 self._skip_value_retrieval_for_item(data_item)
+                self._artifact_store.record_item(data_item)
                 skipped_spider2_count += 1
                 continue
             
             # Submit each item to the thread pool (SQLite only)
             future = self._thread_pool_executor.submit(self._retrieve_values_for_item, data_item)
-            all_futures.append(future)
+            future_to_item[future] = data_item
         
         if skipped_spider2_count > 0:
             logger.info(f"Skipped {skipped_spider2_count} Spider2 items (Value Retrieval not required)")
             
-        for idx, future in tqdm(enumerate(as_completed(all_futures), start=1), total=len(all_futures), desc="Value Retrieval"):
+        for idx, future in tqdm(enumerate(as_completed(future_to_item), start=1), total=len(future_to_item), desc="Value Retrieval"):
+            data_item = future_to_item[future]
             try:
                 future.result()
+                self._artifact_store.record_item(data_item)
             except Exception as e:
                 logger.error(f"Error processing data item: {e}")
                 traceback.format_exc()
             
             if idx % 5 == 0:
-                logger.info(f"Value Retrieval {idx} / {len(all_futures)} completed")
+                logger.info(f"Value Retrieval {idx} / {len(future_to_item)} completed")
                 self.save_result()
             
-        self.save_result()
+        self.save_result(materialize_snapshot=True)
         
         # Validate that all required fields are filled
         validate_pipeline_step(self._dataset, "value_retrieval")
