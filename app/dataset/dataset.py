@@ -1,11 +1,11 @@
-from app.config import config, DatasetConfig
+from __future__ import annotations
+
 from pydantic import BaseModel, Field
-from typing import List, Optional, Any, Dict
+from typing import TYPE_CHECKING, List, Optional, Any, Dict
 from pathlib import Path
 import json
 from abc import ABC, abstractmethod
 from tqdm import tqdm
-from app.services import get_schema_service
 from .artifacts import (
     AggregateMetrics,
     DataItemInput,
@@ -16,6 +16,9 @@ from .artifacts import (
     STAGE_VALIDATION_FIELDS,
     StageName,
 )
+
+if TYPE_CHECKING:
+    from app.config import DatasetConfig
 
 
 class DataItem(BaseModel):
@@ -194,6 +197,8 @@ class BaseDataset(ABC):
         self._data = self._load_data()
 
     def _load_database_schema(self, database_id: str):
+        from app.services import get_schema_service
+
         database_path = self._get_database_path(database_id)
         cache_key = str(Path(database_path).resolve())
         if cache_key in self._database_schema_cache:

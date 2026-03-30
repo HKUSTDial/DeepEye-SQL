@@ -2,7 +2,8 @@
 Spider2 dataset classes for Spider2-Lite and Spider2-Snow datasets.
 """
 
-from app.config import DatasetConfig
+from __future__ import annotations
+
 from app.db_utils.cloud_schema import (
     load_cloud_database_schema_dict, 
     load_external_knowledge,
@@ -10,12 +11,15 @@ from app.db_utils.cloud_schema import (
 )
 from app.logger import logger
 from pydantic import BaseModel, Field
-from typing import List, Optional, Any, Dict, Literal
+from typing import TYPE_CHECKING, List, Optional, Any, Dict, Literal
 from pathlib import Path
 import json
 from tqdm import tqdm
 
 from .dataset import DataItem, BaseDataset
+
+if TYPE_CHECKING:
+    from app.config import DatasetConfig
 
 
 class Spider2DataItem(DataItem):

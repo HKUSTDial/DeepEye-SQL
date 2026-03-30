@@ -13,7 +13,6 @@ import argparse
 from pathlib import Path
 from typing import Optional
 
-from app.dataset import load_dataset
 from app.logger import logger
 
 
@@ -29,6 +28,8 @@ def convert_to_json_file(snapshot_path: str, output_path: Optional[str] = None):
     Convert a dataset snapshot to a single JSON file (for Spider/Bird datasets).
     Format: {question_id: sql_string}
     """
+    from app.dataset import load_dataset
+
     dataset = load_dataset(snapshot_path)
     data = {}
 
@@ -55,6 +56,8 @@ def convert_to_sql_files(snapshot_path: str, output_dir: Optional[str] = None):
     Convert a dataset snapshot to individual SQL files (for Spider2 datasets).
     Format: One SQL file per instance_id.
     """
+    from app.dataset import load_dataset
+
     dataset = load_dataset(snapshot_path)
 
     if output_dir is None:
@@ -84,12 +87,12 @@ def auto_convert(
     output_path: Optional[str] = None,
     force_format: Optional[str] = None,
 ):
-    from app.config import config
-
     if force_format is not None:
         output_format = force_format
         logger.info(f"Using forced format: {output_format}")
     else:
+        from app.config import config
+
         dataset_type = config.dataset_config.type
         output_format = "sql_files" if dataset_type == "spider2" else "json"
         logger.info(f"Auto-detected format '{output_format}' for dataset type '{dataset_type}'")
@@ -108,11 +111,9 @@ def main():
     )
     parser.add_argument(
         "--snapshot_path",
-        "--pkl_path",
-        dest="snapshot_path",
         type=str,
         default=None,
-        help="Path to the dataset snapshot (legacy alias: --pkl_path). Default: use config sql_selection save_path",
+        help="Path to the dataset snapshot. Default: use config sql_selection save_path",
     )
     parser.add_argument(
         "--output",
@@ -129,9 +130,11 @@ def main():
     )
     args = parser.parse_args()
 
-    from app.config import config
+    snapshot_path = args.snapshot_path
+    if snapshot_path is None:
+        from app.config import config
 
-    snapshot_path = args.snapshot_path or config.sql_selection_config.save_path
+        snapshot_path = config.sql_selection_config.save_path
     logger.info(f"Converting dataset snapshot {snapshot_path}")
     auto_convert(
         snapshot_path=snapshot_path,

@@ -11,6 +11,10 @@ def load_legacy_pickle_dataset(load_path: str | Path) -> BaseDataset:
     if not load_path.exists():
         raise FileNotFoundError(f"Legacy dataset file not found at {load_path}")
 
+    logger.warning(
+        f"Loading deprecated legacy pickle dataset {load_path}. "
+        "Please migrate it with `runner/migrate_legacy_snapshot.py`."
+    )
     with open(load_path, "rb") as f:
         dataset = pickle.load(f)
     logger.info(f"Dataset loaded from legacy pickle {load_path}")

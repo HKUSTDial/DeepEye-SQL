@@ -117,8 +117,8 @@ DeepEye-SQL/
 │   ├── run_sql_revision.py
 │   ├── run_sql_selection.py
 │   ├── convert_snapshot_to_sql.py  # Unified conversion (auto-detects format)
-│   ├── convert_pkl_to_sql.py       # Deprecated compatibility wrapper
-│   ├── migrate_legacy_snapshot.py  # One-off legacy pickle migration
+│   ├── convert_pkl_to_sql.py       # Deprecated wrapper for old `pkl` workflows
+│   ├── migrate_legacy_snapshot.py  # One-off migration from legacy pickle to snapshot
 │   └── evaluation.py               # Unified evaluation (all datasets)
 ├── results/                   # Few-shots and experimental prediction files
 │   ├── spider_test_few_shots.json # DAIL-SQL few-shots for Spider
@@ -492,14 +492,20 @@ We have also uploaded the final prediction SQL files generated during our experi
 - `results/spider2-lite/` (SQL files)
 - `results/spider2-snow/` (SQL files)
 
-These files can be used to directly run the evaluation script to verify our reported performance:
+These files are the final exported predictions from our experiments. Spider/BIRD JSON files can be submitted to the official evaluators directly, and Spider2 SQL directories can be fed to the Spider2 evaluation suite. To run this repository's built-in `runner/evaluation.py`, use a dataset snapshot produced by the pipeline:
 
 ```bash
-# Example 1: Evaluate BIRD predictions
-uv run runner/evaluation.py --dataset_type bird --split dev --sql_output_dir results/bird-dev/qwen3-coder-30b-a3b.json
+# Example 1: Evaluate a BIRD snapshot produced by this pipeline
+uv run runner/evaluation.py --dataset_type bird --dataset_split dev --snapshot_path workspace/sql_selection/bird/dev.snapshot
 
-# Example 2: Evaluate Spider2-Lite predictions
-uv run runner/evaluation.py --dataset_type spider2 --split lite --sql_output_dir results/spider2-lite/deepseek-r1/
+# Example 2: Evaluate published Spider2-Lite SQL files directly
+uv run runner/evaluation.py --dataset_type spider2 --dataset_split lite --skip_conversion --sql_output_dir results/spider2-lite/deepseek-r1/
+```
+
+If you still have old dataset pickles, migrate them once and switch subsequent commands to `--snapshot_path`:
+
+```bash
+uv run runner/migrate_legacy_snapshot.py --legacy_path workspace/sql_selection/bird/dev.pkl --snapshot_path workspace/sql_selection/bird/dev.snapshot
 ```
 
 

@@ -16,7 +16,15 @@ from tqdm import tqdm
 import numpy as np
 
 from app.logger import logger
-from app.db_utils import execute_sql
+
+
+def _resolve_snapshot_path(snapshot_path: Optional[str]) -> str:
+    if snapshot_path is not None:
+        return snapshot_path
+
+    from app.config import config
+
+    return config.sql_selection_config.save_path
 
 
 def _eval_ex_after_selection(pred_sql: str, gold_sql: str, db_path: str) -> Optional[int]:
@@ -24,6 +32,8 @@ def _eval_ex_after_selection(pred_sql: str, gold_sql: str, db_path: str) -> Opti
     Evaluate execution accuracy by comparing query results.
     Used for Spider and BIRD datasets.
     """
+    from app.db_utils import execute_sql
+
     pred_result = execute_sql(db_path, pred_sql)
     gold_result = execute_sql(db_path, gold_sql)
     
@@ -37,25 +47,20 @@ def _eval_ex_after_selection(pred_sql: str, gold_sql: str, db_path: str) -> Opti
     return 1 if set(pred_result.result_rows) == set(gold_result.result_rows) else 0
 
 
-def evaluate_spider_bird(snapshot_path: str = None, max_workers: int = 32, pkl_path: str = None) -> float:
+def evaluate_spider_bird(snapshot_path: str = None, max_workers: int = 32) -> float:
     """
     Evaluate Spider or BIRD dataset using direct SQL execution comparison.
     
     Args:
         snapshot_path: Path to the dataset snapshot with results.
         max_workers: Number of parallel workers.
-        pkl_path: Deprecated alias for dataset snapshot path.
         
     Returns:
         Execution accuracy as a float (0.0 to 1.0).
     """
-    from app.config import config
     from app.dataset import load_dataset
     
-    if snapshot_path is None:
-        snapshot_path = pkl_path
-    if snapshot_path is None:
-        snapshot_path = config.sql_selection_config.save_path
+    snapshot_path = _resolve_snapshot_path(snapshot_path)
     
     logger.info(f"Loading dataset snapshot from: {snapshot_path}")
     dataset = load_dataset(snapshot_path)
@@ -101,7 +106,6 @@ def evaluate_spider2(
     max_workers: int = 8,
     timeout: int = None,
     skip_conversion: bool = False,
-    pkl_path: str = None,
 ) -> Optional[int]:
     """
     Evaluate Spider2 dataset using official evaluation script.
@@ -113,7 +117,6 @@ def evaluate_spider2(
         max_workers: Number of parallel workers for evaluation.
         timeout: SQL execution timeout in seconds.
         skip_conversion: Skip snapshot-to-SQL conversion (use existing SQL files).
-        pkl_path: Deprecated alias for dataset snapshot path.
         
     Returns:
         Return code from evaluation script (0 = success, None = error).
@@ -123,10 +126,7 @@ def evaluate_spider2(
     # Determine paths
     if timeout is None:
         timeout = config.dataset_config.sql_execution_timeout
-    if snapshot_path is None:
-        snapshot_path = pkl_path
-    if snapshot_path is None:
-        snapshot_path = config.sql_selection_config.save_path
+    snapshot_path = _resolve_snapshot_path(snapshot_path)
     
     snapshot_path = Path(snapshot_path)
     
@@ -219,7 +219,6 @@ def run_evaluation(
     timeout: int = None,
     sql_output_dir: str = None,
     skip_conversion: bool = False,
-    pkl_path: str = None,
 ):
     """
     Unified evaluation entry point. Auto-detects dataset type and uses appropriate method.
@@ -232,20 +231,20 @@ def run_evaluation(
         timeout: SQL execution timeout (Spider2 only).
         sql_output_dir: SQL output directory (Spider2 only).
         skip_conversion: Skip SQL conversion (Spider2 only).
-        pkl_path: Deprecated alias for dataset snapshot path.
     """
-    from app.config import config
-
-    if snapshot_path is None:
-        snapshot_path = pkl_path
+    snapshot_path = _resolve_snapshot_path(snapshot_path)
     
     # Auto-detect dataset type from config if not provided
     if dataset_type is None:
+        from app.config import config
+
         dataset_type = config.dataset_config.type
         logger.info(f"Auto-detected dataset type: {dataset_type}")
     
     # Auto-detect dataset split for Spider2
     if dataset_split is None and dataset_type == "spider2":
+        from app.config import config
+
         dataset_split = config.dataset_config.split
         logger.info(f"Auto-detected dataset split: {dataset_split}")
     
@@ -288,11 +287,16 @@ def main():
     )
     parser.add_argument(
         "--snapshot_path",
-        "--pkl_path",
-        dest="snapshot_path",
         type=str,
         default=None,
-        help="Path to the dataset snapshot (legacy alias: --pkl_path). Default: use config"
+        help="Path to the dataset snapshot. Default: use config"
+    )
+    parser.add_argument(
+        "--pkl_path",
+        dest="legacy_pkl_path",
+        type=str,
+        default=None,
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--dataset_type",
@@ -335,9 +339,20 @@ def main():
     )
     
     args = parser.parse_args()
+
+    snapshot_path = args.snapshot_path
+    if args.legacy_pkl_path is not None:
+        logger.warning(
+            "`--pkl_path` is deprecated and will be removed in a future release. "
+            "Use `--snapshot_path` instead."
+        )
+        if snapshot_path is None:
+            snapshot_path = args.legacy_pkl_path
+        else:
+            logger.warning("Ignoring deprecated `--pkl_path` because `--snapshot_path` was also provided.")
     
     run_evaluation(
-        snapshot_path=args.snapshot_path,
+        snapshot_path=snapshot_path,
         dataset_type=args.dataset_type,
         dataset_split=args.dataset_split,
         max_workers=args.max_workers,

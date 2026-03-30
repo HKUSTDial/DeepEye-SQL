@@ -1,9 +1,9 @@
 import importlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
-from app.config import DatasetConfig
 from app.logger import logger
 
 from .dataset import BaseDataset, DataItem
@@ -11,6 +11,11 @@ from .dataset import BaseDataset, DataItem
 
 STRUCTURED_SNAPSHOT_FORMAT = "structured_dataset_snapshot"
 STRUCTURED_SNAPSHOT_VERSION = 1
+
+
+class SnapshotDatasetConfig(SimpleNamespace):
+    def model_dump(self) -> dict[str, Any]:
+        return dict(self.__dict__)
 
 
 def save_dataset(dataset: BaseDataset, save_path: str) -> None:
@@ -41,7 +46,7 @@ def save_dataset(dataset: BaseDataset, save_path: str) -> None:
         "dataset_class_name": dataset.__class__.__name__,
         "item_class_module": item_class.__module__,
         "item_class_name": item_class.__name__,
-        "dataset_config": dataset._config.model_dump(),
+        "dataset_config": _dump_dataset_config(dataset._config),
         "num_items": len(dataset),
     }
     save_path.write_text(
@@ -86,7 +91,7 @@ def _load_structured_dataset(load_path: Path, manifest: dict[str, Any]) -> BaseD
 
     dataset_cls = _load_class(manifest["dataset_class_module"], manifest["dataset_class_name"])
     item_cls = _load_class(manifest["item_class_module"], manifest["item_class_name"])
-    dataset_config = DatasetConfig(**manifest["dataset_config"])
+    dataset_config = SnapshotDatasetConfig(**manifest["dataset_config"])
 
     dataset = object.__new__(dataset_cls)
     dataset._config = dataset_config
@@ -128,6 +133,12 @@ def _populate_schema_cache(dataset: BaseDataset, data_item: DataItem) -> None:
 def _load_class(module_name: str, class_name: str):
     module = importlib.import_module(module_name)
     return getattr(module, class_name)
+
+
+def _dump_dataset_config(dataset_config: Any) -> dict[str, Any]:
+    if hasattr(dataset_config, "model_dump"):
+        return dataset_config.model_dump()
+    return dict(vars(dataset_config))
 
 
 def _get_snapshot_root(save_path: Path) -> Path:
