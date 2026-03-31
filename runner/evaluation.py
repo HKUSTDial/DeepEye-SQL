@@ -16,7 +16,7 @@ from tqdm import tqdm
 import numpy as np
 
 from app.db_utils.defaults import DEFAULT_SQL_EXECUTION_TIMEOUT
-from app.logger import logger
+from app.logger import configure_logger, logger
 
 
 def _resolve_snapshot_path(snapshot_path: Optional[str], default_snapshot_path: Optional[str] = None) -> str:
@@ -334,7 +334,10 @@ def main():
     )
     
     args = parser.parse_args()
-    from app.config import config
+    from app.config import get_config
+
+    app_config = get_config()
+    configure_logger(app_config.logger_config.print_level)
 
     snapshot_path = args.snapshot_path
     if args.legacy_pkl_path is not None:
@@ -355,10 +358,10 @@ def main():
         timeout=args.timeout,
         sql_output_dir=args.sql_output_dir,
         skip_conversion=args.skip_conversion,
-        default_snapshot_path=config.sql_selection_config.save_path,
-        default_dataset_type=config.dataset_config.type,
-        default_dataset_split=config.dataset_config.split,
-        default_timeout=config.dataset_config.sql_execution_timeout,
+        default_snapshot_path=app_config.sql_selection_config.save_path,
+        default_dataset_type=app_config.dataset_config.type,
+        default_dataset_split=app_config.dataset_config.split,
+        default_timeout=app_config.dataset_config.sql_execution_timeout,
     )
 
 

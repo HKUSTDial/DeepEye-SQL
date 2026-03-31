@@ -10,7 +10,7 @@ from tqdm import tqdm
 
 from app.vector_db.vector_db import make_vector_db, get_embedding_function
 from app.dataset import load_dataset
-from app.logger import logger
+from app.logger import configure_logger, logger
 
 _WORKER_STATE = threading.local()
 
@@ -163,20 +163,23 @@ if __name__ == "__main__":
     parser.add_argument("--column_parallel", type=int, default=None, help="Number of columns to scan in parallel within a single database")
     parser.add_argument("--n_parallel", dest="legacy_n_parallel", type=int, default=None, help=SUPPRESS)
     args = parser.parse_args()
-    from app.config import config
+    from app.config import get_config
 
-    db_parallel = args.db_parallel if args.db_parallel is not None else config.vector_database_config.db_parallel
+    app_config = get_config()
+    configure_logger(app_config.logger_config.print_level)
+
+    db_parallel = args.db_parallel if args.db_parallel is not None else app_config.vector_database_config.db_parallel
     if args.legacy_n_parallel is not None:
         logger.warning("`--n_parallel` is deprecated and will be removed in a future release. Use `--db_parallel` instead.")
         if args.db_parallel is not None:
             logger.warning("Ignoring deprecated `--n_parallel` because `--db_parallel` was also provided.")
         else:
             db_parallel = args.legacy_n_parallel
-    column_parallel = args.column_parallel if args.column_parallel is not None else config.vector_database_config.column_parallel
+    column_parallel = args.column_parallel if args.column_parallel is not None else app_config.vector_database_config.column_parallel
     run_vector_db_creation(
-        dataset_snapshot_path=config.dataset_config.save_path,
-        dataset_type=config.dataset_config.type,
-        vector_database_config=config.vector_database_config,
+        dataset_snapshot_path=app_config.dataset_config.save_path,
+        dataset_type=app_config.dataset_config.type,
+        vector_database_config=app_config.vector_database_config,
         db_parallel=db_parallel,
         column_parallel=column_parallel,
     )

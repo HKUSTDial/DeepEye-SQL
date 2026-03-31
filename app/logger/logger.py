@@ -1,47 +1,51 @@
 import sys
-import os
-import tomllib
-from pathlib import Path
+import threading
+
 from loguru import logger as _logger
 
 
-# Get project root to avoid circular dependency with app.config
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+_logger_instance = None
+_logger_lock = threading.Lock()
 
 
-def _load_logger_config():
-    """Load logger configuration from the config file."""
-    # Respect CONFIG_PATH environment variable if set
-    env_config_path = os.environ.get("CONFIG_PATH")
-    if env_config_path:
-        config_path = Path(env_config_path)
-        # If relative, make it relative to project root
-        if not config_path.is_absolute():
-            config_path = PROJECT_ROOT / config_path
-    else:
-        config_path = PROJECT_ROOT / "config" / "config.toml"
-        
-    if config_path.exists():
-        try:
-            with open(config_path, "rb") as f:
-                config = tomllib.load(f)
-            logger_config = config.get("logger", {})
-            return {"print_level": logger_config.get("print_level", "INFO")}
-        except Exception:
-            pass
-    return {"print_level": "INFO"}
-
-
-def define_log_level(print_level="INFO"):
+def define_log_level(print_level: str = "INFO"):
     """Adjust the log level to the specified level."""
     _logger.remove()
     _logger.add(sys.stderr, level=print_level)
     return _logger
 
 
-# Load config and initialize logger
-_logger_config = _load_logger_config()
-logger = define_log_level(print_level=_logger_config["print_level"])
+def configure_logger(print_level: str = "INFO"):
+    global _logger_instance
+    with _logger_lock:
+        _logger_instance = define_log_level(print_level=print_level)
+        return _logger_instance
+
+
+def get_logger():
+    global _logger_instance
+    if _logger_instance is None:
+        with _logger_lock:
+            if _logger_instance is None:
+                _logger_instance = define_log_level(print_level="INFO")
+    return _logger_instance
+
+
+def reset_logger():
+    global _logger_instance
+    with _logger_lock:
+        _logger_instance = None
+
+
+class _LazyLoggerProxy:
+    def __getattr__(self, name):
+        return getattr(get_logger(), name)
+
+    def __repr__(self):
+        return repr(get_logger())
+
+
+logger = _LazyLoggerProxy()
 
 
 if __name__ == "__main__":

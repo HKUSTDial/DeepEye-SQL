@@ -13,7 +13,7 @@ import argparse
 from pathlib import Path
 from typing import Optional
 
-from app.logger import logger
+from app.logger import configure_logger, logger
 
 
 def _default_json_output_path(snapshot_path: str) -> str:
@@ -142,9 +142,11 @@ def main():
 
     snapshot_path = args.snapshot_path
     if snapshot_path is None:
-        from app.config import config
+        from app.config import get_config
 
-        snapshot_path = config.sql_selection_config.save_path
+        app_config = get_config()
+        configure_logger(app_config.logger_config.print_level)
+        snapshot_path = app_config.sql_selection_config.save_path
     logger.info(f"Converting dataset snapshot {snapshot_path}")
     auto_convert(
         snapshot_path=snapshot_path,

@@ -2,7 +2,7 @@ import sys
 sys.path.append(".")
 from typing import TYPE_CHECKING
 from app.dataset import DatasetFactory, save_dataset
-from app.logger import logger
+from app.logger import configure_logger, logger
 
 if TYPE_CHECKING:
     from app.config.config import DatasetConfig
@@ -17,6 +17,8 @@ def preprocess_dataset(dataset_config: "DatasetConfig"):
 
 
 if __name__ == "__main__":
-    from app.config import config
+    from app.config import get_config
 
-    preprocess_dataset(config.dataset_config)
+    app_config = get_config()
+    configure_logger(app_config.logger_config.print_level)
+    preprocess_dataset(app_config.dataset_config)
