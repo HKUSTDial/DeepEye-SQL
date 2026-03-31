@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from typing import TYPE_CHECKING, Dict, List, Optional
 from tenacity import(
     retry,
@@ -31,12 +32,16 @@ class EmptyResponseError(Exception):
 
 
 class LLM:
-    """LLM wrapper class. Each instance creates its own OpenAI client."""
+    """LLM wrapper class. Each instance lazily creates its own OpenAI client."""
     
     def __init__(self, llm_config: LLMConfig):
         self._config = llm_config
-        self._client = self._create_client()
-        logger.debug(f"Created LLM instance: model={llm_config.model}, temperature={llm_config.temperature}, reasoning_effort={llm_config.reasoning_effort}")
+        self._client = None
+        self._client_lock = threading.Lock()
+        logger.debug(
+            f"Initialized LLM wrapper: model={llm_config.model}, "
+            f"temperature={llm_config.temperature}, reasoning_effort={llm_config.reasoning_effort}"
+        )
     
     @property
     def llm_config(self) -> LLMConfig:
@@ -50,6 +55,14 @@ class LLM:
             return AzureOpenAI(api_key=self._config.api_key, base_url=self._config.base_url, api_version=self._config.api_version)
         else:
             raise ValueError(f"Unsupported api type: {self._config.api_type}")
+
+    def _get_client(self):
+        if self._client is None:
+            with self._client_lock:
+                if self._client is None:
+                    self._client = self._create_client()
+                    logger.debug(f"Created LLM client for model={self._config.model}")
+        return self._client
         
     @retry(
         wait=wait_random_exponential(multiplier=1, max=60),
@@ -92,7 +105,7 @@ class LLM:
                     request_params["reasoning_effort"] = self._config.reasoning_effort
                 request_params.update(kwargs)
                     
-                response = self._client.chat.completions.create(**request_params)
+                response = self._get_client().chat.completions.create(**request_params)
                 if not response.choices:
                     raise EmptyResponseError(f"No response from the model: {response}")
                 
