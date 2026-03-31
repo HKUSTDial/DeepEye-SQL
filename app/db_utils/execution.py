@@ -15,6 +15,7 @@ class SQLExecutionResult(BaseModel):
     result_type: Literal["success", "timeout", "empty_result", "all_null_result", "execution_error"] = Field(..., description="The type of the result")
     db_path: str = Field(..., description="The path of the database")
     sql: str = Field(..., description="The sql to be executed")
+    execution_time: Optional[float] = Field(default=None, description="Wall-clock execution time in seconds")
     result_cols: Optional[List[str]] = Field(default=None, description="The columns of the result")
     result_rows: Optional[List[Tuple[Any, ...]]] = Field(default=None, description="The rows of the result")
     result_table_str: Optional[str] = Field(default=None, description="The table string of the result")
@@ -73,10 +74,12 @@ class SQLExecutionThread(threading.Thread):
 
 
 def _execute_sql_once(db_path: str, sql: str, timeout: int) -> SQLExecutionResult:
+    start_time = time.time()
     thread = SQLExecutionThread(db_path, sql, timeout)
     thread.daemon = True
     thread.start()
     thread.join(timeout)
+    elapsed_time = time.time() - start_time
     if thread.is_alive():
         thread.timeout_event.set()
         thread.join(1)
@@ -84,6 +87,7 @@ def _execute_sql_once(db_path: str, sql: str, timeout: int) -> SQLExecutionResul
             result_type="timeout",
             db_path=str(db_path),
             sql=sql,
+            execution_time=elapsed_time,
             error_message=f"SQL execution timed out after {timeout} seconds",
         )
     if thread.exception:
@@ -91,6 +95,7 @@ def _execute_sql_once(db_path: str, sql: str, timeout: int) -> SQLExecutionResul
             result_type="execution_error",
             db_path=str(db_path),
             sql=sql,
+            execution_time=elapsed_time,
             error_message=str(thread.exception),
         )
     if thread.result_rows is not None and len(thread.result_rows) == 0:
@@ -98,6 +103,7 @@ def _execute_sql_once(db_path: str, sql: str, timeout: int) -> SQLExecutionResul
             result_type="empty_result",
             db_path=str(db_path),
             sql=sql,
+            execution_time=elapsed_time,
             result_cols=thread.result_cols,
             result_rows=thread.result_rows,
             error_message="The SQL query returned an empty result table.",
@@ -107,6 +113,7 @@ def _execute_sql_once(db_path: str, sql: str, timeout: int) -> SQLExecutionResul
             result_type="all_null_result",
             db_path=str(db_path),
             sql=sql,
+            execution_time=elapsed_time,
             result_cols=thread.result_cols,
             result_rows=thread.result_rows,
             error_message="The SQL query returned an result table with all null values.",
@@ -115,6 +122,7 @@ def _execute_sql_once(db_path: str, sql: str, timeout: int) -> SQLExecutionResul
         result_type="success",
         db_path=str(db_path),
         sql=sql,
+        execution_time=elapsed_time,
         result_cols=thread.result_cols,
         result_rows=thread.result_rows,
     )
@@ -133,7 +141,13 @@ def execute_sql_without_cache(db_path: str, sql: str, timeout: Optional[int] = N
     return _execute_sql_once(str(db_path), sql, _resolve_timeout(timeout))
 
 
-def measure_execution_time(db_path: str, sql: str, timeout: Optional[int] = None, repeat: int = 10) -> float:
+def measure_execution_time(
+    db_path: str,
+    sql: str,
+    timeout: Optional[int] = None,
+    repeat: int = 10,
+    initial_execution_time: Optional[float] = None,
+) -> float:
     """
     Measure SQL execution time for SQLite databases.
 
@@ -148,7 +162,9 @@ def measure_execution_time(db_path: str, sql: str, timeout: Optional[int] = None
     """
     resolved_timeout = _resolve_timeout(timeout)
     execution_times = []
-    for _ in range(repeat):
+    if initial_execution_time is not None and np.isfinite(initial_execution_time):
+        execution_times.append(float(initial_execution_time))
+    for _ in range(max(repeat - len(execution_times), 0)):
         start_time = time.time()
         execution_result = execute_sql_without_cache(db_path, sql, resolved_timeout)
         if execution_result.result_rows is not None:
@@ -156,13 +172,25 @@ def measure_execution_time(db_path: str, sql: str, timeout: Optional[int] = None
             execution_times.append(end_time - start_time)
     if len(execution_times) == 0:
         return np.inf
+    if len(execution_times) == 1:
+        return float(execution_times[0])
     std = np.std(execution_times)
     mean = np.mean(execution_times)
-    execution_times = [t for t in execution_times if t > mean - 3 * std and t < mean + 3 * std]
-    return float(np.mean(execution_times))
+    if std == 0:
+        return float(mean)
+    filtered_times = [t for t in execution_times if abs(t - mean) <= 3 * std]
+    if len(filtered_times) == 0:
+        return float(mean)
+    return float(np.mean(filtered_times))
 
 
-def measure_execution_time_for_data_item(data_item, sql: str, timeout: Optional[int] = None, repeat: int = 10) -> float:
+def measure_execution_time_for_data_item(
+    data_item,
+    sql: str,
+    timeout: Optional[int] = None,
+    repeat: int = 10,
+    initial_execution_time: Optional[float] = None,
+) -> float:
     """
     Measure SQL execution time based on the data item's database type.
 
@@ -185,7 +213,13 @@ def measure_execution_time_for_data_item(data_item, sql: str, timeout: Optional[
     if db_type is not None and db_type in ("bigquery", "snowflake"):
         return np.inf
 
-    return measure_execution_time(data_item.database_path, sql, resolved_timeout, repeat)
+    return measure_execution_time(
+        data_item.database_path,
+        sql,
+        resolved_timeout,
+        repeat,
+        initial_execution_time=initial_execution_time,
+    )
 
 
 def execute_sql_for_data_item(

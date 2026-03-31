@@ -90,23 +90,24 @@ class SQLSelectionRunner:
             logger.debug(f"Response content: {response}")
             return None
 
-    def _get_top_k_sql_candidates(self, data_item: DataItem) -> List[Tuple[str, str]]:
+    def _get_top_k_sql_candidates(self, data_item: DataItem) -> List[Tuple[str, str, float, float]]:
         valid_sql_candidates = []
+        fallback_sql_candidates = []
         sql_map_to_result_str = {}
         for sql_candidate in data_item.sql_candidates_after_revision:
             execution_result = self._execution_service.execute(data_item, sql_candidate)
-            if execution_result.result_rows is not None and len(execution_result.result_rows) > 0:
-                valid_sql_candidates.append((sql_candidate, self._execution_service.hash_result(data_item, execution_result.result_rows)))
-                sql_map_to_result_str[sql_candidate] = execution_result.result_table_str
-        
-        if len(valid_sql_candidates) == 0:
+            if execution_result.result_rows is None:
+                continue
+            result_hash = self._execution_service.hash_result(data_item, execution_result.result_rows)
+            sql_map_to_result_str[sql_candidate] = execution_result.result_table_str
+            fallback_sql_candidates.append((sql_candidate, result_hash))
+            if len(execution_result.result_rows) > 0:
+                valid_sql_candidates.append((sql_candidate, result_hash))
+
+        if len(valid_sql_candidates) == 0 and len(fallback_sql_candidates) > 0:
             logger.warning("No successful SQL candidates, backing to SQL candidates with not none result_rows")
-            for sql_candidate in data_item.sql_candidates_after_revision:
-                execution_result = self._execution_service.execute(data_item, sql_candidate)
-                if execution_result.result_rows is not None:
-                    valid_sql_candidates.append((sql_candidate, self._execution_service.hash_result(data_item, execution_result.result_rows)))
-                    sql_map_to_result_str[sql_candidate] = execution_result.result_table_str
-                    
+            valid_sql_candidates = fallback_sql_candidates
+
         if len(valid_sql_candidates) == 0:
             return []
         

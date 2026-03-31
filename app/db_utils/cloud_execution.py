@@ -4,6 +4,7 @@ Executes SQL on Snowflake and BigQuery cloud databases.
 """
 
 import json
+import time
 from typing import Optional, Any, Dict
 import pandas as pd
 from app.logger import logger
@@ -51,6 +52,7 @@ def execute_bigquery_sql(
         SQLExecutionResult with query results.
     """
     timeout = _resolve_timeout(timeout)
+    start_time = time.time()
     try:
         from google.cloud import bigquery
     except ImportError:
@@ -58,6 +60,7 @@ def execute_bigquery_sql(
             result_type="execution_error",
             db_path=db_path,
             sql=sql,
+            execution_time=time.time() - start_time,
             error_message="google-cloud-bigquery package is not installed. Run: pip install google-cloud-bigquery"
         )
     
@@ -82,6 +85,7 @@ def execute_bigquery_sql(
                 result_type="empty_result",
                 db_path=db_path,
                 sql=sql,
+                execution_time=time.time() - start_time,
                 result_cols=list(df.columns) if len(df.columns) > 0 else [],
                 result_rows=[],
                 error_message="The SQL query returned an empty result table."
@@ -95,6 +99,7 @@ def execute_bigquery_sql(
             result_type="success",
             db_path=db_path,
             sql=sql,
+            execution_time=time.time() - start_time,
             result_cols=result_cols,
             result_rows=result_rows
         )
@@ -106,6 +111,7 @@ def execute_bigquery_sql(
             result_type="execution_error",
             db_path=db_path,
             sql=sql,
+            execution_time=time.time() - start_time,
             error_message=error_message
         )
 
@@ -129,6 +135,7 @@ def execute_snowflake_sql(
         SQLExecutionResult with query results.
     """
     timeout = _resolve_timeout(timeout)
+    start_time = time.time()
     try:
         import snowflake.connector
     except ImportError:
@@ -136,6 +143,7 @@ def execute_snowflake_sql(
             result_type="execution_error",
             db_path=db_path,
             sql=sql,
+            execution_time=time.time() - start_time,
             error_message="snowflake-connector-python package is not installed. Run: pip install snowflake-connector-python"
         )
     
@@ -149,6 +157,7 @@ def execute_snowflake_sql(
                 result_type="execution_error",
                 db_path=db_path,
                 sql=sql,
+                execution_time=time.time() - start_time,
                 error_message="Snowflake credential path is required"
             )
         
@@ -174,6 +183,7 @@ def execute_snowflake_sql(
                 result_type="empty_result",
                 db_path=db_path,
                 sql=sql,
+                execution_time=time.time() - start_time,
                 result_cols=columns,
                 result_rows=[],
                 error_message="The SQL query returned an empty result table."
@@ -186,6 +196,7 @@ def execute_snowflake_sql(
             result_type="success",
             db_path=db_path,
             sql=sql,
+            execution_time=time.time() - start_time,
             result_cols=columns,
             result_rows=result_rows
         )
@@ -197,6 +208,7 @@ def execute_snowflake_sql(
             result_type="execution_error",
             db_path=db_path,
             sql=sql,
+            execution_time=time.time() - start_time,
             error_message=error_message
         )
     finally:

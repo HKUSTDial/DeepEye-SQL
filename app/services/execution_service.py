@@ -44,12 +44,22 @@ class ExecutionService:
     def measure_time(self, data_item: Any, sql: str, timeout: Optional[int] = None, repeat: int = 10, use_cache: bool = True) -> float:
         resolved_timeout = self._resolve_timeout(timeout)
         cache_key = self._build_time_key(data_item, sql, resolved_timeout, repeat)
+        initial_execution_time = None
         if use_cache:
             with self._lock:
                 if cache_key in self._time_cache:
                     return self._time_cache[cache_key]
+                cached_result = self._result_cache.get(self._build_result_key(data_item, sql, resolved_timeout))
+                if cached_result is not None and cached_result.result_rows is not None:
+                    initial_execution_time = cached_result.execution_time
 
-        execution_time = measure_execution_time_for_data_item(data_item, sql, timeout=resolved_timeout, repeat=repeat)
+        execution_time = measure_execution_time_for_data_item(
+            data_item,
+            sql,
+            timeout=resolved_timeout,
+            repeat=repeat,
+            initial_execution_time=initial_execution_time,
+        )
         if use_cache:
             with self._lock:
                 self._time_cache[cache_key] = execution_time
