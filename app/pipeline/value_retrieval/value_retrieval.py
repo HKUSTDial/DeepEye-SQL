@@ -37,46 +37,58 @@ class ValueRetrievalRunner:
     _db_lock = threading.Lock()
     _artifact_store: ArtifactStore = None
     _extractor_max_retry: int = 3
+    _stage_config = None
+    _dataset_config = None
+    _vector_database_config = None
     
-    def __init__(self):
-        self._llm = LLM(config.value_retrieval_config.llm)
-        self._extractor_max_retry = config.llm_extractor_config.max_retry
+    def __init__(
+        self,
+        stage_config=None,
+        dataset_config=None,
+        vector_database_config=None,
+        extractor_max_retry: int | None = None,
+    ):
+        self._stage_config = stage_config or config.value_retrieval_config
+        self._dataset_config = dataset_config or config.dataset_config
+        self._vector_database_config = vector_database_config or config.vector_database_config
+        self._extractor_max_retry = config.llm_extractor_config.max_retry if extractor_max_retry is None else extractor_max_retry
+        self._llm = LLM(self._stage_config.llm)
         self._artifact_store = ArtifactStore(
-            config.value_retrieval_config.save_path,
+            self._stage_config.save_path,
             "value_retrieval",
             STAGE_ARTIFACT_FIELDS["value_retrieval"],
         )
         self._dataset, checkpoint_source = load_stage_dataset(
             load_dataset_fn=load_dataset,
-            current_save_path=config.value_retrieval_config.save_path,
-            fallback_load_path=config.dataset_config.save_path,
+            current_save_path=self._stage_config.save_path,
+            fallback_load_path=self._dataset_config.save_path,
             artifact_store=self._artifact_store,
             stage_name="value_retrieval",
         )
         logger.info(f"Initialized value retrieval dataset from {checkpoint_source}")
         
         # Initialize the shared embedding function once - ONLY if not Spider2
-        if not config.dataset_config.type.startswith("spider2"):
+        if not self._dataset_config.type.startswith("spider2"):
             self._embedding_function = get_embedding_function(
-                model_name_or_path=config.vector_database_config.embedding_model_name_or_path,
-                api_type=config.vector_database_config.api_type,
-                use_qwen3_embedding=config.vector_database_config.use_qwen3_embedding,
-                local_files_only=config.vector_database_config.local_files_only,
-                normalize_embeddings=config.vector_database_config.normalize_embeddings,
-                base_url=config.vector_database_config.base_url,
-                api_key=config.vector_database_config.api_key,
+                model_name_or_path=self._vector_database_config.embedding_model_name_or_path,
+                api_type=self._vector_database_config.api_type,
+                use_qwen3_embedding=self._vector_database_config.use_qwen3_embedding,
+                local_files_only=self._vector_database_config.local_files_only,
+                normalize_embeddings=self._vector_database_config.normalize_embeddings,
+                base_url=self._vector_database_config.base_url,
+                api_key=self._vector_database_config.api_key,
             )
         else:
             logger.info("Skipping embedding function initialization for Spider2 dataset")
             self._embedding_function = None
         
-        self._thread_pool_executor = ThreadPoolExecutor(max_workers=config.value_retrieval_config.n_parallel)
+        self._thread_pool_executor = ThreadPoolExecutor(max_workers=self._stage_config.n_parallel)
     
     def _get_vector_collection(self, db_id: str) -> Collection:
         """Lazy initialization of vector database collection with thread safety."""
         with self._db_lock:
             if db_id not in self._vector_db_collection_dict:
-                vector_db_path = Path(config.vector_database_config.store_root_path) / db_id
+                vector_db_path = Path(self._vector_database_config.store_root_path) / db_id
                 client = PersistentClient(path=vector_db_path)
                 self._vector_db_client_dict[db_id] = client
                 self._vector_db_collection_dict[db_id] = client.get_collection(
@@ -108,7 +120,7 @@ class ValueRetrievalRunner:
         query_embeddings = embed_keywords(
             keywords,
             self._embedding_function,
-            batch_size=config.vector_database_config.batch_size,
+            batch_size=self._vector_database_config.batch_size,
         )
         
         # 3. Vector Retrieval for each text column (Parallelized within the item)
@@ -127,7 +139,7 @@ class ValueRetrievalRunner:
         
         if column_tasks:
             # Use a local executor to avoid deadlock with the main thread pool
-            with ThreadPoolExecutor(max_workers=min(len(column_tasks), config.value_retrieval_config.n_internal_parallel)) as col_executor:
+            with ThreadPoolExecutor(max_workers=min(len(column_tasks), self._stage_config.n_internal_parallel)) as col_executor:
                 future_to_col = {
                     col_executor.submit(
                         retrieve_values_for_one_column,
@@ -135,8 +147,8 @@ class ValueRetrievalRunner:
                         collection,
                         t_name,
                         c_name,
-                        config.value_retrieval_config.n_results,
-                        config.vector_database_config.lower_meta_data
+                        self._stage_config.n_results,
+                        self._vector_database_config.lower_meta_data
                     ): (t_name, c_name) for t_name, c_name in column_tasks
                 }
                 
@@ -173,7 +185,7 @@ class ValueRetrievalRunner:
                 )
                 original_values = data_item.database_schema["tables"][table_name]["columns"][column_name].get("value_examples") or []
                 new_values = [value["value"] for value in values] + original_values
-                new_values = new_values[:config.value_retrieval_config.n_results]
+                new_values = new_values[:self._stage_config.n_results]
                 database_schema_after_value_retrieval["tables"][table_name]["columns"][column_name]["value_examples"] = new_values
         data_item.database_schema_after_value_retrieval = database_schema_after_value_retrieval
     
@@ -187,7 +199,7 @@ class ValueRetrievalRunner:
     def save_result(self, materialize_snapshot: bool = False):
         self._artifact_store.flush()
         if materialize_snapshot:
-            save_dataset(self._dataset, config.value_retrieval_config.save_path)
+            save_dataset(self._dataset, self._stage_config.save_path)
             self._artifact_store.cleanup()
     
     def _skip_value_retrieval_for_item(self, data_item: DataItem):

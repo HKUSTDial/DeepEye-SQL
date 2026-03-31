@@ -22,28 +22,32 @@ class SQLGenerationRunner:
     _icl_generator: ICLGenerator = None
     _artifact_store: ArtifactStore = None
     _extractor_max_retry: int = 3
+    _stage_config = None
+    _input_save_path: str = ""
     
-    def __init__(self):
-        self._llm = LLM(config.sql_generation_config.llm)
-        self._extractor_max_retry = config.llm_extractor_config.max_retry
+    def __init__(self, stage_config=None, input_save_path: str | None = None, extractor_max_retry: int | None = None):
+        self._stage_config = stage_config or config.sql_generation_config
+        self._input_save_path = input_save_path or config.schema_linking_config.save_path
+        self._extractor_max_retry = config.llm_extractor_config.max_retry if extractor_max_retry is None else extractor_max_retry
+        self._llm = LLM(self._stage_config.llm)
         self._artifact_store = ArtifactStore(
-            config.sql_generation_config.save_path,
+            self._stage_config.save_path,
             "sql_generation",
             STAGE_ARTIFACT_FIELDS["sql_generation"],
         )
         self._dataset, checkpoint_source = load_stage_dataset(
             load_dataset_fn=load_dataset,
-            current_save_path=config.sql_generation_config.save_path,
-            fallback_load_path=config.schema_linking_config.save_path,
+            current_save_path=self._stage_config.save_path,
+            fallback_load_path=self._input_save_path,
             artifact_store=self._artifact_store,
             stage_name="sql_generation",
         )
         logger.info(f"Initialized SQL generation dataset from {checkpoint_source}")
-        self._thread_pool_executor = ThreadPoolExecutor(max_workers=config.sql_generation_config.n_parallel)
+        self._thread_pool_executor = ThreadPoolExecutor(max_workers=self._stage_config.n_parallel)
         self._dc_generator = DCGenerator(extractor_max_retry=self._extractor_max_retry)
         self._skeleton_generator = SkeletonGenerator(extractor_max_retry=self._extractor_max_retry)
         self._icl_generator = ICLGenerator(
-            few_shot_examples_path=config.sql_generation_config.icl_few_shot_examples_path,
+            few_shot_examples_path=self._stage_config.icl_few_shot_examples_path,
             extractor_max_retry=self._extractor_max_retry,
         )
         
@@ -54,11 +58,11 @@ class SQLGenerationRunner:
         total_token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         
         # Parallelize different generation methods within a single data item
-        with ThreadPoolExecutor(max_workers=min(config.sql_generation_config.n_internal_parallel, 3)) as executor:
+        with ThreadPoolExecutor(max_workers=min(self._stage_config.n_internal_parallel, 3)) as executor:
             generation_tasks = {
-                "dc": executor.submit(self._dc_generator.generate, data_item, self._llm, config.sql_generation_config.dc_sampling_budget),
-                "skeleton": executor.submit(self._skeleton_generator.generate, data_item, self._llm, config.sql_generation_config.skeleton_sampling_budget),
-                "icl": executor.submit(self._icl_generator.generate, data_item, self._llm, config.sql_generation_config.icl_sampling_budget)
+                "dc": executor.submit(self._dc_generator.generate, data_item, self._llm, self._stage_config.dc_sampling_budget),
+                "skeleton": executor.submit(self._skeleton_generator.generate, data_item, self._llm, self._stage_config.skeleton_sampling_budget),
+                "icl": executor.submit(self._icl_generator.generate, data_item, self._llm, self._stage_config.icl_sampling_budget)
             }
             
             results = {}
@@ -130,7 +134,7 @@ class SQLGenerationRunner:
     def save_result(self, materialize_snapshot: bool = False):
         self._artifact_store.flush()
         if materialize_snapshot:
-            save_dataset(self._dataset, config.sql_generation_config.save_path)
+            save_dataset(self._dataset, self._stage_config.save_path)
             self._artifact_store.cleanup()
         
     def _clean_up(self):

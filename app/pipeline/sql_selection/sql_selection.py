@@ -23,24 +23,28 @@ class SQLSelectionRunner:
     _artifact_store: ArtifactStore = None
     _execution_service = None
     _extractor_max_retry: int = 3
+    _stage_config = None
+    _input_save_path: str = ""
     
-    def __init__(self):
-        self._llm = LLM(config.sql_selection_config.llm)
-        self._extractor_max_retry = config.llm_extractor_config.max_retry
+    def __init__(self, stage_config=None, input_save_path: str | None = None, extractor_max_retry: int | None = None):
+        self._stage_config = stage_config or config.sql_selection_config
+        self._input_save_path = input_save_path or config.sql_revision_config.save_path
+        self._extractor_max_retry = config.llm_extractor_config.max_retry if extractor_max_retry is None else extractor_max_retry
+        self._llm = LLM(self._stage_config.llm)
         self._artifact_store = ArtifactStore(
-            config.sql_selection_config.save_path,
+            self._stage_config.save_path,
             "sql_selection",
             STAGE_ARTIFACT_FIELDS["sql_selection"],
         )
         self._dataset, checkpoint_source = load_stage_dataset(
             load_dataset_fn=load_dataset,
-            current_save_path=config.sql_selection_config.save_path,
-            fallback_load_path=config.sql_revision_config.save_path,
+            current_save_path=self._stage_config.save_path,
+            fallback_load_path=self._input_save_path,
             artifact_store=self._artifact_store,
             stage_name="sql_selection",
         )
         logger.info(f"Initialized SQL selection dataset from {checkpoint_source}")
-        self._thread_pool_executor = ThreadPoolExecutor(max_workers=config.sql_selection_config.n_parallel)
+        self._thread_pool_executor = ThreadPoolExecutor(max_workers=self._stage_config.n_parallel)
         self._execution_service = get_execution_service()
     
     def _parse_llm_response(self, response: str) -> Optional[List[Dict[str, Any]]]:
@@ -97,7 +101,7 @@ class SQLSelectionRunner:
                 seen_result_set.add(execution_result)
         valid_sql_candidates = deduplicated_valid_sql_candidates
         
-        top_k_sql_candidates = sorted(valid_sql_candidates, key=lambda x: (x[2], -x[3]), reverse=True)[:config.sql_selection_config.filter_top_k_sql]
+        top_k_sql_candidates = sorted(valid_sql_candidates, key=lambda x: (x[2], -x[3]), reverse=True)[:self._stage_config.filter_top_k_sql]
         
         return top_k_sql_candidates
     
@@ -133,7 +137,7 @@ class SQLSelectionRunner:
             rule_parser=self._parse_llm_response,
             fix_end_token=self._llm.llm_config.fix_end_token,
             end_token="</result>",
-            n=config.sql_selection_config.evaluator_sampling_budget
+            n=self._stage_config.evaluator_sampling_budget
         )
         
         return votes, total_token_usage
@@ -208,8 +212,8 @@ class SQLSelectionRunner:
         
         # shortcut case
         # if the consistency score of top-1 SQL is larger than a threshold, directly select it
-        if top_k_sql_candidates[0][2] >= config.sql_selection_config.shortcut_consistency_score_threshold:
-        # if top_k_sql_candidates[0][2] - top_k_sql_candidates[1][2] >= config.sql_selection_config.shortcut_consistency_score_threshold:
+        if top_k_sql_candidates[0][2] >= self._stage_config.shortcut_consistency_score_threshold:
+        # if top_k_sql_candidates[0][2] - top_k_sql_candidates[1][2] >= self._stage_config.shortcut_consistency_score_threshold:
             logger.info(f"Top-1 SQL candidate has a large consistency score: {top_k_sql_candidates[0][2]}, directly select it")
             # logger.info(f"Top-1 SQL candidate has a larger consistency score than top-2 SQL candidate ({top_k_sql_candidates[0][2]} vs. {top_k_sql_candidates[1][2]}), directly select the top-1 SQL")
             data_item.final_selected_sql = top_k_sql_candidates[0][0]
@@ -224,13 +228,13 @@ class SQLSelectionRunner:
             return
         
         # using pair-wise comparison to select the best sql
-        win_matrix = np.zeros((len(top_k_sql_candidates), len(top_k_sql_candidates), config.sql_selection_config.evaluator_sampling_budget))
+        win_matrix = np.zeros((len(top_k_sql_candidates), len(top_k_sql_candidates), self._stage_config.evaluator_sampling_budget))
         sql_to_idx = {sql[0]: idx for idx, sql in enumerate(top_k_sql_candidates)}
         pair_sqls_to_eval = self._get_pair_sqls_to_eval(top_k_sql_candidates)
         
         # Parallelize the pairwise comparisons
         has_failure = False
-        with ThreadPoolExecutor(max_workers=min(len(pair_sqls_to_eval), config.sql_selection_config.n_internal_parallel)) as executor:
+        with ThreadPoolExecutor(max_workers=min(len(pair_sqls_to_eval), self._stage_config.n_internal_parallel)) as executor:
             future_to_pair = {
                 executor.submit(self._compare_sqls, sql_a[0], sql_a[1], sql_b[0], sql_b[1], data_item): (sql_a, sql_b)
                 for sql_a, sql_b in pair_sqls_to_eval
@@ -294,7 +298,7 @@ class SQLSelectionRunner:
     def save_result(self, materialize_snapshot: bool = False):
         self._artifact_store.flush()
         if materialize_snapshot:
-            save_dataset(self._dataset, config.sql_selection_config.save_path)
+            save_dataset(self._dataset, self._stage_config.save_path)
             self._artifact_store.cleanup()
 
     def _clean_up(self):

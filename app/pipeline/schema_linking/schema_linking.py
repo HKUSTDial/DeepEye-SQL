@@ -23,31 +23,43 @@ class SchemaLinkingRunner:
     _value_linker: ValueLinker = None
     _artifact_store: ArtifactStore = None
     _extractor_max_retry: int = 3
+    _stage_config = None
+    _input_save_path: str = ""
+    _few_shot_examples_path: str | None = None
     
-    def __init__(self):
-        self._llm = LLM(config.schema_linking_config.llm)
-        self._extractor_max_retry = config.llm_extractor_config.max_retry
+    def __init__(
+        self,
+        stage_config=None,
+        input_save_path: str | None = None,
+        few_shot_examples_path: str | None = None,
+        extractor_max_retry: int | None = None,
+    ):
+        self._stage_config = stage_config or config.schema_linking_config
+        self._input_save_path = input_save_path or config.value_retrieval_config.save_path
+        self._few_shot_examples_path = few_shot_examples_path or config.sql_generation_config.icl_few_shot_examples_path
+        self._extractor_max_retry = config.llm_extractor_config.max_retry if extractor_max_retry is None else extractor_max_retry
+        self._llm = LLM(self._stage_config.llm)
         self._artifact_store = ArtifactStore(
-            config.schema_linking_config.save_path,
+            self._stage_config.save_path,
             "schema_linking",
             STAGE_ARTIFACT_FIELDS["schema_linking"],
         )
         self._dataset, checkpoint_source = load_stage_dataset(
             load_dataset_fn=load_dataset,
-            current_save_path=config.schema_linking_config.save_path,
-            fallback_load_path=config.value_retrieval_config.save_path,
+            current_save_path=self._stage_config.save_path,
+            fallback_load_path=self._input_save_path,
             artifact_store=self._artifact_store,
             stage_name="schema_linking",
         )
         logger.info(f"Initialized schema linking dataset from {checkpoint_source}")
-        self._thread_pool_executor = ThreadPoolExecutor(max_workers=config.schema_linking_config.n_parallel)
+        self._thread_pool_executor = ThreadPoolExecutor(max_workers=self._stage_config.n_parallel)
         self._direct_linker = DirectLinker(extractor_max_retry=self._extractor_max_retry)
         self._reversed_linker = ReversedLinker(
-            few_shot_examples_path=config.sql_generation_config.icl_few_shot_examples_path,
+            few_shot_examples_path=self._few_shot_examples_path,
             extractor_max_retry=self._extractor_max_retry,
         )
         self._value_linker = ValueLinker(
-            value_distance_threshold=config.schema_linking_config.value_distance_threshold,
+            value_distance_threshold=self._stage_config.value_distance_threshold,
             extractor_max_retry=self._extractor_max_retry,
         )
     
@@ -58,10 +70,10 @@ class SchemaLinkingRunner:
         total_token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         
         # Parallelize different linking methods within a single data item
-        with ThreadPoolExecutor(max_workers=min(config.schema_linking_config.n_internal_parallel, 3)) as executor:
+        with ThreadPoolExecutor(max_workers=min(self._stage_config.n_internal_parallel, 3)) as executor:
             linker_tasks = {
-                "direct": executor.submit(self._direct_linker.link, data_item, self._llm, config.schema_linking_config.direct_linking_sampling_budget),
-                "reversed": executor.submit(self._reversed_linker.link, data_item, self._llm, config.schema_linking_config.reversed_linking_sampling_budget),
+                "direct": executor.submit(self._direct_linker.link, data_item, self._llm, self._stage_config.direct_linking_sampling_budget),
+                "reversed": executor.submit(self._reversed_linker.link, data_item, self._llm, self._stage_config.reversed_linking_sampling_budget),
                 "value": executor.submit(self._value_linker.link, data_item, self._llm)
             }
             
@@ -156,7 +168,7 @@ class SchemaLinkingRunner:
     def save_result(self, materialize_snapshot: bool = False):
         self._artifact_store.flush()
         if materialize_snapshot:
-            save_dataset(self._dataset, config.schema_linking_config.save_path)
+            save_dataset(self._dataset, self._stage_config.save_path)
             self._artifact_store.cleanup()
         
     def _eval_schema_linking_recall(self, data_item: DataItem):

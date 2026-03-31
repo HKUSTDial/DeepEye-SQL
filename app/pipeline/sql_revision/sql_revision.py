@@ -20,24 +20,28 @@ class SQLRevisionRunner:
     _checkers: List[BaseChecker] = None
     _artifact_store: ArtifactStore = None
     _extractor_max_retry: int = 3
+    _stage_config = None
+    _input_save_path: str = ""
     
-    def __init__(self):
-        self._llm = LLM(config.sql_revision_config.llm)
-        self._extractor_max_retry = config.llm_extractor_config.max_retry
+    def __init__(self, stage_config=None, input_save_path: str | None = None, extractor_max_retry: int | None = None):
+        self._stage_config = stage_config or config.sql_revision_config
+        self._input_save_path = input_save_path or config.sql_generation_config.save_path
+        self._extractor_max_retry = config.llm_extractor_config.max_retry if extractor_max_retry is None else extractor_max_retry
+        self._llm = LLM(self._stage_config.llm)
         self._artifact_store = ArtifactStore(
-            config.sql_revision_config.save_path,
+            self._stage_config.save_path,
             "sql_revision",
             STAGE_ARTIFACT_FIELDS["sql_revision"],
         )
         self._dataset, checkpoint_source = load_stage_dataset(
             load_dataset_fn=load_dataset,
-            current_save_path=config.sql_revision_config.save_path,
-            fallback_load_path=config.sql_generation_config.save_path,
+            current_save_path=self._stage_config.save_path,
+            fallback_load_path=self._input_save_path,
             artifact_store=self._artifact_store,
             stage_name="sql_revision",
         )
         logger.info(f"Initialized SQL revision dataset from {checkpoint_source}")
-        self._thread_pool_executor = ThreadPoolExecutor(max_workers=config.sql_revision_config.n_parallel)
+        self._thread_pool_executor = ThreadPoolExecutor(max_workers=self._stage_config.n_parallel)
         extractor_max_retry = self._extractor_max_retry
         
         # Initialize checkers based on config or default list
@@ -52,9 +56,9 @@ class SQLRevisionRunner:
             "ResultChecker": lambda: ResultChecker(extractor_max_retry=extractor_max_retry),
         }
         
-        if config.sql_revision_config.checkers:
+        if self._stage_config.checkers:
             self._checkers = []
-            for checker_name in config.sql_revision_config.checkers:
+            for checker_name in self._stage_config.checkers:
                 if checker_name in checker_map:
                     self._checkers.append(checker_map[checker_name]())
                 else:
@@ -86,7 +90,7 @@ class SQLRevisionRunner:
         current_sql = sql
         for checker in self._checkers:
             current_sql, tokens = checker.check_and_revise(
-                current_sql, data_item, self._llm, config.sql_revision_config.checker_sampling_budget
+                current_sql, data_item, self._llm, self._stage_config.checker_sampling_budget
             )
             total_tokens["prompt_tokens"] += tokens["prompt_tokens"]
             total_tokens["completion_tokens"] += tokens["completion_tokens"]
@@ -125,7 +129,7 @@ class SQLRevisionRunner:
         
         # Parallelize the revision of UNIQUE candidates only
         unique_norms = list(unique_candidates_map.keys())
-        with ThreadPoolExecutor(max_workers=min(len(unique_norms), config.sql_revision_config.n_internal_parallel)) as executor:
+        with ThreadPoolExecutor(max_workers=min(len(unique_norms), self._stage_config.n_internal_parallel)) as executor:
             future_to_norm = {
                 executor.submit(self._revise_one_candidate, unique_candidates_map[norm], data_item): norm 
                 for norm in unique_norms
@@ -199,7 +203,7 @@ class SQLRevisionRunner:
     def save_result(self, materialize_snapshot: bool = False):
         self._artifact_store.flush()
         if materialize_snapshot:
-            save_dataset(self._dataset, config.sql_revision_config.save_path)
+            save_dataset(self._dataset, self._stage_config.save_path)
             self._artifact_store.cleanup()
         
     def _clean_up(self):
