@@ -51,8 +51,6 @@ class ValueRetrievalRunner:
         self._dataset_config = dataset_config
         self._vector_database_config = vector_database_config
         self._extractor_max_retry = extractor_max_retry
-        self._llm = LLM(self._stage_config.llm)
-        configure_schema_service(max_value_example_length=self._dataset_config.max_value_example_length)
         self._vector_db_client_dict = {}
         self._vector_db_collection_dict = {}
         self._db_lock = threading.Lock()
@@ -69,6 +67,8 @@ class ValueRetrievalRunner:
             stage_name="value_retrieval",
         )
         logger.info(f"Initialized value retrieval dataset from {checkpoint_source}")
+        configure_schema_service(max_value_example_length=self._dataset_config.max_value_example_length)
+        self._llm = LLM(self._stage_config.llm)
         
         # Initialize the shared embedding function once - ONLY if not Spider2
         if not self._dataset_config.type.startswith("spider2"):

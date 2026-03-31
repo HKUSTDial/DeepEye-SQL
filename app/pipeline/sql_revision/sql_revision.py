@@ -28,13 +28,6 @@ class SQLRevisionRunner:
         self._dataset_config = dataset_config
         self._input_save_path = input_save_path
         self._extractor_max_retry = extractor_max_retry
-        self._llm = LLM(self._stage_config.llm)
-        configure_schema_service(max_value_example_length=self._dataset_config.max_value_example_length)
-        configure_execution_service(
-            default_timeout=self._dataset_config.sql_execution_timeout,
-            bigquery_credential_path=self._dataset_config.bigquery_credential_path,
-            snowflake_credential_path=self._dataset_config.snowflake_credential_path,
-        )
         self._artifact_store = ArtifactStore(
             self._stage_config.save_path,
             "sql_revision",
@@ -48,6 +41,13 @@ class SQLRevisionRunner:
             stage_name="sql_revision",
         )
         logger.info(f"Initialized SQL revision dataset from {checkpoint_source}")
+        configure_schema_service(max_value_example_length=self._dataset_config.max_value_example_length)
+        configure_execution_service(
+            default_timeout=self._dataset_config.sql_execution_timeout,
+            bigquery_credential_path=self._dataset_config.bigquery_credential_path,
+            snowflake_credential_path=self._dataset_config.snowflake_credential_path,
+        )
+        self._llm = LLM(self._stage_config.llm)
         self._thread_pool_executor = ThreadPoolExecutor(max_workers=self._stage_config.n_parallel)
         extractor_max_retry = self._extractor_max_retry
         

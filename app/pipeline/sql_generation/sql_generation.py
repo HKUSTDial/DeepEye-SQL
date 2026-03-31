@@ -30,8 +30,6 @@ class SQLGenerationRunner:
         self._dataset_config = dataset_config
         self._input_save_path = input_save_path
         self._extractor_max_retry = extractor_max_retry
-        self._llm = LLM(self._stage_config.llm)
-        configure_schema_service(max_value_example_length=self._dataset_config.max_value_example_length)
         self._artifact_store = ArtifactStore(
             self._stage_config.save_path,
             "sql_generation",
@@ -45,6 +43,8 @@ class SQLGenerationRunner:
             stage_name="sql_generation",
         )
         logger.info(f"Initialized SQL generation dataset from {checkpoint_source}")
+        configure_schema_service(max_value_example_length=self._dataset_config.max_value_example_length)
+        self._llm = LLM(self._stage_config.llm)
         self._thread_pool_executor = ThreadPoolExecutor(max_workers=self._stage_config.n_parallel)
         self._dc_generator = DCGenerator(extractor_max_retry=self._extractor_max_retry)
         self._skeleton_generator = SkeletonGenerator(extractor_max_retry=self._extractor_max_retry)

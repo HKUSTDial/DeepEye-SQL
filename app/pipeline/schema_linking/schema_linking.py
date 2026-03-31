@@ -40,8 +40,6 @@ class SchemaLinkingRunner:
         self._input_save_path = input_save_path
         self._few_shot_examples_path = few_shot_examples_path
         self._extractor_max_retry = extractor_max_retry
-        self._llm = LLM(self._stage_config.llm)
-        configure_schema_service(max_value_example_length=self._dataset_config.max_value_example_length)
         self._artifact_store = ArtifactStore(
             self._stage_config.save_path,
             "schema_linking",
@@ -55,6 +53,8 @@ class SchemaLinkingRunner:
             stage_name="schema_linking",
         )
         logger.info(f"Initialized schema linking dataset from {checkpoint_source}")
+        configure_schema_service(max_value_example_length=self._dataset_config.max_value_example_length)
+        self._llm = LLM(self._stage_config.llm)
         self._thread_pool_executor = ThreadPoolExecutor(max_workers=self._stage_config.n_parallel)
         self._direct_linker = DirectLinker(extractor_max_retry=self._extractor_max_retry)
         self._reversed_linker = ReversedLinker(

@@ -141,8 +141,14 @@ def load_stage_dataset(
         dataset = load_dataset_fn(str(current_path))
         checkpoint_source = "snapshot"
     else:
-        logger.info(f"Loading {stage_name} base dataset from {fallback_load_path}")
-        dataset = load_dataset_fn(str(fallback_load_path))
+        fallback_path = Path(fallback_load_path)
+        if not fallback_path.exists():
+            raise FileNotFoundError(
+                f"{stage_name} requires an input snapshot at {fallback_path}. "
+                "Run the previous pipeline stage or preprocess the dataset first."
+            )
+        logger.info(f"Loading {stage_name} base dataset from {fallback_path}")
+        dataset = load_dataset_fn(str(fallback_path))
         checkpoint_source = "base"
 
     if artifact_store.has_checkpoint():
