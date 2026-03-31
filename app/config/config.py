@@ -367,6 +367,24 @@ class Config:
     @property
     def logger_config(self):
         return self._app_config.logger
-    
-# global config instance
-config = Config()
+
+
+_config_instance: Optional[Config] = None
+
+
+def get_config() -> Config:
+    global _config_instance
+    if _config_instance is None:
+        _config_instance = Config()
+    return _config_instance
+
+
+class _ConfigProxy:
+    def __getattr__(self, name: str):
+        return getattr(get_config(), name)
+
+    def __repr__(self) -> str:
+        return "LazyConfigProxy()"
+
+
+config = _ConfigProxy()
