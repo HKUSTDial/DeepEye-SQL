@@ -150,6 +150,7 @@ def _benchmark_selection_scan(db_path: str, iterations: int, filter_top_k_sql: i
         "SELECT payload FROM records WHERE id=42",
         "SELECT id, payload FROM records WHERE group_id = 7 ORDER BY id LIMIT 10",
         "SELECT id, payload FROM records WHERE group_id = 7 ORDER BY id LIMIT 10",
+        "SELECT id, category FROM records WHERE id = 11",
         "SELECT id FROM records WHERE id < 0",
         "SELECT missing_column FROM records",
     ]

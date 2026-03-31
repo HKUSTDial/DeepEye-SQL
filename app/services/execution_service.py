@@ -4,6 +4,11 @@ from typing import Any, Optional
 from app.db_utils.defaults import DEFAULT_SQL_EXECUTION_TIMEOUT
 from app.db_utils import execute_sql_for_data_item, measure_execution_time_for_data_item
 from app.pipeline.utils import get_execution_result_hash
+from ._bounded_cache import BoundedCache
+
+
+DEFAULT_EXECUTION_RESULT_CACHE_SIZE = 4096
+DEFAULT_EXECUTION_TIME_CACHE_SIZE = 4096
 
 
 class ExecutionService:
@@ -13,9 +18,11 @@ class ExecutionService:
         *,
         bigquery_credential_path: Optional[str] = None,
         snowflake_credential_path: Optional[str] = None,
+        result_cache_size: int = DEFAULT_EXECUTION_RESULT_CACHE_SIZE,
+        time_cache_size: int = DEFAULT_EXECUTION_TIME_CACHE_SIZE,
     ):
-        self._result_cache: dict[tuple[Any, ...], Any] = {}
-        self._time_cache: dict[tuple[Any, ...], float] = {}
+        self._result_cache: BoundedCache[tuple[Any, ...], Any] = BoundedCache(result_cache_size)
+        self._time_cache: BoundedCache[tuple[Any, ...], float] = BoundedCache(time_cache_size)
         self._lock = threading.Lock()
         self._default_timeout = default_timeout
         self._bigquery_credential_path = bigquery_credential_path
@@ -26,8 +33,9 @@ class ExecutionService:
         cache_key = self._build_result_key(data_item, sql, resolved_timeout)
         if use_cache:
             with self._lock:
-                if cache_key in self._result_cache:
-                    return self._result_cache[cache_key]
+                cached_result = self._result_cache.get(cache_key)
+                if cached_result is not None:
+                    return cached_result
 
         result = execute_sql_for_data_item(
             data_item,
@@ -38,7 +46,7 @@ class ExecutionService:
         )
         if use_cache:
             with self._lock:
-                self._result_cache[cache_key] = result
+                self._result_cache.set(cache_key, result)
         return result
 
     def measure_time(self, data_item: Any, sql: str, timeout: Optional[int] = None, repeat: int = 10, use_cache: bool = True) -> float:
@@ -47,8 +55,9 @@ class ExecutionService:
         initial_execution_time = None
         if use_cache:
             with self._lock:
-                if cache_key in self._time_cache:
-                    return self._time_cache[cache_key]
+                cached_time = self._time_cache.get(cache_key)
+                if cached_time is not None:
+                    return cached_time
                 cached_result = self._result_cache.get(self._build_result_key(data_item, sql, resolved_timeout))
                 if cached_result is not None and cached_result.result_rows is not None:
                     initial_execution_time = cached_result.execution_time
@@ -62,7 +71,7 @@ class ExecutionService:
         )
         if use_cache:
             with self._lock:
-                self._time_cache[cache_key] = execution_time
+                self._time_cache.set(cache_key, execution_time)
         return execution_time
 
     def hash_result(self, data_item: Any, result_rows: Any) -> Any:
@@ -104,12 +113,16 @@ def configure_execution_service(
     default_timeout: int = DEFAULT_SQL_EXECUTION_TIMEOUT,
     bigquery_credential_path: Optional[str] = None,
     snowflake_credential_path: Optional[str] = None,
+    result_cache_size: int = DEFAULT_EXECUTION_RESULT_CACHE_SIZE,
+    time_cache_size: int = DEFAULT_EXECUTION_TIME_CACHE_SIZE,
 ) -> ExecutionService:
     global _execution_service
     _execution_service = ExecutionService(
         default_timeout=default_timeout,
         bigquery_credential_path=bigquery_credential_path,
         snowflake_credential_path=snowflake_credential_path,
+        result_cache_size=result_cache_size,
+        time_cache_size=time_cache_size,
     )
     return _execution_service
 

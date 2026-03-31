@@ -5,6 +5,7 @@ from typing import Any, Callable, Dict
 from app.db_utils.defaults import DEFAULT_MAX_VALUE_EXAMPLE_LENGTH
 from app.db_utils.schema import get_database_schema_profile, load_database_schema_dict, load_value_examples, load_value_statistics
 from app.logger import logger
+from ._bounded_cache import BoundedCache
 
 
 PROFILE_STRIPPING_LEVELS = [
@@ -14,12 +15,23 @@ PROFILE_STRIPPING_LEVELS = [
     {"include_description": False, "include_value_statistics": False, "include_value_examples": False, "include_nested_columns": False},
 ]
 
+DEFAULT_SQLITE_SCHEMA_CACHE_SIZE = 256
+DEFAULT_SCHEMA_VALUE_EXAMPLES_CACHE_SIZE = 8192
+DEFAULT_SCHEMA_VALUE_STATISTICS_CACHE_SIZE = 8192
+
 
 class SchemaService:
-    def __init__(self, max_value_example_length: int = DEFAULT_MAX_VALUE_EXAMPLE_LENGTH):
-        self._sqlite_schema_cache: dict[str, Dict[str, Any]] = {}
-        self._value_examples_cache: dict[tuple[str, str, str], list[str]] = {}
-        self._value_statistics_cache: dict[tuple[str, str, str], Dict[str, Any]] = {}
+    def __init__(
+        self,
+        max_value_example_length: int = DEFAULT_MAX_VALUE_EXAMPLE_LENGTH,
+        *,
+        sqlite_schema_cache_size: int = DEFAULT_SQLITE_SCHEMA_CACHE_SIZE,
+        value_examples_cache_size: int = DEFAULT_SCHEMA_VALUE_EXAMPLES_CACHE_SIZE,
+        value_statistics_cache_size: int = DEFAULT_SCHEMA_VALUE_STATISTICS_CACHE_SIZE,
+    ):
+        self._sqlite_schema_cache: BoundedCache[str, Dict[str, Any]] = BoundedCache(sqlite_schema_cache_size)
+        self._value_examples_cache: BoundedCache[tuple[str, str, str], list[str]] = BoundedCache(value_examples_cache_size)
+        self._value_statistics_cache: BoundedCache[tuple[str, str, str], Dict[str, Any]] = BoundedCache(value_statistics_cache_size)
         self._schema_locks: dict[str, threading.RLock] = {}
         self._lock = threading.RLock()
         self._max_value_example_length = max_value_example_length
@@ -27,9 +39,11 @@ class SchemaService:
     def load_sqlite_schema(self, db_path: str) -> Dict[str, Any]:
         cache_key = str(Path(db_path).resolve())
         with self._lock:
-            if cache_key not in self._sqlite_schema_cache:
-                self._sqlite_schema_cache[cache_key] = load_database_schema_dict(cache_key)
-            return self._sqlite_schema_cache[cache_key]
+            cached_schema = self._sqlite_schema_cache.get(cache_key)
+            if cached_schema is None:
+                cached_schema = load_database_schema_dict(cache_key)
+                self._sqlite_schema_cache.set(cache_key, cached_schema)
+            return cached_schema
 
     def ensure_schema_features(
         self,
@@ -173,19 +187,23 @@ class SchemaService:
             if column_type == "BLOB":
                 column_schema_dict["value_examples"] = []
             else:
-                if column_cache_key not in self._value_examples_cache:
-                    self._value_examples_cache[column_cache_key] = load_value_examples(
+                cached_examples = self._value_examples_cache.get(column_cache_key)
+                if cached_examples is None:
+                    cached_examples = load_value_examples(
                         db_path,
                         table_name,
                         column_name,
                         max_example_length=self._max_value_example_length,
                     )
-                column_schema_dict["value_examples"] = self._value_examples_cache[column_cache_key]
+                    self._value_examples_cache.set(column_cache_key, cached_examples)
+                column_schema_dict["value_examples"] = cached_examples
 
         if include_value_statistics and column_schema_dict.get("value_statistics") is None:
-            if column_cache_key not in self._value_statistics_cache:
-                self._value_statistics_cache[column_cache_key] = load_value_statistics(db_path, table_name, column_name)
-            column_schema_dict["value_statistics"] = self._value_statistics_cache[column_cache_key]
+            cached_statistics = self._value_statistics_cache.get(column_cache_key)
+            if cached_statistics is None:
+                cached_statistics = load_value_statistics(db_path, table_name, column_name)
+                self._value_statistics_cache.set(column_cache_key, cached_statistics)
+            column_schema_dict["value_statistics"] = cached_statistics
 
     def _get_schema_lock(self, db_path: str) -> threading.RLock:
         cache_key = str(Path(db_path).resolve())
@@ -198,9 +216,20 @@ class SchemaService:
 _schema_service: SchemaService | None = None
 
 
-def configure_schema_service(max_value_example_length: int = DEFAULT_MAX_VALUE_EXAMPLE_LENGTH) -> SchemaService:
+def configure_schema_service(
+    max_value_example_length: int = DEFAULT_MAX_VALUE_EXAMPLE_LENGTH,
+    *,
+    sqlite_schema_cache_size: int = DEFAULT_SQLITE_SCHEMA_CACHE_SIZE,
+    value_examples_cache_size: int = DEFAULT_SCHEMA_VALUE_EXAMPLES_CACHE_SIZE,
+    value_statistics_cache_size: int = DEFAULT_SCHEMA_VALUE_STATISTICS_CACHE_SIZE,
+) -> SchemaService:
     global _schema_service
-    _schema_service = SchemaService(max_value_example_length=max_value_example_length)
+    _schema_service = SchemaService(
+        max_value_example_length=max_value_example_length,
+        sqlite_schema_cache_size=sqlite_schema_cache_size,
+        value_examples_cache_size=value_examples_cache_size,
+        value_statistics_cache_size=value_statistics_cache_size,
+    )
     return _schema_service
 
 

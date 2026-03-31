@@ -25,6 +25,7 @@ class SQLSelectionRunner:
     _stage_config = None
     _input_save_path: str = ""
     _dataset_config = None
+    _timing_refine_repeat: int = 2
     
     def __init__(self, stage_config, dataset_config, input_save_path: str, extractor_max_retry: int):
         self._stage_config = stage_config
@@ -93,13 +94,13 @@ class SQLSelectionRunner:
     def _get_top_k_sql_candidates(self, data_item: DataItem) -> List[Tuple[str, str, float, float]]:
         valid_sql_candidates = []
         fallback_sql_candidates = []
-        sql_map_to_result_str = {}
+        sql_map_to_execution_result = {}
         for sql_candidate in data_item.sql_candidates_after_revision:
             execution_result = self._execution_service.execute(data_item, sql_candidate)
             if execution_result.result_rows is None:
                 continue
             result_hash = self._execution_service.hash_result(data_item, execution_result.result_rows)
-            sql_map_to_result_str[sql_candidate] = execution_result.result_table_str
+            sql_map_to_execution_result[sql_candidate] = execution_result
             fallback_sql_candidates.append((sql_candidate, result_hash))
             if len(execution_result.result_rows) > 0:
                 valid_sql_candidates.append((sql_candidate, result_hash))
@@ -115,16 +116,74 @@ class SQLSelectionRunner:
         
         deduplicated_valid_sql_candidates = []
         seen_result_set = set()
-        for sql_candidate, execution_result in valid_sql_candidates:
-            if execution_result not in seen_result_set:
-                execution_time = self._execution_service.measure_time(data_item, sql_candidate)
-                deduplicated_valid_sql_candidates.append((sql_candidate, sql_map_to_result_str[sql_candidate], counter[execution_result] / len(valid_sql_candidates), execution_time))
-                seen_result_set.add(execution_result)
-        valid_sql_candidates = deduplicated_valid_sql_candidates
-        
-        top_k_sql_candidates = sorted(valid_sql_candidates, key=lambda x: (x[2], -x[3]), reverse=True)[:self._stage_config.filter_top_k_sql]
-        
-        return top_k_sql_candidates
+        for sql_candidate, result_hash in valid_sql_candidates:
+            if result_hash not in seen_result_set:
+                execution_result = sql_map_to_execution_result[sql_candidate]
+                execution_time = execution_result.execution_time if execution_result.execution_time is not None else np.inf
+                deduplicated_valid_sql_candidates.append(
+                    (sql_candidate, result_hash, counter[result_hash] / len(valid_sql_candidates), execution_time)
+                )
+                seen_result_set.add(result_hash)
+
+        top_k_sql_candidates = sorted(
+            deduplicated_valid_sql_candidates,
+            key=self._get_sql_candidate_sort_key,
+            reverse=True,
+        )[:self._stage_config.filter_top_k_sql]
+        top_k_sql_candidates = self._refine_relevant_tied_candidate_timings(
+            data_item,
+            deduplicated_valid_sql_candidates,
+            top_k_sql_candidates,
+        )
+
+        return [
+            (
+                sql_candidate,
+                sql_map_to_execution_result[sql_candidate].result_table_str,
+                consistency_score,
+                execution_time,
+            )
+            for sql_candidate, _, consistency_score, execution_time in top_k_sql_candidates
+        ]
+
+    @staticmethod
+    def _get_sql_candidate_sort_key(sql_candidate: Tuple[str, Any, float, float]) -> Tuple[float, float]:
+        return (sql_candidate[2], -sql_candidate[3])
+
+    def _refine_relevant_tied_candidate_timings(
+        self,
+        data_item: DataItem,
+        all_sql_candidates: List[Tuple[str, Any, float, float]],
+        provisional_top_k_sql_candidates: List[Tuple[str, Any, float, float]],
+    ) -> List[Tuple[str, Any, float, float]]:
+        if len(provisional_top_k_sql_candidates) <= 1:
+            return provisional_top_k_sql_candidates
+
+        relevant_consistency_scores = {sql_candidate[2] for sql_candidate in provisional_top_k_sql_candidates}
+        consistency_score_counts = Counter(sql_candidate[2] for sql_candidate in all_sql_candidates)
+
+        refined_sql_candidates = []
+        did_refine = False
+        for sql_candidate, result_hash, consistency_score, execution_time in all_sql_candidates:
+            if consistency_score in relevant_consistency_scores and consistency_score_counts[consistency_score] > 1:
+                execution_time = self._execution_service.measure_time(
+                    data_item,
+                    sql_candidate,
+                    repeat=self._timing_refine_repeat,
+                )
+                did_refine = True
+            refined_sql_candidates.append(
+                (sql_candidate, result_hash, consistency_score, execution_time)
+            )
+
+        if not did_refine:
+            return provisional_top_k_sql_candidates
+
+        return sorted(
+            refined_sql_candidates,
+            key=self._get_sql_candidate_sort_key,
+            reverse=True,
+        )[:self._stage_config.filter_top_k_sql]
     
     def _get_pair_sqls_to_eval(self, top_k_sql_candidates: List[Tuple[str, str, float, float]]) -> List[Tuple[Tuple[str, str, float, float], Tuple[str, str, float, float]]]:
         """
@@ -139,17 +198,31 @@ class SQLSelectionRunner:
                     )
         return pair_sqls_to_eval
     
-    def _compare_sqls(self, sql_a: str, execution_result_table_str_a: str, sql_b: str, execution_result_table_str_b: str, data_item: DataItem) -> Tuple[List[str], Dict[str, int]]:
+    def _compare_sqls(
+        self,
+        sql_a: str,
+        execution_result_table_str_a: str,
+        sql_b: str,
+        execution_result_table_str_b: str,
+        *,
+        question: str,
+        evidence: str,
+        db_type: str | None,
+        database_schema_profile: str,
+    ) -> Tuple[List[str], Dict[str, int]]:
         """
         Compare the two sqls.
         """
-        database_schema_profile = get_schema_service().build_schema_profile(
-            data_item.database_schema_after_schema_linking,
-            include_value_statistics=True,
-            include_value_examples=True,
+        prompt = PromptFactory.format_br_pair_selection_prompt(
+            database_schema_profile,
+            question,
+            evidence,
+            sql_a,
+            execution_result_table_str_a,
+            sql_b,
+            execution_result_table_str_b,
+            db_type=db_type,
         )
-        db_type = getattr(data_item, "db_type", None)
-        prompt = PromptFactory.format_br_pair_selection_prompt(database_schema_profile, data_item.question, data_item.evidence, sql_a, execution_result_table_str_a, sql_b, execution_result_table_str_b, db_type=db_type)
         
         extractor = LLMExtractor(max_retry=self._extractor_max_retry)
         votes, total_token_usage = extractor.extract_with_retry(
@@ -249,6 +322,12 @@ class SQLSelectionRunner:
             return
         
         # using pair-wise comparison to select the best sql
+        database_schema_profile = get_schema_service().build_schema_profile(
+            data_item.database_schema_after_schema_linking,
+            include_value_statistics=True,
+            include_value_examples=True,
+        )
+        db_type = getattr(data_item, "db_type", None)
         win_matrix = np.zeros((len(top_k_sql_candidates), len(top_k_sql_candidates), self._stage_config.evaluator_sampling_budget))
         sql_to_idx = {sql[0]: idx for idx, sql in enumerate(top_k_sql_candidates)}
         pair_sqls_to_eval = self._get_pair_sqls_to_eval(top_k_sql_candidates)
@@ -257,7 +336,17 @@ class SQLSelectionRunner:
         has_failure = False
         with ThreadPoolExecutor(max_workers=min(len(pair_sqls_to_eval), self._stage_config.n_internal_parallel)) as executor:
             future_to_pair = {
-                executor.submit(self._compare_sqls, sql_a[0], sql_a[1], sql_b[0], sql_b[1], data_item): (sql_a, sql_b)
+                executor.submit(
+                    self._compare_sqls,
+                    sql_a[0],
+                    sql_a[1],
+                    sql_b[0],
+                    sql_b[1],
+                    question=data_item.question,
+                    evidence=data_item.evidence,
+                    db_type=db_type,
+                    database_schema_profile=database_schema_profile,
+                ): (sql_a, sql_b)
                 for sql_a, sql_b in pair_sqls_to_eval
             }
             
