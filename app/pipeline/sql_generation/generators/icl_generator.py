@@ -1,13 +1,10 @@
-from app.config import config
 from .base import BaseSQLGenerator
 from app.dataset import DataItem
 from app.llm import LLM
 from app.logger import logger
 from app.prompt import PromptFactory
-from app.llm_extractor import LLMExtractor
-from app.db_utils import get_database_schema_profile
-from typing import Dict, List, Any, Optional, Tuple
-import re
+from typing import Dict, List, Optional, Tuple
+from pathlib import Path
 import json
 
 
@@ -15,12 +12,10 @@ class ICLGenerator(BaseSQLGenerator):
     
     _few_shot_examples: Dict[str, List[Dict[str, str]]] = None
     
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, few_shot_examples_path: Optional[str] = None, extractor_max_retry: Optional[int] = None) -> None:
+        super().__init__(extractor_max_retry=extractor_max_retry)
         self._few_shot_examples = {}
-        few_shot_examples_path = config.sql_generation_config.icl_few_shot_examples_path
         if few_shot_examples_path:
-            from pathlib import Path
             if Path(few_shot_examples_path).exists():
                 try:
                     with open(few_shot_examples_path, "r") as f:
@@ -69,15 +64,14 @@ class ICLGenerator(BaseSQLGenerator):
             logger.error(f"CRITICAL: Even minimal ICL prompt for item {data_item.question_id} exceeds token limit. Returning empty result.")
             return [], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
             
-        extractor = LLMExtractor()
+        extractor = self._get_extractor()
         all_sql_candidates, total_token_usage = extractor.extract_with_retry(
             llm=llm,
             messages=[{"role": "user", "content": final_prompt}],
             rule_parser=self._parse_llm_response,
-            fix_end_token=config.sql_generation_config.llm.fix_end_token,
+            fix_end_token=llm.llm_config.fix_end_token,
             end_token="</result>",
             n=sampling_budget
         )
         
         return all_sql_candidates, total_token_usage
-    

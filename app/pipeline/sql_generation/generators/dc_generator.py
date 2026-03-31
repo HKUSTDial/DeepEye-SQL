@@ -3,11 +3,7 @@ from app.dataset import DataItem
 from app.llm import LLM
 from app.logger import logger
 from app.prompt import PromptFactory
-from app.llm_extractor import LLMExtractor
-from app.db_utils import get_database_schema_profile
-from app.config import config
-from typing import Dict, List, Any, Optional, Tuple
-import re
+from typing import Dict, List, Tuple
 
 
 class DCGenerator(BaseSQLGenerator):
@@ -33,12 +29,12 @@ class DCGenerator(BaseSQLGenerator):
             logger.error(f"CRITICAL: Even minimal DC prompt for item {data_item.question_id} exceeds token limit. Returning empty result.")
             return [], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
             
-        extractor = LLMExtractor()
+        extractor = self._get_extractor()
         all_sql_candidates, total_token_usage = extractor.extract_with_retry(
             llm=llm,
             messages=[{"role": "user", "content": final_prompt}],
             rule_parser=self._parse_llm_response,
-            fix_end_token=config.sql_generation_config.llm.fix_end_token,
+            fix_end_token=llm.llm_config.fix_end_token,
             end_token="</result>",
             n=sampling_budget
         )

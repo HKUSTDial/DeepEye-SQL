@@ -1,11 +1,9 @@
 from .base import BaseSchemaLinker
 from ..utils import merge_schema_linking_results
-from app.config import config
 from app.dataset import DataItem
 from app.llm import LLM
 from app.logger import logger
 from app.prompt import PromptFactory
-from app.llm_extractor import LLMExtractor
 from app.db_utils import map_lower_table_name_to_original_table_name, map_lower_column_name_to_original_column_name
 from app.services import get_schema_service
 from typing import Dict, List, Optional, Any
@@ -41,13 +39,13 @@ class DirectLinker(BaseSchemaLinker):
             logger.error(f"CRITICAL: Even minimal prompt for item {data_item.question_id} exceeds token limit. Returning empty result.")
             return {}, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
-        extractor = LLMExtractor()
+        extractor = self._get_extractor()
         all_selections, total_token_usage = extractor.extract_with_retry(
             llm=llm,
             messages=[{"role": "user", "content": final_prompt}],
             rule_parser=self._parse_llm_response,
             parser_kwargs={"database_schema": data_item.database_schema_after_value_retrieval},
-            fix_end_token=config.schema_linking_config.llm.fix_end_token,
+            fix_end_token=llm.llm_config.fix_end_token,
             end_token="</result>",
             n=sampling_budget
         )

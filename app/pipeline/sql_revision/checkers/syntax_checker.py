@@ -3,8 +3,6 @@ from app.dataset import DataItem
 from app.llm import LLM
 from app.logger import logger
 from app.prompt import PromptFactory
-from app.llm_extractor import LLMExtractor
-from app.config import config
 from typing import Dict, List, Tuple
 from collections import Counter
 from app.services import get_execution_service
@@ -37,12 +35,12 @@ class SyntaxChecker(BaseChecker):
                 logger.error(f"CRITICAL: Even minimal SyntaxChecker prompt for item {data_item.question_id} exceeds token limit. Returning original SQL.")
                 return sql, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
             
-            extractor = LLMExtractor()
+            extractor = self._get_extractor()
             all_sql_candidates, total_token_usage = extractor.extract_with_retry(
                 llm=llm,
                 messages=[{"role": "user", "content": final_prompt}],
                 rule_parser=self._parse_llm_response,
-                fix_end_token=config.sql_revision_config.llm.fix_end_token,
+                fix_end_token=llm.llm_config.fix_end_token,
                 end_token="</result>",
                 n=sampling_budget
             )

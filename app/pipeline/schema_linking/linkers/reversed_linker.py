@@ -4,8 +4,6 @@ from app.dataset import DataItem
 from app.llm import LLM
 from app.logger import logger
 from app.prompt import PromptFactory
-from app.config import config
-from app.llm_extractor import LLMExtractor
 from app.db_utils import map_lower_table_name_to_original_table_name, map_lower_column_name_to_original_column_name
 from app.services import get_schema_service
 from typing import Dict, List, Optional, Any
@@ -19,9 +17,8 @@ class ReversedLinker(BaseSchemaLinker):
     _few_shot_examples: Dict[str, List[Dict[str, str]]] = None
     _few_shot_available: bool = False
     
-    def __init__(self) -> None:
-        super().__init__()
-        few_shot_examples_path = config.sql_generation_config.icl_few_shot_examples_path
+    def __init__(self, few_shot_examples_path: Optional[str] = None, extractor_max_retry: Optional[int] = None) -> None:
+        super().__init__(extractor_max_retry=extractor_max_retry)
         if few_shot_examples_path and Path(few_shot_examples_path).exists():
             try:
                 with open(few_shot_examples_path, "r") as f:
@@ -115,13 +112,13 @@ class ReversedLinker(BaseSchemaLinker):
             logger.warning(f"Failed to parse SQL from LLM response (no result tag or empty content)")
             return None
         
-        extractor = LLMExtractor()
+        extractor = self._get_extractor()
         all_selections, total_token_usage = extractor.extract_with_retry(
             llm=llm,
             messages=[{"role": "user", "content": final_prompt}],
             rule_parser=parse_and_extract,
             parser_kwargs={"database_schema": data_item.database_schema_after_value_retrieval},
-            fix_end_token=config.schema_linking_config.llm.fix_end_token,
+            fix_end_token=llm.llm_config.fix_end_token,
             end_token="</result>",
             n=sampling_budget
         )
@@ -168,13 +165,13 @@ class ReversedLinker(BaseSchemaLinker):
             logger.warning(f"Failed to parse SQL from LLM response (no result tag or empty content)")
             return None
         
-        extractor = LLMExtractor()
+        extractor = self._get_extractor()
         all_selections, total_token_usage = extractor.extract_with_retry(
             llm=llm,
             messages=[{"role": "user", "content": final_prompt}],
             rule_parser=parse_and_extract,
             parser_kwargs={"database_schema": data_item.database_schema_after_value_retrieval},
-            fix_end_token=config.schema_linking_config.llm.fix_end_token,
+            fix_end_token=llm.llm_config.fix_end_token,
             end_token="</result>",
             n=sampling_budget
         )

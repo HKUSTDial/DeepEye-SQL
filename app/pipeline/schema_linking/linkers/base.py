@@ -1,15 +1,24 @@
 from app.dataset import DataItem
 from app.llm import LLM
+from app.llm_extractor import LLMExtractor
 from app.logger import logger
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from abc import ABC, abstractmethod
 from app.db_utils import get_identical_schema_table_groups
 
 class BaseSchemaLinker(ABC):
 
+    def __init__(self, extractor_max_retry: Optional[int] = None):
+        self._extractor_max_retry = extractor_max_retry
+
     @abstractmethod
     def link(self, data_item: DataItem, llm: LLM, sampling_budget: int = 1) -> tuple[Dict[str, List[str]], Dict[str, int]]:
         pass
+
+    def _get_extractor(self) -> LLMExtractor:
+        if self._extractor_max_retry is None:
+            return LLMExtractor()
+        return LLMExtractor(max_retry=self._extractor_max_retry)
 
     def _expand_identical_schema_tables(self, result: Dict[str, List[str]], database_schema: Dict[str, Any]) -> Dict[str, List[str]]:
         """

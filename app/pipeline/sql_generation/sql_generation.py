@@ -7,7 +7,6 @@ from app.pipeline.validation import validate_pipeline_step
 import time
 from app.logger import logger
 from tqdm import tqdm
-from pathlib import Path
 import traceback
 from app.services import ArtifactStore, STAGE_ARTIFACT_FIELDS, load_stage_dataset
 
@@ -22,9 +21,11 @@ class SQLGenerationRunner:
     _skeleton_generator: SkeletonGenerator = None
     _icl_generator: ICLGenerator = None
     _artifact_store: ArtifactStore = None
+    _extractor_max_retry: int = 3
     
     def __init__(self):
         self._llm = LLM(config.sql_generation_config.llm)
+        self._extractor_max_retry = config.llm_extractor_config.max_retry
         self._artifact_store = ArtifactStore(
             config.sql_generation_config.save_path,
             "sql_generation",
@@ -39,9 +40,12 @@ class SQLGenerationRunner:
         )
         logger.info(f"Initialized SQL generation dataset from {checkpoint_source}")
         self._thread_pool_executor = ThreadPoolExecutor(max_workers=config.sql_generation_config.n_parallel)
-        self._dc_generator = DCGenerator()
-        self._skeleton_generator = SkeletonGenerator()
-        self._icl_generator = ICLGenerator()
+        self._dc_generator = DCGenerator(extractor_max_retry=self._extractor_max_retry)
+        self._skeleton_generator = SkeletonGenerator(extractor_max_retry=self._extractor_max_retry)
+        self._icl_generator = ICLGenerator(
+            few_shot_examples_path=config.sql_generation_config.icl_few_shot_examples_path,
+            extractor_max_retry=self._extractor_max_retry,
+        )
         
     def _generate_sql(self, data_item: DataItem) -> None:
         start_time = time.time()

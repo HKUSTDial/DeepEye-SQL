@@ -1,4 +1,3 @@
-from tenacity import retry
 from app.dataset import BaseDataset, load_dataset, save_dataset, DataItem
 from app.llm import LLM
 from app.logger import logger
@@ -10,11 +9,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from app.config import config
 import numpy as np
 import re
-import json
 from collections import Counter
 from tqdm import tqdm
 import time
-from pathlib import Path
 from app.services import ArtifactStore, STAGE_ARTIFACT_FIELDS, get_execution_service, get_schema_service, load_stage_dataset, reset_execution_service
 
 
@@ -25,9 +22,11 @@ class SQLSelectionRunner:
     _thread_pool_executor: ThreadPoolExecutor = None
     _artifact_store: ArtifactStore = None
     _execution_service = None
+    _extractor_max_retry: int = 3
     
     def __init__(self):
         self._llm = LLM(config.sql_selection_config.llm)
+        self._extractor_max_retry = config.llm_extractor_config.max_retry
         self._artifact_store = ArtifactStore(
             config.sql_selection_config.save_path,
             "sql_selection",
@@ -127,12 +126,12 @@ class SQLSelectionRunner:
         db_type = getattr(data_item, "db_type", None)
         prompt = PromptFactory.format_br_pair_selection_prompt(database_schema_profile, data_item.question, data_item.evidence, sql_a, execution_result_table_str_a, sql_b, execution_result_table_str_b, db_type=db_type)
         
-        extractor = LLMExtractor()
+        extractor = LLMExtractor(max_retry=self._extractor_max_retry)
         votes, total_token_usage = extractor.extract_with_retry(
             llm=self._llm,
             messages=[{"role": "user", "content": prompt}],
             rule_parser=self._parse_llm_response,
-            fix_end_token=config.sql_selection_config.llm.fix_end_token,
+            fix_end_token=self._llm.llm_config.fix_end_token,
             end_token="</result>",
             n=config.sql_selection_config.evaluator_sampling_budget
         )

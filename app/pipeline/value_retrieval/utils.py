@@ -1,15 +1,11 @@
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from app.llm import LLM
 from chromadb.types import Collection
-from typing import Dict, Any
 from app.prompt import PromptFactory
 from app.llm_extractor import LLMExtractor
 import re
 import json
 from app.logger import logger
-from app.config import config
-import time
-import threading
 from tenacity import(
     retry,
     retry_if_exception_type,
@@ -17,8 +13,6 @@ from tenacity import(
     wait_random_exponential
 )
 from openai import RateLimitError, APITimeoutError
-from tqdm import tqdm
-
 
 def _parse_keywords_response(response: str) -> Optional[List[str]]:
     """Parse keywords from LLM response."""
@@ -33,15 +27,21 @@ def _parse_keywords_response(response: str) -> Optional[List[str]]:
         return None
 
 
-def extract_keywords(question: str, evidence: str, llm: LLM, max_retry: int = 10) -> tuple[List[str], Dict[str, int]]:
+def extract_keywords(
+    question: str,
+    evidence: str,
+    llm: LLM,
+    fix_end_token: bool = False,
+    extractor_max_retry: Optional[int] = None,
+) -> tuple[List[str], Dict[str, int]]:
     prompt = PromptFactory.format_keywords_extraction_prompt(question, evidence)
     
-    extractor = LLMExtractor()
+    extractor = LLMExtractor() if extractor_max_retry is None else LLMExtractor(max_retry=extractor_max_retry)
     results, total_token_usage = extractor.extract_with_retry(
         llm=llm,
         messages=[{"role": "user", "content": prompt}],
         rule_parser=_parse_keywords_response,
-        fix_end_token=config.value_retrieval_config.llm.fix_end_token,
+        fix_end_token=fix_end_token,
         end_token="</result>",
         n=1
     )
@@ -68,14 +68,13 @@ def extract_keywords(question: str, evidence: str, llm: LLM, max_retry: int = 10
     stop=stop_after_attempt(10),
     retry=retry_if_exception_type((RateLimitError, APITimeoutError))
 )
-def embed_keywords(keywords: List[str], embedding_function: Any) -> List[List[float]]:
+def embed_keywords(keywords: List[str], embedding_function: Any, batch_size: int) -> List[List[float]]:
     """
     Independently embed keywords with batching and retry logic.
     """
     if not keywords:
         return []
-    
-    batch_size = config.vector_database_config.batch_size
+
     all_embeddings = []
     
     # Manual batching to respect API limits (e.g., max 10 per request)

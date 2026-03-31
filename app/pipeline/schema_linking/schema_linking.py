@@ -1,5 +1,5 @@
 from app.dataset import BaseDataset, load_dataset, save_dataset, DataItem
-from app.config import config, LLMConfig
+from app.config import config
 from app.llm import LLM
 from app.db_utils import filter_used_database_schema
 from .linkers import DirectLinker, ReversedLinker, ValueLinker
@@ -8,7 +8,6 @@ from app.pipeline.validation import validate_pipeline_step
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 from app.logger import logger
-from pathlib import Path
 import time
 import traceback
 from app.services import ArtifactStore, STAGE_ARTIFACT_FIELDS, load_stage_dataset
@@ -23,9 +22,11 @@ class SchemaLinkingRunner:
     _reversed_linker: ReversedLinker = None
     _value_linker: ValueLinker = None
     _artifact_store: ArtifactStore = None
+    _extractor_max_retry: int = 3
     
     def __init__(self):
         self._llm = LLM(config.schema_linking_config.llm)
+        self._extractor_max_retry = config.llm_extractor_config.max_retry
         self._artifact_store = ArtifactStore(
             config.schema_linking_config.save_path,
             "schema_linking",
@@ -40,9 +41,15 @@ class SchemaLinkingRunner:
         )
         logger.info(f"Initialized schema linking dataset from {checkpoint_source}")
         self._thread_pool_executor = ThreadPoolExecutor(max_workers=config.schema_linking_config.n_parallel)
-        self._direct_linker = DirectLinker()
-        self._reversed_linker = ReversedLinker()
-        self._value_linker = ValueLinker()
+        self._direct_linker = DirectLinker(extractor_max_retry=self._extractor_max_retry)
+        self._reversed_linker = ReversedLinker(
+            few_shot_examples_path=config.sql_generation_config.icl_few_shot_examples_path,
+            extractor_max_retry=self._extractor_max_retry,
+        )
+        self._value_linker = ValueLinker(
+            value_distance_threshold=config.schema_linking_config.value_distance_threshold,
+            extractor_max_retry=self._extractor_max_retry,
+        )
     
     def _link_tables_and_columns(self, data_item: DataItem) -> None:
         start_time = time.time()

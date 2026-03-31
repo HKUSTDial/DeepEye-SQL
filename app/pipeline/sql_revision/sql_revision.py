@@ -8,7 +8,6 @@ import time
 from app.logger import logger
 from tqdm import tqdm
 from typing import List, Dict
-from pathlib import Path
 import traceback
 from app.services import ArtifactStore, STAGE_ARTIFACT_FIELDS, load_stage_dataset, reset_execution_service
 
@@ -20,9 +19,11 @@ class SQLRevisionRunner:
     
     _checkers: List[BaseChecker] = None
     _artifact_store: ArtifactStore = None
+    _extractor_max_retry: int = 3
     
     def __init__(self):
         self._llm = LLM(config.sql_revision_config.llm)
+        self._extractor_max_retry = config.llm_extractor_config.max_retry
         self._artifact_store = ArtifactStore(
             config.sql_revision_config.save_path,
             "sql_revision",
@@ -37,17 +38,18 @@ class SQLRevisionRunner:
         )
         logger.info(f"Initialized SQL revision dataset from {checkpoint_source}")
         self._thread_pool_executor = ThreadPoolExecutor(max_workers=config.sql_revision_config.n_parallel)
+        extractor_max_retry = self._extractor_max_retry
         
         # Initialize checkers based on config or default list
         checker_map = {
-            "SyntaxChecker": SyntaxChecker,
-            "JoinChecker": JoinChecker,
-            "OrderByLimitChecker": OrderByLimitChecker,
-            "TimeChecker": TimeChecker,
-            "SelectChecker": SelectChecker,
-            "MaxMinChecker": MaxMinChecker,
-            "OrderByNullChecker": OrderByNullChecker,
-            "ResultChecker": ResultChecker,
+            "SyntaxChecker": lambda: SyntaxChecker(extractor_max_retry=extractor_max_retry),
+            "JoinChecker": lambda: JoinChecker(extractor_max_retry=extractor_max_retry),
+            "OrderByLimitChecker": lambda: OrderByLimitChecker(extractor_max_retry=extractor_max_retry),
+            "TimeChecker": lambda: TimeChecker(extractor_max_retry=extractor_max_retry),
+            "SelectChecker": lambda: SelectChecker(extractor_max_retry=extractor_max_retry),
+            "MaxMinChecker": lambda: MaxMinChecker(extractor_max_retry=extractor_max_retry),
+            "OrderByNullChecker": lambda: OrderByNullChecker(extractor_max_retry=extractor_max_retry),
+            "ResultChecker": lambda: ResultChecker(extractor_max_retry=extractor_max_retry),
         }
         
         if config.sql_revision_config.checkers:
@@ -60,14 +62,14 @@ class SQLRevisionRunner:
         else:
             # Default checkers if none specified in config
             self._checkers: List[BaseChecker] = [
-                SyntaxChecker(),
-                JoinChecker(),
-                OrderByLimitChecker(),
-                TimeChecker(),
-                SelectChecker(),
-                MaxMinChecker(),
-                OrderByNullChecker(),
-                ResultChecker(),
+                SyntaxChecker(extractor_max_retry=extractor_max_retry),
+                JoinChecker(extractor_max_retry=extractor_max_retry),
+                OrderByLimitChecker(extractor_max_retry=extractor_max_retry),
+                TimeChecker(extractor_max_retry=extractor_max_retry),
+                SelectChecker(extractor_max_retry=extractor_max_retry),
+                MaxMinChecker(extractor_max_retry=extractor_max_retry),
+                OrderByNullChecker(extractor_max_retry=extractor_max_retry),
+                ResultChecker(extractor_max_retry=extractor_max_retry),
             ]
         
         logger.info(f"Using checkers: {[checker.__class__.__name__ for checker in self._checkers]}")

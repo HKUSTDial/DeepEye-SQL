@@ -1,15 +1,16 @@
 from .base import BaseSchemaLinker
 from app.dataset import DataItem
 from app.llm import LLM
-from app.config import config
 from app.db_utils import map_lower_table_name_to_original_table_name, map_lower_column_name_to_original_column_name
 from typing import Dict, List
 from collections import defaultdict
 
 
 class ValueLinker(BaseSchemaLinker):
-    
-    _value_distance_threshold: float = config.schema_linking_config.value_distance_threshold
+
+    def __init__(self, value_distance_threshold: float = 0.05, extractor_max_retry: int | None = None):
+        super().__init__(extractor_max_retry=extractor_max_retry)
+        self._value_distance_threshold = value_distance_threshold
     
     def link(self, data_item: DataItem, llm: LLM, sampling_budget: int = 1) -> tuple[Dict[str, List[str]], Dict[str, int]]:
         linked_tables_and_columns = defaultdict(list)

@@ -3,7 +3,7 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from .utils import extract_keywords, retrieve_values_for_one_column, embed_keywords
 from app.dataset import BaseDataset, load_dataset, save_dataset, DataItem
-from app.config import config, ValueRetrievalConfig, LLMConfig
+from app.config import config
 from app.llm import LLM
 from app.vector_db import get_embedding_function, get_collection_name
 from app.db_utils import map_lower_table_name_to_original_table_name, map_lower_column_name_to_original_column_name
@@ -36,9 +36,11 @@ class ValueRetrievalRunner:
     _thread_pool_executor: ThreadPoolExecutor = None
     _db_lock = threading.Lock()
     _artifact_store: ArtifactStore = None
+    _extractor_max_retry: int = 3
     
     def __init__(self):
         self._llm = LLM(config.value_retrieval_config.llm)
+        self._extractor_max_retry = config.llm_extractor_config.max_retry
         self._artifact_store = ArtifactStore(
             config.value_retrieval_config.save_path,
             "value_retrieval",
@@ -84,7 +86,13 @@ class ValueRetrievalRunner:
             return self._vector_db_collection_dict[db_id]
 
     def _extract_keywords(self, data_item: DataItem) -> tuple[List[str], Dict[str, int]]:
-        return extract_keywords(data_item.question, data_item.evidence, self._llm)
+        return extract_keywords(
+            data_item.question,
+            data_item.evidence,
+            self._llm,
+            fix_end_token=self._llm.llm_config.fix_end_token,
+            extractor_max_retry=self._extractor_max_retry,
+        )
     
     def _retrieve_values_for_item(self, data_item: DataItem):
         """Processes a single data item: keyword extraction + vector retrieval."""
@@ -97,7 +105,11 @@ class ValueRetrievalRunner:
         
         # 2. Independent Keyword Embedding
         # Get embeddings once for all columns in this item
-        query_embeddings = embed_keywords(keywords, self._embedding_function)
+        query_embeddings = embed_keywords(
+            keywords,
+            self._embedding_function,
+            batch_size=config.vector_database_config.batch_size,
+        )
         
         # 3. Vector Retrieval for each text column (Parallelized within the item)
         collection = self._get_vector_collection(data_item.database_id)

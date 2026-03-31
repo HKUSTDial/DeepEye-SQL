@@ -1,4 +1,6 @@
-from typing import Optional, List, Dict
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Dict, List, Optional
 from tenacity import(
     retry,
     retry_if_exception_type,
@@ -17,8 +19,10 @@ from openai import (
     InternalServerError
 )
 from openai.types.chat import ChatCompletionMessage
-from app.config import config, LLMConfig
 from app.logger import logger
+
+if TYPE_CHECKING:
+    from app.config.config import LLMConfig
 
 
 class EmptyResponseError(Exception):

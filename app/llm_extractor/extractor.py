@@ -5,17 +5,21 @@ This module provides a robust extraction mechanism for LLM responses.
 It uses rule-based parsing with configurable retry logic.
 """
 
-from typing import Optional, Callable, TypeVar, Dict, Any, Tuple
-from app.config import config
-from app.llm import LLM
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple, TypeVar
 from app.logger import logger
 
+if TYPE_CHECKING:
+    from app.llm import LLM
+
 T = TypeVar('T')
+DEFAULT_LLM_EXTRACTOR_MAX_RETRY = 3
 
 
 class LLMExtractor:
     """
-    A global LLM extractor that provides extraction for LLM responses.
+    A reusable LLM extractor that provides extraction for LLM responses.
     
     Usage:
         extractor = LLMExtractor()
@@ -30,17 +34,13 @@ class LLMExtractor:
         )
     """
     
-    _instance: Optional["LLMExtractor"] = None
-    
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
+    def __init__(self, max_retry: int = DEFAULT_LLM_EXTRACTOR_MAX_RETRY):
+        self._max_retry = max_retry
     
     @property
     def max_retry(self) -> int:
         """Get the maximum retry attempts."""
-        return config.llm_extractor_config.max_retry
+        return self._max_retry
     
     def extract_with_retry(
         self,
@@ -51,6 +51,7 @@ class LLMExtractor:
         fix_end_token: bool = False,
         end_token: str = "</result>",
         n: int = 1,
+        max_retry: Optional[int] = None,
         **llm_kwargs
     ) -> Tuple[list, Dict[str, int]]:
         """
@@ -78,9 +79,9 @@ class LLMExtractor:
         all_results = []
         parser_kwargs = parser_kwargs or {}
         retry_count = 0
-        max_retry = self.max_retry
+        retry_limit = self.max_retry if max_retry is None else max_retry
         
-        while len(all_results) < n and retry_count < max_retry:
+        while len(all_results) < n and retry_count < retry_limit:
             remaining = n - len(all_results)
             
             try:
@@ -120,23 +121,16 @@ class LLMExtractor:
                         logger.debug(f"Response content: {content}")
                         
             except Exception as e:
-                logger.warning(f"Error during LLM call (retry {retry_count + 1}/{max_retry}): {e}")
+                logger.warning(f"Error during LLM call (retry {retry_count + 1}/{retry_limit}): {e}")
             
             retry_count += 1
         
         if len(all_results) < n:
-            logger.warning(f"Only got {len(all_results)}/{n} valid results after {max_retry} retries")
+            logger.warning(f"Only got {len(all_results)}/{n} valid results after {retry_limit} retries")
         
         return all_results, total_token_usage
 
 
-# Global extractor instance (lazy initialization)
-_extractor: Optional[LLMExtractor] = None
-
-
-def get_extractor() -> LLMExtractor:
-    """Get the global LLM extractor instance."""
-    global _extractor
-    if _extractor is None:
-        _extractor = LLMExtractor()
-    return _extractor
+def get_extractor(max_retry: int = DEFAULT_LLM_EXTRACTOR_MAX_RETRY) -> LLMExtractor:
+    """Create an extractor with the requested retry budget."""
+    return LLMExtractor(max_retry=max_retry)

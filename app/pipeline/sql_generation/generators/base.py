@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from app.dataset import DataItem
 from app.llm import LLM
+from app.llm_extractor import LLMExtractor
 from app.logger import logger
 from typing import Dict, List, Tuple, Optional, Callable
 from app.services import get_schema_service
@@ -8,9 +9,17 @@ import re
 
 class BaseSQLGenerator(ABC):
 
+    def __init__(self, extractor_max_retry: Optional[int] = None):
+        self._extractor_max_retry = extractor_max_retry
+
     @abstractmethod
     def generate(self, data_item: DataItem, llm: LLM, sampling_budget: int = 1) -> Tuple[List[str], Dict[str, int]]:
         pass
+
+    def _get_extractor(self) -> LLMExtractor:
+        if self._extractor_max_retry is None:
+            return LLMExtractor()
+        return LLMExtractor(max_retry=self._extractor_max_retry)
         
     def _generate_with_progressive_stripping(
         self,
