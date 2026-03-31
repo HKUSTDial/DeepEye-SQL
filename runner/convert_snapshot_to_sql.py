@@ -23,6 +23,14 @@ def _default_json_output_path(snapshot_path: str) -> str:
     return f"{snapshot_path}.json"
 
 
+def _infer_output_format_from_snapshot(snapshot_path: str) -> str:
+    from app.dataset import load_dataset
+
+    dataset = load_dataset(snapshot_path)
+    first_item = dataset[0] if len(dataset) > 0 else None
+    return "sql_files" if first_item is not None and hasattr(first_item, "instance_id") else "json"
+
+
 def convert_to_json_file(snapshot_path: str, output_path: Optional[str] = None):
     """
     Convert a dataset snapshot to a single JSON file (for Spider/Bird datasets).
@@ -84,6 +92,7 @@ def convert_to_sql_files(snapshot_path: str, output_dir: Optional[str] = None):
 
 def auto_convert(
     snapshot_path: str,
+    dataset_type: Optional[str] = None,
     output_path: Optional[str] = None,
     force_format: Optional[str] = None,
 ):
@@ -91,11 +100,12 @@ def auto_convert(
         output_format = force_format
         logger.info(f"Using forced format: {output_format}")
     else:
-        from app.config import config
-
-        dataset_type = config.dataset_config.type
-        output_format = "sql_files" if dataset_type == "spider2" else "json"
-        logger.info(f"Auto-detected format '{output_format}' for dataset type '{dataset_type}'")
+        if dataset_type is None:
+            output_format = _infer_output_format_from_snapshot(snapshot_path)
+            logger.info(f"Auto-detected format '{output_format}' from snapshot contents")
+        else:
+            output_format = "sql_files" if dataset_type == "spider2" else "json"
+            logger.info(f"Auto-detected format '{output_format}' for dataset type '{dataset_type}'")
 
     if output_format == "json":
         convert_to_json_file(snapshot_path, output_path)
@@ -126,7 +136,7 @@ def main():
         type=str,
         choices=["json", "sql_files"],
         default=None,
-        help="Force output format (json or sql_files). If not specified, auto-detects from config",
+        help="Force output format (json or sql_files). If not specified, auto-detects from dataset type or snapshot contents",
     )
     args = parser.parse_args()
 

@@ -15,16 +15,15 @@ from typing import Optional
 from tqdm import tqdm
 import numpy as np
 
+from app.db_utils.defaults import DEFAULT_SQL_EXECUTION_TIMEOUT
 from app.logger import logger
 
 
-def _resolve_snapshot_path(snapshot_path: Optional[str]) -> str:
-    if snapshot_path is not None:
-        return snapshot_path
-
-    from app.config import config
-
-    return config.sql_selection_config.save_path
+def _resolve_snapshot_path(snapshot_path: Optional[str], default_snapshot_path: Optional[str] = None) -> str:
+    resolved_path = snapshot_path or default_snapshot_path
+    if resolved_path is None:
+        raise ValueError("snapshot_path is required when no default snapshot path is provided")
+    return resolved_path
 
 
 def _eval_ex_after_selection(pred_sql: str, gold_sql: str, db_path: str) -> Optional[int]:
@@ -47,7 +46,7 @@ def _eval_ex_after_selection(pred_sql: str, gold_sql: str, db_path: str) -> Opti
     return 1 if set(pred_result.result_rows) == set(gold_result.result_rows) else 0
 
 
-def evaluate_spider_bird(snapshot_path: str = None, max_workers: int = 32) -> float:
+def evaluate_spider_bird(snapshot_path: str, max_workers: int = 32) -> float:
     """
     Evaluate Spider or BIRD dataset using direct SQL execution comparison.
     
@@ -59,8 +58,6 @@ def evaluate_spider_bird(snapshot_path: str = None, max_workers: int = 32) -> fl
         Execution accuracy as a float (0.0 to 1.0).
     """
     from app.dataset import load_dataset
-    
-    snapshot_path = _resolve_snapshot_path(snapshot_path)
     
     logger.info(f"Loading dataset snapshot from: {snapshot_path}")
     dataset = load_dataset(snapshot_path)
@@ -100,11 +97,11 @@ def evaluate_spider_bird(snapshot_path: str = None, max_workers: int = 32) -> fl
 
 
 def evaluate_spider2(
-    snapshot_path: str = None,
+    snapshot_path: str,
     dataset_split: str = "lite",
     sql_output_dir: str = None,
     max_workers: int = 8,
-    timeout: int = None,
+    timeout: int = DEFAULT_SQL_EXECUTION_TIMEOUT,
     skip_conversion: bool = False,
 ) -> Optional[int]:
     """
@@ -121,13 +118,6 @@ def evaluate_spider2(
     Returns:
         Return code from evaluation script (0 = success, None = error).
     """
-    from app.config import config
-    
-    # Determine paths
-    if timeout is None:
-        timeout = config.dataset_config.sql_execution_timeout
-    snapshot_path = _resolve_snapshot_path(snapshot_path)
-    
     snapshot_path = Path(snapshot_path)
     
     if sql_output_dir is None:
@@ -219,6 +209,10 @@ def run_evaluation(
     timeout: int = None,
     sql_output_dir: str = None,
     skip_conversion: bool = False,
+    default_snapshot_path: Optional[str] = None,
+    default_dataset_type: Optional[str] = None,
+    default_dataset_split: Optional[str] = None,
+    default_timeout: Optional[int] = None,
 ):
     """
     Unified evaluation entry point. Auto-detects dataset type and uses appropriate method.
@@ -232,21 +226,22 @@ def run_evaluation(
         sql_output_dir: SQL output directory (Spider2 only).
         skip_conversion: Skip SQL conversion (Spider2 only).
     """
-    snapshot_path = _resolve_snapshot_path(snapshot_path)
+    snapshot_path = _resolve_snapshot_path(snapshot_path, default_snapshot_path)
     
-    # Auto-detect dataset type from config if not provided
     if dataset_type is None:
-        from app.config import config
-
-        dataset_type = config.dataset_config.type
+        if default_dataset_type is None:
+            raise ValueError("dataset_type is required when no default dataset type is provided")
+        dataset_type = default_dataset_type
         logger.info(f"Auto-detected dataset type: {dataset_type}")
     
-    # Auto-detect dataset split for Spider2
     if dataset_split is None and dataset_type == "spider2":
-        from app.config import config
-
-        dataset_split = config.dataset_config.split
+        if default_dataset_split is None:
+            raise ValueError("dataset_split is required for spider2 when no default split is provided")
+        dataset_split = default_dataset_split
         logger.info(f"Auto-detected dataset split: {dataset_split}")
+
+    if timeout is None:
+        timeout = default_timeout if default_timeout is not None else DEFAULT_SQL_EXECUTION_TIMEOUT
     
     # Set default max_workers
     if max_workers is None:
@@ -339,6 +334,7 @@ def main():
     )
     
     args = parser.parse_args()
+    from app.config import config
 
     snapshot_path = args.snapshot_path
     if args.legacy_pkl_path is not None:
@@ -358,7 +354,11 @@ def main():
         max_workers=args.max_workers,
         timeout=args.timeout,
         sql_output_dir=args.sql_output_dir,
-        skip_conversion=args.skip_conversion
+        skip_conversion=args.skip_conversion,
+        default_snapshot_path=config.sql_selection_config.save_path,
+        default_dataset_type=config.dataset_config.type,
+        default_dataset_split=config.dataset_config.split,
+        default_timeout=config.dataset_config.sql_execution_timeout,
     )
 
 
