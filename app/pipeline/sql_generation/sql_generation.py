@@ -2,7 +2,6 @@ from app.dataset import BaseDataset, load_dataset, save_dataset, DataItem
 from app.llm import LLM
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from .generators import DCGenerator, SkeletonGenerator, ICLGenerator
-from app.config import config
 from app.pipeline.validation import validate_pipeline_step
 import time
 from app.logger import logger
@@ -26,11 +25,11 @@ class SQLGenerationRunner:
     _input_save_path: str = ""
     _dataset_config = None
     
-    def __init__(self, stage_config=None, dataset_config=None, input_save_path: str | None = None, extractor_max_retry: int | None = None):
-        self._stage_config = stage_config or config.sql_generation_config
-        self._dataset_config = dataset_config or config.dataset_config
-        self._input_save_path = input_save_path or config.schema_linking_config.save_path
-        self._extractor_max_retry = config.llm_extractor_config.max_retry if extractor_max_retry is None else extractor_max_retry
+    def __init__(self, stage_config, dataset_config, input_save_path: str, extractor_max_retry: int):
+        self._stage_config = stage_config
+        self._dataset_config = dataset_config
+        self._input_save_path = input_save_path
+        self._extractor_max_retry = extractor_max_retry
         self._llm = LLM(self._stage_config.llm)
         configure_schema_service(max_value_example_length=self._dataset_config.max_value_example_length)
         self._artifact_store = ArtifactStore(
@@ -52,6 +51,19 @@ class SQLGenerationRunner:
         self._icl_generator = ICLGenerator(
             few_shot_examples_path=self._stage_config.icl_few_shot_examples_path,
             extractor_max_retry=self._extractor_max_retry,
+        )
+
+    @classmethod
+    def from_config(cls, app_config=None) -> "SQLGenerationRunner":
+        if app_config is None:
+            from app.config import get_config
+
+            app_config = get_config()
+        return cls(
+            stage_config=app_config.sql_generation_config,
+            dataset_config=app_config.dataset_config,
+            input_save_path=app_config.schema_linking_config.save_path,
+            extractor_max_retry=app_config.llm_extractor_config.max_retry,
         )
         
     def _generate_sql(self, data_item: DataItem) -> None:

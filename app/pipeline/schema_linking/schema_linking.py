@@ -1,5 +1,4 @@
 from app.dataset import BaseDataset, load_dataset, save_dataset, DataItem
-from app.config import config
 from app.llm import LLM
 from app.db_utils import filter_used_database_schema
 from .linkers import DirectLinker, ReversedLinker, ValueLinker
@@ -30,17 +29,17 @@ class SchemaLinkingRunner:
     
     def __init__(
         self,
-        stage_config=None,
-        dataset_config=None,
-        input_save_path: str | None = None,
-        few_shot_examples_path: str | None = None,
-        extractor_max_retry: int | None = None,
+        stage_config,
+        dataset_config,
+        input_save_path: str,
+        few_shot_examples_path: str | None,
+        extractor_max_retry: int,
     ):
-        self._stage_config = stage_config or config.schema_linking_config
-        self._dataset_config = dataset_config or config.dataset_config
-        self._input_save_path = input_save_path or config.value_retrieval_config.save_path
-        self._few_shot_examples_path = few_shot_examples_path or config.sql_generation_config.icl_few_shot_examples_path
-        self._extractor_max_retry = config.llm_extractor_config.max_retry if extractor_max_retry is None else extractor_max_retry
+        self._stage_config = stage_config
+        self._dataset_config = dataset_config
+        self._input_save_path = input_save_path
+        self._few_shot_examples_path = few_shot_examples_path
+        self._extractor_max_retry = extractor_max_retry
         self._llm = LLM(self._stage_config.llm)
         configure_schema_service(max_value_example_length=self._dataset_config.max_value_example_length)
         self._artifact_store = ArtifactStore(
@@ -65,6 +64,20 @@ class SchemaLinkingRunner:
         self._value_linker = ValueLinker(
             value_distance_threshold=self._stage_config.value_distance_threshold,
             extractor_max_retry=self._extractor_max_retry,
+        )
+
+    @classmethod
+    def from_config(cls, app_config=None) -> "SchemaLinkingRunner":
+        if app_config is None:
+            from app.config import get_config
+
+            app_config = get_config()
+        return cls(
+            stage_config=app_config.schema_linking_config,
+            dataset_config=app_config.dataset_config,
+            input_save_path=app_config.value_retrieval_config.save_path,
+            few_shot_examples_path=app_config.sql_generation_config.icl_few_shot_examples_path,
+            extractor_max_retry=app_config.llm_extractor_config.max_retry,
         )
     
     def _link_tables_and_columns(self, data_item: DataItem) -> None:

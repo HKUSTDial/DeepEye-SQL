@@ -3,7 +3,6 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from .utils import extract_keywords, retrieve_values_for_one_column, embed_keywords
 from app.dataset import BaseDataset, load_dataset, save_dataset, DataItem
-from app.config import config
 from app.llm import LLM
 from app.vector_db import get_embedding_function, get_collection_name
 from app.db_utils import map_lower_table_name_to_original_table_name, map_lower_column_name_to_original_column_name
@@ -43,15 +42,15 @@ class ValueRetrievalRunner:
     
     def __init__(
         self,
-        stage_config=None,
-        dataset_config=None,
-        vector_database_config=None,
-        extractor_max_retry: int | None = None,
+        stage_config,
+        dataset_config,
+        vector_database_config,
+        extractor_max_retry: int,
     ):
-        self._stage_config = stage_config or config.value_retrieval_config
-        self._dataset_config = dataset_config or config.dataset_config
-        self._vector_database_config = vector_database_config or config.vector_database_config
-        self._extractor_max_retry = config.llm_extractor_config.max_retry if extractor_max_retry is None else extractor_max_retry
+        self._stage_config = stage_config
+        self._dataset_config = dataset_config
+        self._vector_database_config = vector_database_config
+        self._extractor_max_retry = extractor_max_retry
         self._llm = LLM(self._stage_config.llm)
         configure_schema_service(max_value_example_length=self._dataset_config.max_value_example_length)
         self._vector_db_client_dict = {}
@@ -87,6 +86,19 @@ class ValueRetrievalRunner:
             self._embedding_function = None
         
         self._thread_pool_executor = ThreadPoolExecutor(max_workers=self._stage_config.n_parallel)
+
+    @classmethod
+    def from_config(cls, app_config=None) -> "ValueRetrievalRunner":
+        if app_config is None:
+            from app.config import get_config
+
+            app_config = get_config()
+        return cls(
+            stage_config=app_config.value_retrieval_config,
+            dataset_config=app_config.dataset_config,
+            vector_database_config=app_config.vector_database_config,
+            extractor_max_retry=app_config.llm_extractor_config.max_retry,
+        )
     
     def _get_vector_collection(self, db_id: str) -> Collection:
         """Lazy initialization of vector database collection with thread safety."""
