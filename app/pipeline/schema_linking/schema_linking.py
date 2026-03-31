@@ -10,7 +10,7 @@ from tqdm import tqdm
 from app.logger import logger
 import time
 import traceback
-from app.services import ArtifactStore, STAGE_ARTIFACT_FIELDS, load_stage_dataset
+from app.services import ArtifactStore, STAGE_ARTIFACT_FIELDS, configure_schema_service, load_stage_dataset, reset_schema_service
 
 class SchemaLinkingRunner:
     
@@ -26,19 +26,23 @@ class SchemaLinkingRunner:
     _stage_config = None
     _input_save_path: str = ""
     _few_shot_examples_path: str | None = None
+    _dataset_config = None
     
     def __init__(
         self,
         stage_config=None,
+        dataset_config=None,
         input_save_path: str | None = None,
         few_shot_examples_path: str | None = None,
         extractor_max_retry: int | None = None,
     ):
         self._stage_config = stage_config or config.schema_linking_config
+        self._dataset_config = dataset_config or config.dataset_config
         self._input_save_path = input_save_path or config.value_retrieval_config.save_path
         self._few_shot_examples_path = few_shot_examples_path or config.sql_generation_config.icl_few_shot_examples_path
         self._extractor_max_retry = config.llm_extractor_config.max_retry if extractor_max_retry is None else extractor_max_retry
         self._llm = LLM(self._stage_config.llm)
+        configure_schema_service(max_value_example_length=self._dataset_config.max_value_example_length)
         self._artifact_store = ArtifactStore(
             self._stage_config.save_path,
             "schema_linking",
@@ -220,3 +224,4 @@ class SchemaLinkingRunner:
         self._direct_linker = None
         self._reversed_linker = None
         self._value_linker = None
+        reset_schema_service()

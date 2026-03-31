@@ -9,7 +9,7 @@ from app.logger import logger
 from tqdm import tqdm
 from typing import List, Dict
 import traceback
-from app.services import ArtifactStore, STAGE_ARTIFACT_FIELDS, load_stage_dataset, reset_execution_service
+from app.services import ArtifactStore, STAGE_ARTIFACT_FIELDS, configure_execution_service, configure_schema_service, load_stage_dataset, reset_execution_service, reset_schema_service
 
 class SQLRevisionRunner:
     
@@ -22,12 +22,20 @@ class SQLRevisionRunner:
     _extractor_max_retry: int = 3
     _stage_config = None
     _input_save_path: str = ""
+    _dataset_config = None
     
-    def __init__(self, stage_config=None, input_save_path: str | None = None, extractor_max_retry: int | None = None):
+    def __init__(self, stage_config=None, dataset_config=None, input_save_path: str | None = None, extractor_max_retry: int | None = None):
         self._stage_config = stage_config or config.sql_revision_config
+        self._dataset_config = dataset_config or config.dataset_config
         self._input_save_path = input_save_path or config.sql_generation_config.save_path
         self._extractor_max_retry = config.llm_extractor_config.max_retry if extractor_max_retry is None else extractor_max_retry
         self._llm = LLM(self._stage_config.llm)
+        configure_schema_service(max_value_example_length=self._dataset_config.max_value_example_length)
+        configure_execution_service(
+            default_timeout=self._dataset_config.sql_execution_timeout,
+            bigquery_credential_path=self._dataset_config.bigquery_credential_path,
+            snowflake_credential_path=self._dataset_config.snowflake_credential_path,
+        )
         self._artifact_store = ArtifactStore(
             self._stage_config.save_path,
             "sql_revision",
@@ -211,6 +219,7 @@ class SQLRevisionRunner:
             self._thread_pool_executor.shutdown(wait=True)
             self._thread_pool_executor = None
         reset_execution_service()
+        reset_schema_service()
         self._llm = None
         self._dataset = None
         self._checkers = None

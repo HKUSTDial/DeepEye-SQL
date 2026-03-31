@@ -89,25 +89,25 @@ class ExecutionService:
 _execution_service: ExecutionService | None = None
 
 
+def configure_execution_service(
+    *,
+    default_timeout: int = DEFAULT_SQL_EXECUTION_TIMEOUT,
+    bigquery_credential_path: Optional[str] = None,
+    snowflake_credential_path: Optional[str] = None,
+) -> ExecutionService:
+    global _execution_service
+    _execution_service = ExecutionService(
+        default_timeout=default_timeout,
+        bigquery_credential_path=bigquery_credential_path,
+        snowflake_credential_path=snowflake_credential_path,
+    )
+    return _execution_service
+
+
 def get_execution_service() -> ExecutionService:
     global _execution_service
     if _execution_service is None:
-        default_timeout = DEFAULT_SQL_EXECUTION_TIMEOUT
-        bigquery_credential_path = None
-        snowflake_credential_path = None
-        try:
-            from app.config import config
-        except FileNotFoundError:
-            config = None
-        if config is not None:
-            default_timeout = config.dataset_config.sql_execution_timeout
-            bigquery_credential_path = config.dataset_config.bigquery_credential_path
-            snowflake_credential_path = config.dataset_config.snowflake_credential_path
-        _execution_service = ExecutionService(
-            default_timeout=default_timeout,
-            bigquery_credential_path=bigquery_credential_path,
-            snowflake_credential_path=snowflake_credential_path,
-        )
+        _execution_service = ExecutionService()
     return _execution_service
 
 

@@ -198,17 +198,16 @@ class SchemaService:
 _schema_service: SchemaService | None = None
 
 
+def configure_schema_service(max_value_example_length: int = DEFAULT_MAX_VALUE_EXAMPLE_LENGTH) -> SchemaService:
+    global _schema_service
+    _schema_service = SchemaService(max_value_example_length=max_value_example_length)
+    return _schema_service
+
+
 def get_schema_service() -> SchemaService:
     global _schema_service
     if _schema_service is None:
-        max_value_example_length = DEFAULT_MAX_VALUE_EXAMPLE_LENGTH
-        try:
-            from app.config import config
-        except FileNotFoundError:
-            config = None
-        if config is not None:
-            max_value_example_length = config.dataset_config.max_value_example_length
-        _schema_service = SchemaService(max_value_example_length=max_value_example_length)
+        _schema_service = SchemaService()
     return _schema_service
 
 

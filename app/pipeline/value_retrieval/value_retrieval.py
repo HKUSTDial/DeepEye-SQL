@@ -18,7 +18,7 @@ import threading
 from collections import defaultdict
 from app.logger import logger
 import traceback
-from app.services import ArtifactStore, STAGE_ARTIFACT_FIELDS, get_schema_service, load_stage_dataset
+from app.services import ArtifactStore, STAGE_ARTIFACT_FIELDS, configure_schema_service, get_schema_service, load_stage_dataset, reset_schema_service
 
 
 def _is_spider2_item(data_item: DataItem) -> bool:
@@ -53,6 +53,7 @@ class ValueRetrievalRunner:
         self._vector_database_config = vector_database_config or config.vector_database_config
         self._extractor_max_retry = config.llm_extractor_config.max_retry if extractor_max_retry is None else extractor_max_retry
         self._llm = LLM(self._stage_config.llm)
+        configure_schema_service(max_value_example_length=self._dataset_config.max_value_example_length)
         self._vector_db_client_dict = {}
         self._vector_db_collection_dict = {}
         self._db_lock = threading.Lock()
@@ -198,6 +199,7 @@ class ValueRetrievalRunner:
             self._thread_pool_executor = None
         self._vector_db_client_dict = {}
         self._vector_db_collection_dict = {}
+        reset_schema_service()
     
     def save_result(self, materialize_snapshot: bool = False):
         self._artifact_store.flush()

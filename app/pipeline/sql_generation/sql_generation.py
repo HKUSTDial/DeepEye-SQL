@@ -8,7 +8,7 @@ import time
 from app.logger import logger
 from tqdm import tqdm
 import traceback
-from app.services import ArtifactStore, STAGE_ARTIFACT_FIELDS, load_stage_dataset
+from app.services import ArtifactStore, STAGE_ARTIFACT_FIELDS, configure_schema_service, load_stage_dataset, reset_schema_service
 
 
 class SQLGenerationRunner:
@@ -24,12 +24,15 @@ class SQLGenerationRunner:
     _extractor_max_retry: int = 3
     _stage_config = None
     _input_save_path: str = ""
+    _dataset_config = None
     
-    def __init__(self, stage_config=None, input_save_path: str | None = None, extractor_max_retry: int | None = None):
+    def __init__(self, stage_config=None, dataset_config=None, input_save_path: str | None = None, extractor_max_retry: int | None = None):
         self._stage_config = stage_config or config.sql_generation_config
+        self._dataset_config = dataset_config or config.dataset_config
         self._input_save_path = input_save_path or config.schema_linking_config.save_path
         self._extractor_max_retry = config.llm_extractor_config.max_retry if extractor_max_retry is None else extractor_max_retry
         self._llm = LLM(self._stage_config.llm)
+        configure_schema_service(max_value_example_length=self._dataset_config.max_value_example_length)
         self._artifact_store = ArtifactStore(
             self._stage_config.save_path,
             "sql_generation",
@@ -146,3 +149,4 @@ class SQLGenerationRunner:
         self._dc_generator = None
         self._skeleton_generator = None
         self._icl_generator = None
+        reset_schema_service()
