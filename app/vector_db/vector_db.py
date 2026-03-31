@@ -21,12 +21,18 @@ NUMBER_PATTERN = re.compile(
     r'^[0-9]+\.?[0-9]*$'
 )
 
+
 def _is_uuid_column(column_values: List[str]) -> bool:
     return all(UUID_PATTERN.match(value) for value in column_values)
 
 
 def _is_number_column(column_values: List[str]) -> bool:
     return all(NUMBER_PATTERN.match(value) for value in column_values)
+
+
+def _is_text_column_type(column_type: str) -> bool:
+    normalized_type = column_type.upper()
+    return normalized_type == "TEXT" or normalized_type.startswith("VARCHAR") or normalized_type.startswith("CHAR")
 
 
 def get_collection_name(db_id: str) -> str:
@@ -101,7 +107,7 @@ def _process_one_column(
     collection: Any, 
     db_id: str
 ):
-    if column_type.upper() != "TEXT" and not column_type.upper().startswith("VARCHAR") and not column_type.upper().startswith("CHAR"):
+    if not _is_text_column_type(column_type):
         return
     
     query_sql = f"""
@@ -138,7 +144,16 @@ def _process_one_column(
         raise RuntimeError(f"Error executing SQL for {db_id}.{table_name}.{column_name}: {result.error_message}")
 
 
-def make_vector_db(db_path: str, vector_db_path: str, max_value_length: int = 100, batch_size: int = 1024, n_parallel: int = 1, lower_meta_data=True, embedding_function=None):
+def make_vector_db(
+    db_path: str,
+    vector_db_path: str,
+    max_value_length: int = 100,
+    batch_size: int = 1024,
+    n_parallel: int | None = None,
+    column_parallel: int | None = None,
+    lower_meta_data=True,
+    embedding_function=None,
+):
     """
     Make a vector database from a database path.
     """
@@ -159,10 +174,19 @@ def make_vector_db(db_path: str, vector_db_path: str, max_value_length: int = 10
     for table_name in load_table_names(db_path):
         column_names_and_types = load_column_names_and_types(db_path, table_name)
         for column_name, column_type in column_names_and_types:
-            all_column_tasks.append((table_name, column_name, column_type))
+            if _is_text_column_type(column_type):
+                all_column_tasks.append((table_name, column_name, column_type))
+
+    if len(all_column_tasks) == 0:
+        logger.info(f"No text columns found for {db_id}, leaving empty vector database")
+        return True
+
+    column_parallel = column_parallel or n_parallel or 1
+    max_workers = min(len(all_column_tasks), column_parallel)
+    logger.info(f"Processing {len(all_column_tasks)} text columns for {db_id} with {max_workers} worker(s)")
 
     failed = False
-    with ThreadPoolExecutor(max_workers=n_parallel) as executor:
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = []
         for table_name, column_name, column_type in all_column_tasks:
             futures.append(executor.submit(

@@ -66,7 +66,16 @@ def _collect_sqlite_db_paths(dataset) -> list[str]:
 
     return sqlite_db_paths
 
-def make_vector_db_for_db_path(db_path: str, vector_database_config):
+
+def _resolve_db_parallel(vector_database_config, override_db_parallel: int | None = None) -> int:
+    return override_db_parallel or vector_database_config.db_parallel or vector_database_config.n_parallel
+
+
+def _resolve_column_parallel(vector_database_config, override_column_parallel: int | None = None) -> int:
+    return override_column_parallel or vector_database_config.column_parallel or vector_database_config.n_parallel
+
+
+def make_vector_db_for_db_path(db_path: str, vector_database_config, column_parallel: int | None = None):
     db_id = Path(db_path).stem
     success_flag_file = Path(vector_database_config.store_root_path) / db_id / "success_flag"
 
@@ -82,7 +91,7 @@ def make_vector_db_for_db_path(db_path: str, vector_database_config):
             vector_db_path=Path(vector_database_config.store_root_path) / db_id,
             max_value_length=vector_database_config.max_value_length,
             batch_size=vector_database_config.batch_size,
-            n_parallel=vector_database_config.n_parallel,
+            column_parallel=_resolve_column_parallel(vector_database_config, column_parallel),
             lower_meta_data=vector_database_config.lower_meta_data,
             embedding_function=embedding_function,
         )
@@ -105,7 +114,13 @@ def make_vector_db_for_db_path(db_path: str, vector_database_config):
         return False
 
 
-def run_vector_db_creation(dataset_snapshot_path: str, dataset_type: str, vector_database_config, n_parallel: int) -> None:
+def run_vector_db_creation(
+    dataset_snapshot_path: str,
+    dataset_type: str,
+    vector_database_config,
+    db_parallel: int | None = None,
+    column_parallel: int | None = None,
+) -> None:
     logger.info(f"Loading dataset from {dataset_snapshot_path}")
     dataset = load_dataset(dataset_snapshot_path)
 
@@ -114,8 +129,15 @@ def run_vector_db_creation(dataset_snapshot_path: str, dataset_type: str, vector
         return
 
     db_paths = _collect_sqlite_db_paths(dataset)
-    with ThreadPoolExecutor(max_workers=n_parallel) as executor:
-        futures = {executor.submit(make_vector_db_for_db_path, db_path, vector_database_config): db_path for db_path in db_paths}
+    db_parallel = _resolve_db_parallel(vector_database_config, db_parallel)
+    column_parallel = _resolve_column_parallel(vector_database_config, column_parallel)
+    logger.info(f"Vector DB concurrency: db_parallel={db_parallel}, column_parallel={column_parallel}")
+
+    with ThreadPoolExecutor(max_workers=db_parallel) as executor:
+        futures = {
+            executor.submit(make_vector_db_for_db_path, db_path, vector_database_config, column_parallel): db_path
+            for db_path in db_paths
+        }
         for future in tqdm(as_completed(futures), total=len(futures), desc="Creating vector databases"):
             db_path = futures[future]
             try:
@@ -130,11 +152,21 @@ if __name__ == "__main__":
     from app.config import config
 
     parser = ArgumentParser()
-    parser.add_argument("--n_parallel", type=int, default=config.vector_database_config.n_parallel, help="Number of databases to process in parallel")
+    parser.add_argument("--db_parallel", type=int, default=config.vector_database_config.db_parallel, help="Number of databases to process in parallel")
+    parser.add_argument("--column_parallel", type=int, default=config.vector_database_config.column_parallel, help="Number of columns to scan in parallel within a single database")
+    parser.add_argument("--n_parallel", dest="legacy_n_parallel", type=int, default=None, help="Deprecated alias for --db_parallel",)
     args = parser.parse_args()
+    db_parallel = args.db_parallel
+    if args.legacy_n_parallel is not None:
+        logger.warning("`--n_parallel` is deprecated and will be removed in a future release. Use `--db_parallel` instead.")
+        if db_parallel != config.vector_database_config.db_parallel:
+            logger.warning("Ignoring deprecated `--n_parallel` because `--db_parallel` was also provided.")
+        else:
+            db_parallel = args.legacy_n_parallel
     run_vector_db_creation(
         dataset_snapshot_path=config.dataset_config.save_path,
         dataset_type=config.dataset_config.type,
         vector_database_config=config.vector_database_config,
-        n_parallel=args.n_parallel,
+        db_parallel=db_parallel,
+        column_parallel=args.column_parallel,
     )
