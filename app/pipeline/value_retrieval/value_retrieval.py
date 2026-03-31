@@ -30,11 +30,11 @@ class ValueRetrievalRunner:
     
     _llm: LLM = None
     _dataset: BaseDataset = None
-    _vector_db_client_dict: Dict[str, ClientAPI] = {}
-    _vector_db_collection_dict: Dict[str, Collection] = {}
+    _vector_db_client_dict: Dict[str, ClientAPI]
+    _vector_db_collection_dict: Dict[str, Collection]
     _embedding_function: Any = None # Shared embedding function
     _thread_pool_executor: ThreadPoolExecutor = None
-    _db_lock = threading.Lock()
+    _db_lock: threading.Lock
     _artifact_store: ArtifactStore = None
     _extractor_max_retry: int = 3
     _stage_config = None
@@ -53,6 +53,9 @@ class ValueRetrievalRunner:
         self._vector_database_config = vector_database_config or config.vector_database_config
         self._extractor_max_retry = config.llm_extractor_config.max_retry if extractor_max_retry is None else extractor_max_retry
         self._llm = LLM(self._stage_config.llm)
+        self._vector_db_client_dict = {}
+        self._vector_db_collection_dict = {}
+        self._db_lock = threading.Lock()
         self._artifact_store = ArtifactStore(
             self._stage_config.save_path,
             "value_retrieval",
