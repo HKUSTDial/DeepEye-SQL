@@ -4,9 +4,9 @@ Executes SQL on Snowflake and BigQuery cloud databases.
 """
 
 import json
+import threading
 import time
 from typing import Optional, Any, Dict
-import pandas as pd
 from app.logger import logger
 
 from .defaults import DEFAULT_SQL_EXECUTION_TIMEOUT
@@ -15,6 +15,8 @@ from .execution import SQLExecutionResult
 
 # Global cache for BigQuery clients to avoid repeated creation in multi-threaded environments
 _bq_clients: Dict[str, Any] = {}
+_snowflake_credentials: Dict[str, Dict[str, Any]] = {}
+_cloud_cache_lock = threading.Lock()
 
 
 def _resolve_timeout(timeout: Optional[int]) -> int:
@@ -25,12 +27,27 @@ def _get_bigquery_client(credential_path: Optional[str] = None):
     from google.cloud import bigquery
     
     cache_key = credential_path or "default"
-    if cache_key not in _bq_clients:
-        if credential_path:
-            _bq_clients[cache_key] = bigquery.Client.from_service_account_json(credential_path)
-        else:
-            _bq_clients[cache_key] = bigquery.Client()
-    return _bq_clients[cache_key]
+    with _cloud_cache_lock:
+        if cache_key not in _bq_clients:
+            if credential_path:
+                _bq_clients[cache_key] = bigquery.Client.from_service_account_json(credential_path)
+            else:
+                _bq_clients[cache_key] = bigquery.Client()
+        return _bq_clients[cache_key]
+
+
+def _load_snowflake_credentials(credential_path: str) -> Dict[str, Any]:
+    with _cloud_cache_lock:
+        cached_credentials = _snowflake_credentials.get(credential_path)
+        if cached_credentials is not None:
+            return cached_credentials
+
+    with open(credential_path, "r") as f:
+        credentials = json.load(f)
+
+    with _cloud_cache_lock:
+        _snowflake_credentials[credential_path] = credentials
+    return credentials
 
 
 def execute_bigquery_sql(
@@ -77,24 +94,20 @@ def execute_bigquery_sql(
         query_job = client.query(sql, job_config=job_config)
         results = query_job.result(timeout=timeout)
         
-        # Convert to dataframe
-        df = results.to_dataframe()
+        result_cols = [field.name for field in results.schema]
+        result_rows = [tuple(row.values()) for row in results]
         
-        if df.empty:
+        if not result_rows:
             return SQLExecutionResult(
                 result_type="empty_result",
                 db_path=db_path,
                 sql=sql,
                 execution_time=time.time() - start_time,
-                result_cols=list(df.columns) if len(df.columns) > 0 else [],
+                result_cols=result_cols,
                 result_rows=[],
                 error_message="The SQL query returned an empty result table."
             )
-        
-        # Convert to list of tuples
-        result_rows = [tuple(row) for row in df.values]
-        result_cols = list(df.columns)
-        
+
         return SQLExecutionResult(
             result_type="success",
             db_path=db_path,
@@ -161,8 +174,7 @@ def execute_snowflake_sql(
                 error_message="Snowflake credential path is required"
             )
         
-        with open(credential_path, "r") as f:
-            credentials = json.load(f)
+        credentials = _load_snowflake_credentials(credential_path)
         
         # Connect to Snowflake
         conn = snowflake.connector.connect(**credentials)

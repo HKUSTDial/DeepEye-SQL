@@ -16,6 +16,7 @@ class SchemaLinkingRunner:
     _llm: LLM = None
     _dataset: BaseDataset = None
     _thread_pool_executor: ThreadPoolExecutor = None
+    _inner_thread_pool_executor: ThreadPoolExecutor = None
     
     _direct_linker: DirectLinker = None
     _reversed_linker: ReversedLinker = None
@@ -56,6 +57,7 @@ class SchemaLinkingRunner:
         configure_schema_service(max_value_example_length=self._dataset_config.max_value_example_length)
         self._llm = LLM(self._stage_config.llm)
         self._thread_pool_executor = ThreadPoolExecutor(max_workers=self._stage_config.n_parallel)
+        self._inner_thread_pool_executor = ThreadPoolExecutor(max_workers=max(1, self._stage_config.n_internal_parallel))
         self._direct_linker = DirectLinker(extractor_max_retry=self._extractor_max_retry)
         self._reversed_linker = ReversedLinker(
             few_shot_examples_path=self._few_shot_examples_path,
@@ -87,26 +89,25 @@ class SchemaLinkingRunner:
         total_token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         
         # Parallelize different linking methods within a single data item
-        with ThreadPoolExecutor(max_workers=min(self._stage_config.n_internal_parallel, 3)) as executor:
-            linker_tasks = {
-                "direct": executor.submit(self._direct_linker.link, data_item, self._llm, self._stage_config.direct_linking_sampling_budget),
-                "reversed": executor.submit(self._reversed_linker.link, data_item, self._llm, self._stage_config.reversed_linking_sampling_budget),
-                "value": executor.submit(self._value_linker.link, data_item, self._llm)
-            }
-            
-            results = {}
-            for name, future in linker_tasks.items():
-                try:
-                    results[name] = future.result()
-                except Exception as e:
-                    logger.error(f"Error in {name} linking for item {data_item.question_id}: {e}")
-                    traceback.print_exc()
-                    # Set to None instead of empty dict to indicate failure
-                    results[name] = (None, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
+        linker_tasks = {
+            "direct": self._inner_thread_pool_executor.submit(self._direct_linker.link, data_item, self._llm, self._stage_config.direct_linking_sampling_budget),
+            "reversed": self._inner_thread_pool_executor.submit(self._reversed_linker.link, data_item, self._llm, self._stage_config.reversed_linking_sampling_budget),
+            "value": self._inner_thread_pool_executor.submit(self._value_linker.link, data_item, self._llm)
+        }
+        
+        results = {}
+        for name, future in linker_tasks.items():
+            try:
+                results[name] = future.result()
+            except Exception as e:
+                logger.error(f"Error in {name} linking for item {data_item.question_id}: {e}")
+                traceback.print_exc()
+                # Set to None instead of empty dict to indicate failure
+                results[name] = (None, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
 
-            direct_linked_tables_and_columns, direct_tokens = results["direct"]
-            reversed_linked_tables_and_columns, reversed_tokens = results["reversed"]
-            value_linked_tables_and_columns, value_tokens = results["value"]
+        direct_linked_tables_and_columns, direct_tokens = results["direct"]
+        reversed_linked_tables_and_columns, reversed_tokens = results["reversed"]
+        value_linked_tables_and_columns, value_tokens = results["value"]
             
         # Accumulate token usage
         for tokens in [direct_tokens, reversed_tokens, value_tokens]:
@@ -232,9 +233,14 @@ class SchemaLinkingRunner:
         if self._thread_pool_executor is not None:
             self._thread_pool_executor.shutdown(wait=True)
             self._thread_pool_executor = None
+        if self._inner_thread_pool_executor is not None:
+            self._inner_thread_pool_executor.shutdown(wait=True)
+            self._inner_thread_pool_executor = None
         self._llm = None
         self._dataset = None
         self._direct_linker = None
         self._reversed_linker = None
         self._value_linker = None
+        if self._artifact_store is not None:
+            self._artifact_store.close()
         reset_schema_service()

@@ -3,7 +3,7 @@ sys.path.append(".")
 from pathlib import Path
 import traceback
 import shutil
-from argparse import ArgumentParser, SUPPRESS
+from argparse import ArgumentParser
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 from tqdm import tqdm
@@ -68,14 +68,14 @@ def _collect_sqlite_db_paths(dataset) -> list[str]:
 
 
 def _resolve_db_parallel(vector_database_config, override_db_parallel: int | None = None) -> int:
-    resolved = override_db_parallel or vector_database_config.db_parallel or vector_database_config.n_parallel
+    resolved = override_db_parallel or vector_database_config.db_parallel
     if resolved < 1:
         raise ValueError(f"db_parallel must be >= 1, got {resolved}")
     return resolved
 
 
 def _resolve_column_parallel(vector_database_config, override_column_parallel: int | None = None) -> int:
-    resolved = override_column_parallel or vector_database_config.column_parallel or vector_database_config.n_parallel
+    resolved = override_column_parallel or vector_database_config.column_parallel
     if resolved < 1:
         raise ValueError(f"column_parallel must be >= 1, got {resolved}")
     return resolved
@@ -161,7 +161,6 @@ if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--db_parallel", type=int, default=None, help="Number of databases to process in parallel")
     parser.add_argument("--column_parallel", type=int, default=None, help="Number of columns to scan in parallel within a single database")
-    parser.add_argument("--n_parallel", dest="legacy_n_parallel", type=int, default=None, help=SUPPRESS)
     args = parser.parse_args()
     from app.config import get_config
 
@@ -169,12 +168,6 @@ if __name__ == "__main__":
     configure_logger(app_config.logger_config.print_level)
 
     db_parallel = args.db_parallel if args.db_parallel is not None else app_config.vector_database_config.db_parallel
-    if args.legacy_n_parallel is not None:
-        logger.warning("`--n_parallel` is deprecated and will be removed in a future release. Use `--db_parallel` instead.")
-        if args.db_parallel is not None:
-            logger.warning("Ignoring deprecated `--n_parallel` because `--db_parallel` was also provided.")
-        else:
-            db_parallel = args.legacy_n_parallel
     column_parallel = args.column_parallel if args.column_parallel is not None else app_config.vector_database_config.column_parallel
     run_vector_db_creation(
         dataset_snapshot_path=app_config.dataset_config.save_path,

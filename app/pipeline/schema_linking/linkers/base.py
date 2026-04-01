@@ -10,15 +10,14 @@ class BaseSchemaLinker(ABC):
 
     def __init__(self, extractor_max_retry: Optional[int] = None):
         self._extractor_max_retry = extractor_max_retry
+        self._extractor = LLMExtractor() if extractor_max_retry is None else LLMExtractor(max_retry=extractor_max_retry)
 
     @abstractmethod
     def link(self, data_item: DataItem, llm: LLM, sampling_budget: int = 1) -> tuple[Dict[str, List[str]], Dict[str, int]]:
         pass
 
     def _get_extractor(self) -> LLMExtractor:
-        if self._extractor_max_retry is None:
-            return LLMExtractor()
-        return LLMExtractor(max_retry=self._extractor_max_retry)
+        return self._extractor
 
     def _expand_identical_schema_tables(self, result: Dict[str, List[str]], database_schema: Dict[str, Any]) -> Dict[str, List[str]]:
         """

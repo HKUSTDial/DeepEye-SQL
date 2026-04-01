@@ -149,8 +149,7 @@ def make_vector_db(
     vector_db_path: str,
     max_value_length: int = 100,
     batch_size: int = 1024,
-    n_parallel: int | None = None,
-    column_parallel: int | None = None,
+    column_parallel: int = 1,
     lower_meta_data=True,
     embedding_function=None,
 ):
@@ -181,7 +180,6 @@ def make_vector_db(
         logger.info(f"No text columns found for {db_id}, leaving empty vector database")
         return True
 
-    column_parallel = column_parallel or n_parallel or 1
     max_workers = min(len(all_column_tasks), column_parallel)
     logger.info(f"Processing {len(all_column_tasks)} text columns for {db_id} with {max_workers} worker(s)")
 

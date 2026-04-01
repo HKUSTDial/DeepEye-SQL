@@ -74,18 +74,9 @@ class VectorDatabaseConfig(BaseModel):
     store_root_path: str = Field(default=WORKSPACE_ROOT / "vector_store", description="The root path of the vector database")
     max_value_length: int = Field(default=100, description="The maximum length of the value")
     batch_size: int = Field(default=1024, description="The batch size for adding documents to the vector database")
-    n_parallel: int = Field(default=1, description="Legacy fallback for vector DB parallelism when db_parallel/column_parallel are unset")
-    db_parallel: Optional[int] = Field(default=None, ge=1, description="The number of databases to process in parallel")
-    column_parallel: Optional[int] = Field(default=None, ge=1, description="The number of columns to scan in parallel within a single database")
+    db_parallel: int = Field(default=1, ge=1, description="The number of databases to process in parallel")
+    column_parallel: int = Field(default=1, ge=1, description="The number of columns to scan in parallel within a single database")
     lower_meta_data: bool = Field(default=True, description="Whether to lower the meta data")
-
-    @model_validator(mode="after")
-    def populate_parallel_defaults(self):
-        if self.db_parallel is None:
-            self.db_parallel = self.n_parallel
-        if self.column_parallel is None:
-            self.column_parallel = self.n_parallel
-        return self
 
 
 class ValueRetrievalConfig(BaseModel):
@@ -240,9 +231,8 @@ class Config:
             "api_key": vector_database_config.get("api_key", None),
             "max_value_length": vector_database_config.get("max_value_length", 100),
             "batch_size": vector_database_config.get("batch_size", 1024),
-            "n_parallel": vector_database_config.get("n_parallel", 1),
-            "db_parallel": vector_database_config.get("db_parallel", None),
-            "column_parallel": vector_database_config.get("column_parallel", None),
+            "db_parallel": vector_database_config.get("db_parallel", 1),
+            "column_parallel": vector_database_config.get("column_parallel", 1),
             "lower_meta_data": vector_database_config.get("lower_meta_data", True),
         }
         

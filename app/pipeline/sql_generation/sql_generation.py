@@ -15,6 +15,7 @@ class SQLGenerationRunner:
     _llm: LLM = None
     _dataset: BaseDataset = None
     _thread_pool_executor: ThreadPoolExecutor = None
+    _inner_thread_pool_executor: ThreadPoolExecutor = None
     
     _dc_generator: DCGenerator = None
     _skeleton_generator: SkeletonGenerator = None
@@ -46,6 +47,7 @@ class SQLGenerationRunner:
         configure_schema_service(max_value_example_length=self._dataset_config.max_value_example_length)
         self._llm = LLM(self._stage_config.llm)
         self._thread_pool_executor = ThreadPoolExecutor(max_workers=self._stage_config.n_parallel)
+        self._inner_thread_pool_executor = ThreadPoolExecutor(max_workers=max(1, self._stage_config.n_internal_parallel))
         self._dc_generator = DCGenerator(extractor_max_retry=self._extractor_max_retry)
         self._skeleton_generator = SkeletonGenerator(extractor_max_retry=self._extractor_max_retry)
         self._icl_generator = ICLGenerator(
@@ -73,22 +75,21 @@ class SQLGenerationRunner:
         total_token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         
         # Parallelize different generation methods within a single data item
-        with ThreadPoolExecutor(max_workers=min(self._stage_config.n_internal_parallel, 3)) as executor:
-            generation_tasks = {
-                "dc": executor.submit(self._dc_generator.generate, data_item, self._llm, self._stage_config.dc_sampling_budget),
-                "skeleton": executor.submit(self._skeleton_generator.generate, data_item, self._llm, self._stage_config.skeleton_sampling_budget),
-                "icl": executor.submit(self._icl_generator.generate, data_item, self._llm, self._stage_config.icl_sampling_budget)
-            }
-            
-            results = {}
-            for name, future in generation_tasks.items():
-                try:
-                    results[name] = future.result()
-                except Exception as e:
-                    logger.error(f"Error in {name} generation for item {data_item.question_id}: {e}")
-                    traceback.print_exc()
-                    # Set to None instead of empty list to indicate failure
-                    results[name] = (None, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
+        generation_tasks = {
+            "dc": self._inner_thread_pool_executor.submit(self._dc_generator.generate, data_item, self._llm, self._stage_config.dc_sampling_budget),
+            "skeleton": self._inner_thread_pool_executor.submit(self._skeleton_generator.generate, data_item, self._llm, self._stage_config.skeleton_sampling_budget),
+            "icl": self._inner_thread_pool_executor.submit(self._icl_generator.generate, data_item, self._llm, self._stage_config.icl_sampling_budget)
+        }
+        
+        results = {}
+        for name, future in generation_tasks.items():
+            try:
+                results[name] = future.result()
+            except Exception as e:
+                logger.error(f"Error in {name} generation for item {data_item.question_id}: {e}")
+                traceback.print_exc()
+                # Set to None instead of empty list to indicate failure
+                results[name] = (None, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
 
         dc_sql_candidates, dc_tokens = results["dc"]
         skeleton_sql_candidates, skeleton_tokens = results["skeleton"]
@@ -156,9 +157,14 @@ class SQLGenerationRunner:
         if self._thread_pool_executor is not None:
             self._thread_pool_executor.shutdown(wait=True)
             self._thread_pool_executor = None
+        if self._inner_thread_pool_executor is not None:
+            self._inner_thread_pool_executor.shutdown(wait=True)
+            self._inner_thread_pool_executor = None
         self._llm = None
         self._dataset = None
         self._dc_generator = None
         self._skeleton_generator = None
         self._icl_generator = None
+        if self._artifact_store is not None:
+            self._artifact_store.close()
         reset_schema_service()

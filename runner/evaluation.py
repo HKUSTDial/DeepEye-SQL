@@ -287,13 +287,6 @@ def main():
         help="Path to the dataset snapshot. Default: use config"
     )
     parser.add_argument(
-        "--pkl_path",
-        dest="legacy_pkl_path",
-        type=str,
-        default=None,
-        help=argparse.SUPPRESS,
-    )
-    parser.add_argument(
         "--dataset_type",
         type=str,
         choices=["spider", "bird", "spider2"],
@@ -339,19 +332,8 @@ def main():
     app_config = get_config()
     configure_logger(app_config.logger_config.print_level)
 
-    snapshot_path = args.snapshot_path
-    if args.legacy_pkl_path is not None:
-        logger.warning(
-            "`--pkl_path` is deprecated and will be removed in a future release. "
-            "Use `--snapshot_path` instead."
-        )
-        if snapshot_path is None:
-            snapshot_path = args.legacy_pkl_path
-        else:
-            logger.warning("Ignoring deprecated `--pkl_path` because `--snapshot_path` was also provided.")
-    
     run_evaluation(
-        snapshot_path=snapshot_path,
+        snapshot_path=args.snapshot_path,
         dataset_type=args.dataset_type,
         dataset_split=args.dataset_split,
         max_workers=args.max_workers,

@@ -23,7 +23,8 @@ class ExecutionService:
     ):
         self._result_cache: BoundedCache[tuple[Any, ...], Any] = BoundedCache(result_cache_size)
         self._time_cache: BoundedCache[tuple[Any, ...], float] = BoundedCache(time_cache_size)
-        self._lock = threading.Lock()
+        self._result_lock = threading.Lock()
+        self._time_lock = threading.Lock()
         self._default_timeout = default_timeout
         self._bigquery_credential_path = bigquery_credential_path
         self._snowflake_credential_path = snowflake_credential_path
@@ -32,7 +33,7 @@ class ExecutionService:
         resolved_timeout = self._resolve_timeout(timeout)
         cache_key = self._build_result_key(data_item, sql, resolved_timeout)
         if use_cache:
-            with self._lock:
+            with self._result_lock:
                 cached_result = self._result_cache.get(cache_key)
                 if cached_result is not None:
                     return cached_result
@@ -45,7 +46,7 @@ class ExecutionService:
             snowflake_credential_path=self._snowflake_credential_path,
         )
         if use_cache:
-            with self._lock:
+            with self._result_lock:
                 self._result_cache.set(cache_key, result)
         return result
 
@@ -54,13 +55,14 @@ class ExecutionService:
         cache_key = self._build_time_key(data_item, sql, resolved_timeout, repeat)
         initial_execution_time = None
         if use_cache:
-            with self._lock:
+            with self._time_lock:
                 cached_time = self._time_cache.get(cache_key)
                 if cached_time is not None:
                     return cached_time
+            with self._result_lock:
                 cached_result = self._result_cache.get(self._build_result_key(data_item, sql, resolved_timeout))
-                if cached_result is not None and cached_result.result_rows is not None:
-                    initial_execution_time = cached_result.execution_time
+            if cached_result is not None and cached_result.result_rows is not None:
+                initial_execution_time = cached_result.execution_time
 
         execution_time = measure_execution_time_for_data_item(
             data_item,
@@ -70,7 +72,7 @@ class ExecutionService:
             initial_execution_time=initial_execution_time,
         )
         if use_cache:
-            with self._lock:
+            with self._time_lock:
                 self._time_cache.set(cache_key, execution_time)
         return execution_time
 
@@ -78,8 +80,9 @@ class ExecutionService:
         return get_execution_result_hash(data_item, result_rows)
 
     def reset(self) -> None:
-        with self._lock:
+        with self._result_lock:
             self._result_cache.clear()
+        with self._time_lock:
             self._time_cache.clear()
 
     def _resolve_timeout(self, timeout: Optional[int]) -> int:

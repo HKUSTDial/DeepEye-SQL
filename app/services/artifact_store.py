@@ -1,4 +1,5 @@
 import json
+import queue
 import shutil
 import threading
 from pathlib import Path
@@ -18,11 +19,24 @@ class ArtifactStore:
         self._records_path = self._root / f"{stage_name}.jsonl"
         self._buffer: list[Dict[str, Any]] = []
         self._lock = threading.Lock()
+        self._write_queue: queue.Queue[str | None] = queue.Queue()
+        self._pending_lock = threading.Condition()
+        self._pending_batches = 0
+        self._writer_error: Exception | None = None
+        self._closed = False
+        self._writer_thread = threading.Thread(
+            target=self._writer_loop,
+            name=f"artifact-writer-{stage_name}",
+            daemon=True,
+        )
+        self._writer_thread.start()
 
     def has_checkpoint(self) -> bool:
+        self.sync()
         return self._records_path.exists() and self._records_path.stat().st_size > 0
 
     def record_item(self, data_item: Any, extra_fields: Iterable[str] | None = None) -> None:
+        self._raise_if_closed()
         entry = {
             "item_id": self._get_item_id(data_item),
             "stage_artifact": self._to_jsonable(data_item.get_stage_artifact(self._stage_name).model_dump()),
@@ -38,37 +52,25 @@ class ArtifactStore:
             self._buffer.append(entry)
 
     def flush(self) -> int:
+        self._raise_if_closed()
+        self._raise_writer_error()
         with self._lock:
             if not self._buffer:
                 return 0
             entries = self._buffer
             self._buffer = []
 
-        self._root.mkdir(parents=True, exist_ok=True)
-        if not self._meta_path.exists():
-            self._meta_path.write_text(
-                json.dumps(
-                    {
-                        "format_version": 2,
-                        "stage_name": self._stage_name,
-                        "save_path": str(self._save_path),
-                        "stage_fields": self._stage_fields,
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
+        self._ensure_meta()
 
-        with open(self._records_path, "a", encoding="utf-8") as f:
-            for entry in entries:
-                f.write(json.dumps(entry, ensure_ascii=False))
-                f.write("\n")
-
-        logger.info(f"[{self._stage_name}] Flushed {len(entries)} checkpoint records to {self._records_path}")
+        payload = "".join(f"{json.dumps(entry, ensure_ascii=False)}\n" for entry in entries)
+        with self._pending_lock:
+            self._pending_batches += 1
+        self._write_queue.put(payload)
+        logger.info(f"[{self._stage_name}] Queued {len(entries)} checkpoint records for {self._records_path}")
         return len(entries)
 
     def apply_to_dataset(self, dataset: Any) -> int:
+        self.sync()
         if not self.has_checkpoint():
             return 0
 
@@ -100,8 +102,25 @@ class ArtifactStore:
         return applied
 
     def cleanup(self) -> None:
+        self.close()
         if self._root.exists():
             shutil.rmtree(self._root)
+
+    def sync(self) -> None:
+        self._raise_writer_error()
+        with self._pending_lock:
+            while self._pending_batches > 0 and self._writer_error is None:
+                self._pending_lock.wait()
+        self._raise_writer_error()
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self.sync()
+        self._write_queue.put(None)
+        self._writer_thread.join()
+        self._closed = True
+        self._raise_writer_error()
 
     @staticmethod
     def _get_item_id(data_item: Any) -> str:
@@ -125,6 +144,52 @@ class ArtifactStore:
         if isinstance(value, set):
             return [cls._to_jsonable(v) for v in sorted(value, key=str)]
         return value
+
+    def _ensure_meta(self) -> None:
+        self._root.mkdir(parents=True, exist_ok=True)
+        if not self._meta_path.exists():
+            self._meta_path.write_text(
+                json.dumps(
+                    {
+                        "format_version": 2,
+                        "stage_name": self._stage_name,
+                        "save_path": str(self._save_path),
+                        "stage_fields": self._stage_fields,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+    def _writer_loop(self) -> None:
+        while True:
+            payload = self._write_queue.get()
+            if payload is None:
+                self._write_queue.task_done()
+                break
+            try:
+                if self._writer_error is None:
+                    with open(self._records_path, "a", encoding="utf-8", buffering=1024 * 1024) as f:
+                        f.write(payload)
+            except Exception as exc:
+                self._writer_error = exc
+            finally:
+                with self._pending_lock:
+                    self._pending_batches = max(0, self._pending_batches - 1)
+                    if self._pending_batches == 0 or self._writer_error is not None:
+                        self._pending_lock.notify_all()
+                self._write_queue.task_done()
+
+    def _raise_writer_error(self) -> None:
+        if self._writer_error is not None:
+            raise RuntimeError(
+                f"ArtifactStore writer failed for stage {self._stage_name}: {self._writer_error}"
+            ) from self._writer_error
+
+    def _raise_if_closed(self) -> None:
+        if self._closed:
+            raise RuntimeError(f"ArtifactStore for stage {self._stage_name} is already closed")
 
 
 def load_stage_dataset(

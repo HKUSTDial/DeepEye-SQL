@@ -29,7 +29,7 @@ def save_dataset(dataset: BaseDataset, save_path: str) -> None:
     if len(dataset) > 0:
         item_class = dataset[0].__class__
 
-    with open(items_path, "w", encoding="utf-8") as f:
+    with open(items_path, "w", encoding="utf-8", buffering=1024 * 1024) as f:
         for data_item in dataset:
             record = {
                 "input": data_item.get_input_record().model_dump(),
@@ -67,9 +67,10 @@ def load_dataset(load_path: str) -> BaseDataset:
         logger.info(f"Dataset loaded from structured snapshot {load_path}")
         return dataset
 
-    from .legacy import load_legacy_pickle_dataset
-
-    return load_legacy_pickle_dataset(load_path)
+    raise ValueError(
+        f"Unsupported dataset snapshot format at {load_path}. "
+        "Expected a structured `.snapshot` manifest."
+    )
 
 
 def _try_load_structured_manifest(load_path: Path) -> dict[str, Any] | None:
@@ -98,7 +99,7 @@ def _load_structured_dataset(load_path: Path, manifest: dict[str, Any]) -> BaseD
     dataset._database_schema_cache = {}
     dataset._data = []
 
-    with open(items_path, "r", encoding="utf-8") as f:
+    with open(items_path, "r", encoding="utf-8", buffering=1024 * 1024) as f:
         for line in f:
             if not line.strip():
                 continue

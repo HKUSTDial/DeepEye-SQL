@@ -12,15 +12,14 @@ class BaseChecker(ABC):
 
     def __init__(self, extractor_max_retry: Optional[int] = None):
         self._extractor_max_retry = extractor_max_retry
+        self._extractor = LLMExtractor() if extractor_max_retry is None else LLMExtractor(max_retry=extractor_max_retry)
     
     @abstractmethod
     def check_and_revise(self, sql: str, data_item: DataItem, llm: LLM, sampling_budget: int = 1) -> Tuple[str, Dict[str, int]]:
         pass
 
     def _get_extractor(self) -> LLMExtractor:
-        if self._extractor_max_retry is None:
-            return LLMExtractor()
-        return LLMExtractor(max_retry=self._extractor_max_retry)
+        return self._extractor
     
     def _check_and_revise_with_progressive_stripping(
         self,

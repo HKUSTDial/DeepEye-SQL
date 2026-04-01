@@ -33,10 +33,12 @@ def extract_keywords(
     llm: LLM,
     fix_end_token: bool = False,
     extractor_max_retry: Optional[int] = None,
+    extractor: Optional[LLMExtractor] = None,
 ) -> tuple[List[str], Dict[str, int]]:
     prompt = PromptFactory.format_keywords_extraction_prompt(question, evidence)
     
-    extractor = LLMExtractor() if extractor_max_retry is None else LLMExtractor(max_retry=extractor_max_retry)
+    if extractor is None:
+        extractor = LLMExtractor() if extractor_max_retry is None else LLMExtractor(max_retry=extractor_max_retry)
     results, total_token_usage = extractor.extract_with_retry(
         llm=llm,
         messages=[{"role": "user", "content": prompt}],

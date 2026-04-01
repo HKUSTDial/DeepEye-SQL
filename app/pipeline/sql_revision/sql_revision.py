@@ -15,6 +15,7 @@ class SQLRevisionRunner:
     _llm: LLM = None
     _dataset: BaseDataset = None
     _thread_pool_executor: ThreadPoolExecutor = None
+    _inner_thread_pool_executor: ThreadPoolExecutor = None
     
     _checkers: List[BaseChecker] = None
     _artifact_store: ArtifactStore = None
@@ -49,6 +50,7 @@ class SQLRevisionRunner:
         )
         self._llm = LLM(self._stage_config.llm)
         self._thread_pool_executor = ThreadPoolExecutor(max_workers=self._stage_config.n_parallel)
+        self._inner_thread_pool_executor = ThreadPoolExecutor(max_workers=max(1, self._stage_config.n_internal_parallel))
         extractor_max_retry = self._extractor_max_retry
         
         # Initialize checkers based on config or default list
@@ -149,27 +151,26 @@ class SQLRevisionRunner:
         
         # Parallelize the revision of UNIQUE candidates only
         unique_norms = list(unique_candidates_map.keys())
-        with ThreadPoolExecutor(max_workers=min(len(unique_norms), self._stage_config.n_internal_parallel)) as executor:
-            future_to_norm = {
-                executor.submit(self._revise_one_candidate, unique_candidates_map[norm], data_item): norm 
-                for norm in unique_norms
-            }
-            
-            # normalized_sql -> (revised_sql, tokens)
-            norm_to_result = {}
-            has_failure = False
-            
-            for future in tqdm(as_completed(future_to_norm), total=len(future_to_norm), desc=f"Revising unique candidates for item {data_item.question_id}", disable=True):
-                norm = future_to_norm[future]
-                try:
-                    revised_sql, tokens = future.result()
-                    norm_to_result[norm] = (revised_sql, tokens)
-                except Exception as e:
-                    logger.error(f"Error revising SQL candidate for item {data_item.question_id}: {e}")
-                    traceback.print_exc()
-                    # Mark as failed instead of fallback
-                    norm_to_result[norm] = (None, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
-                    has_failure = True
+        future_to_norm = {
+            self._inner_thread_pool_executor.submit(self._revise_one_candidate, unique_candidates_map[norm], data_item): norm
+            for norm in unique_norms
+        }
+        
+        # normalized_sql -> (revised_sql, tokens)
+        norm_to_result = {}
+        has_failure = False
+        
+        for future in as_completed(future_to_norm):
+            norm = future_to_norm[future]
+            try:
+                revised_sql, tokens = future.result()
+                norm_to_result[norm] = (revised_sql, tokens)
+            except Exception as e:
+                logger.error(f"Error revising SQL candidate for item {data_item.question_id}: {e}")
+                traceback.print_exc()
+                # Mark as failed instead of fallback
+                norm_to_result[norm] = (None, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
+                has_failure = True
 
         # Accumulate tokens only from the actual unique API calls
         for _, tokens in norm_to_result.values():
@@ -230,6 +231,11 @@ class SQLRevisionRunner:
         if self._thread_pool_executor is not None:
             self._thread_pool_executor.shutdown(wait=True)
             self._thread_pool_executor = None
+        if self._inner_thread_pool_executor is not None:
+            self._inner_thread_pool_executor.shutdown(wait=True)
+            self._inner_thread_pool_executor = None
+        if self._artifact_store is not None:
+            self._artifact_store.close()
         reset_execution_service()
         reset_schema_service()
         self._llm = None

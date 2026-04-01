@@ -12,6 +12,7 @@ from collections import Counter
 from tqdm import tqdm
 import time
 from app.services import ArtifactStore, STAGE_ARTIFACT_FIELDS, configure_execution_service, configure_schema_service, get_execution_service, get_schema_service, load_stage_dataset, reset_execution_service, reset_schema_service
+from app.llm_extractor import LLMExtractor
 
 
 class SQLSelectionRunner:
@@ -19,6 +20,7 @@ class SQLSelectionRunner:
     _llm: LLM = None
     _dataset: BaseDataset = None
     _thread_pool_executor: ThreadPoolExecutor = None
+    _inner_thread_pool_executor: ThreadPoolExecutor = None
     _artifact_store: ArtifactStore = None
     _execution_service = None
     _extractor_max_retry: int = 3
@@ -26,6 +28,7 @@ class SQLSelectionRunner:
     _input_save_path: str = ""
     _dataset_config = None
     _timing_refine_repeat: int = 2
+    _extractor: LLMExtractor = None
     
     def __init__(self, stage_config, dataset_config, input_save_path: str, extractor_max_retry: int):
         self._stage_config = stage_config
@@ -53,7 +56,9 @@ class SQLSelectionRunner:
         )
         self._llm = LLM(self._stage_config.llm)
         self._thread_pool_executor = ThreadPoolExecutor(max_workers=self._stage_config.n_parallel)
+        self._inner_thread_pool_executor = ThreadPoolExecutor(max_workers=max(1, self._stage_config.n_internal_parallel))
         self._execution_service = get_execution_service()
+        self._extractor = LLMExtractor(max_retry=self._extractor_max_retry)
 
     @classmethod
     def from_config(cls, app_config=None) -> "SQLSelectionRunner":
@@ -80,7 +85,7 @@ class SQLSelectionRunner:
                 logger.warning(f"Response content: {response}")
                 return None
             answer_content = answer_match.group(1).strip().upper()
-            logger.info(f"Parsed LLM response: {answer_content}")
+            logger.debug(f"Parsed LLM response: {answer_content}")
             # check the answer content is 'A', 'B', or 'TIE'
             if answer_content not in ["A", "B", "TIE"]:
                 logger.error("Answer content is not 'A', 'B', or 'TIE'")
@@ -95,12 +100,18 @@ class SQLSelectionRunner:
         valid_sql_candidates = []
         fallback_sql_candidates = []
         sql_map_to_execution_result = {}
+        sql_map_to_result_hash = {}
         for sql_candidate in data_item.sql_candidates_after_revision:
-            execution_result = self._execution_service.execute(data_item, sql_candidate)
+            execution_result = sql_map_to_execution_result.get(sql_candidate)
+            if execution_result is None:
+                execution_result = self._execution_service.execute(data_item, sql_candidate)
+                sql_map_to_execution_result[sql_candidate] = execution_result
             if execution_result.result_rows is None:
                 continue
-            result_hash = self._execution_service.hash_result(data_item, execution_result.result_rows)
-            sql_map_to_execution_result[sql_candidate] = execution_result
+            result_hash = sql_map_to_result_hash.get(sql_candidate)
+            if result_hash is None:
+                result_hash = self._execution_service.hash_result(data_item, execution_result.result_rows)
+                sql_map_to_result_hash[sql_candidate] = result_hash
             fallback_sql_candidates.append((sql_candidate, result_hash))
             if len(execution_result.result_rows) > 0:
                 valid_sql_candidates.append((sql_candidate, result_hash))
@@ -224,8 +235,7 @@ class SQLSelectionRunner:
             db_type=db_type,
         )
         
-        extractor = LLMExtractor(max_retry=self._extractor_max_retry)
-        votes, total_token_usage = extractor.extract_with_retry(
+        votes, total_token_usage = self._extractor.extract_with_retry(
             llm=self._llm,
             messages=[{"role": "user", "content": prompt}],
             rule_parser=self._parse_llm_response,
@@ -334,33 +344,32 @@ class SQLSelectionRunner:
         
         # Parallelize the pairwise comparisons
         has_failure = False
-        with ThreadPoolExecutor(max_workers=min(len(pair_sqls_to_eval), self._stage_config.n_internal_parallel)) as executor:
-            future_to_pair = {
-                executor.submit(
-                    self._compare_sqls,
-                    sql_a[0],
-                    sql_a[1],
-                    sql_b[0],
-                    sql_b[1],
-                    question=data_item.question,
-                    evidence=data_item.evidence,
-                    db_type=db_type,
-                    database_schema_profile=database_schema_profile,
-                ): (sql_a, sql_b)
-                for sql_a, sql_b in pair_sqls_to_eval
-            }
-            
-            for future in as_completed(future_to_pair):
-                sql_a, sql_b = future_to_pair[future]
-                try:
-                    votes, token_usage = future.result()
-                    self._update_win_matrix(sql_to_idx[sql_a[0]], sql_to_idx[sql_b[0]], votes, win_matrix)
-                    total_token_usage["prompt_tokens"] += token_usage["prompt_tokens"]
-                    total_token_usage["completion_tokens"] += token_usage["completion_tokens"]
-                    total_token_usage["total_tokens"] += token_usage["total_tokens"]
-                except Exception as e:
-                    logger.error(f"Error comparing SQLs {sql_a[0]} and {sql_b[0]}: {e}")
-                    has_failure = True
+        future_to_pair = {
+            self._inner_thread_pool_executor.submit(
+                self._compare_sqls,
+                sql_a[0],
+                sql_a[1],
+                sql_b[0],
+                sql_b[1],
+                question=data_item.question,
+                evidence=data_item.evidence,
+                db_type=db_type,
+                database_schema_profile=database_schema_profile,
+            ): (sql_a, sql_b)
+            for sql_a, sql_b in pair_sqls_to_eval
+        }
+        
+        for future in as_completed(future_to_pair):
+            sql_a, sql_b = future_to_pair[future]
+            try:
+                votes, token_usage = future.result()
+                self._update_win_matrix(sql_to_idx[sql_a[0]], sql_to_idx[sql_b[0]], votes, win_matrix)
+                total_token_usage["prompt_tokens"] += token_usage["prompt_tokens"]
+                total_token_usage["completion_tokens"] += token_usage["completion_tokens"]
+                total_token_usage["total_tokens"] += token_usage["total_tokens"]
+            except Exception as e:
+                logger.error(f"Error comparing SQLs {sql_a[0]} and {sql_b[0]}: {e}")
+                has_failure = True
         
         # If any comparison failed, set result to None
         if has_failure:
@@ -415,7 +424,13 @@ class SQLSelectionRunner:
         if self._thread_pool_executor is not None:
             self._thread_pool_executor.shutdown(wait=True)
             self._thread_pool_executor = None
+        if self._inner_thread_pool_executor is not None:
+            self._inner_thread_pool_executor.shutdown(wait=True)
+            self._inner_thread_pool_executor = None
+        if self._artifact_store is not None:
+            self._artifact_store.close()
         reset_execution_service()
         reset_schema_service()
         self._llm = None
+        self._extractor = None
         self._dataset = None

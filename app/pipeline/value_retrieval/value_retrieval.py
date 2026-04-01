@@ -11,13 +11,13 @@ from chromadb.api import ClientAPI
 from chromadb import PersistentClient
 from chromadb.types import Collection
 from typing import Dict, List, Any
-import copy
 import time
 import threading
 from collections import defaultdict
 from app.logger import logger
 import traceback
 from app.services import ArtifactStore, STAGE_ARTIFACT_FIELDS, configure_schema_service, get_schema_service, load_stage_dataset, reset_schema_service
+from app.llm_extractor import LLMExtractor
 
 
 def _is_spider2_item(data_item: DataItem) -> bool:
@@ -33,12 +33,14 @@ class ValueRetrievalRunner:
     _vector_db_collection_dict: Dict[str, Collection]
     _embedding_function: Any = None # Shared embedding function
     _thread_pool_executor: ThreadPoolExecutor = None
+    _inner_thread_pool_executor: ThreadPoolExecutor = None
     _db_lock: threading.Lock
     _artifact_store: ArtifactStore = None
     _extractor_max_retry: int = 3
     _stage_config = None
     _dataset_config = None
     _vector_database_config = None
+    _keyword_extractor: LLMExtractor = None
     
     def __init__(
         self,
@@ -86,6 +88,8 @@ class ValueRetrievalRunner:
             self._embedding_function = None
         
         self._thread_pool_executor = ThreadPoolExecutor(max_workers=self._stage_config.n_parallel)
+        self._inner_thread_pool_executor = ThreadPoolExecutor(max_workers=max(1, self._stage_config.n_internal_parallel))
+        self._keyword_extractor = LLMExtractor(max_retry=self._extractor_max_retry)
 
     @classmethod
     def from_config(cls, app_config=None) -> "ValueRetrievalRunner":
@@ -120,6 +124,7 @@ class ValueRetrievalRunner:
             self._llm,
             fix_end_token=self._llm.llm_config.fix_end_token,
             extractor_max_retry=self._extractor_max_retry,
+            extractor=self._keyword_extractor,
         )
     
     def _retrieve_values_for_item(self, data_item: DataItem):
@@ -154,25 +159,22 @@ class ValueRetrievalRunner:
                     column_tasks.append((table_name, column_name))
         
         if column_tasks:
-            # Use a local executor to avoid deadlock with the main thread pool
-            with ThreadPoolExecutor(max_workers=min(len(column_tasks), self._stage_config.n_internal_parallel)) as col_executor:
-                future_to_col = {
-                    col_executor.submit(
-                        retrieve_values_for_one_column,
-                        query_embeddings, # Pass pre-computed embeddings
-                        collection,
-                        t_name,
-                        c_name,
-                        self._stage_config.n_results,
-                        self._vector_database_config.lower_meta_data
-                    ): (t_name, c_name) for t_name, c_name in column_tasks
-                }
-                
-                for future in tqdm(as_completed(future_to_col), total=len(future_to_col), desc=f"Retrieving values for item {data_item.question_id}", leave=False):
-                    result = future.result()
-                    original_table_name = map_lower_table_name_to_original_table_name(result["table_name"], data_item.database_schema)
-                    original_column_name = map_lower_column_name_to_original_column_name(result["table_name"], result["column_name"], data_item.database_schema)
-                    data_item.retrieved_values[original_table_name][original_column_name] = result["values"]
+            future_to_col = {
+                self._inner_thread_pool_executor.submit(
+                    retrieve_values_for_one_column,
+                    query_embeddings,
+                    collection,
+                    t_name,
+                    c_name,
+                    self._stage_config.n_results,
+                    self._vector_database_config.lower_meta_data
+                ): (t_name, c_name) for t_name, c_name in column_tasks
+            }
+            for future in as_completed(future_to_col):
+                result = future.result()
+                original_table_name = map_lower_table_name_to_original_table_name(result["table_name"], data_item.database_schema)
+                original_column_name = map_lower_column_name_to_original_column_name(result["table_name"], result["column_name"], data_item.database_schema)
+                data_item.retrieved_values[original_table_name][original_column_name] = result["values"]
         
         data_item.retrieved_values = dict(data_item.retrieved_values)
         self._update_database_schema(data_item)
@@ -189,7 +191,7 @@ class ValueRetrievalRunner:
                 data_item.total_llm_cost[k] += v
 
     def _update_database_schema(self, data_item: DataItem):
-        database_schema_after_value_retrieval = copy.deepcopy(data_item.database_schema)
+        database_schema_after_value_retrieval = self._clone_database_schema(data_item.database_schema)
         schema_service = get_schema_service()
         for table_name, column_dict in data_item.retrieved_values.items():
             for column_name, values in column_dict.items():
@@ -204,13 +206,57 @@ class ValueRetrievalRunner:
                 new_values = new_values[:self._stage_config.n_results]
                 database_schema_after_value_retrieval["tables"][table_name]["columns"][column_name]["value_examples"] = new_values
         data_item.database_schema_after_value_retrieval = database_schema_after_value_retrieval
+
+    @staticmethod
+    def _clone_database_schema(database_schema: Dict[str, Any]) -> Dict[str, Any]:
+        cloned_schema = {
+            key: value
+            for key, value in database_schema.items()
+            if key != "tables"
+        }
+        cloned_tables = {}
+        for table_name, table_schema in database_schema.get("tables", {}).items():
+            cloned_table = {
+                key: value
+                for key, value in table_schema.items()
+                if key not in {"columns", "nested_columns"}
+            }
+            cloned_columns = {}
+            for column_name, column_schema in table_schema.get("columns", {}).items():
+                cloned_column = dict(column_schema)
+                foreign_keys = cloned_column.get("foreign_keys")
+                if foreign_keys is not None:
+                    cloned_column["foreign_keys"] = list(foreign_keys)
+                value_examples = cloned_column.get("value_examples")
+                if isinstance(value_examples, list):
+                    cloned_column["value_examples"] = list(value_examples)
+                value_statistics = cloned_column.get("value_statistics")
+                if isinstance(value_statistics, dict):
+                    cloned_column["value_statistics"] = dict(value_statistics)
+                cloned_columns[column_name] = cloned_column
+            cloned_table["columns"] = cloned_columns
+            nested_columns = table_schema.get("nested_columns")
+            if isinstance(nested_columns, dict):
+                cloned_table["nested_columns"] = {
+                    nested_name: dict(nested_info) if isinstance(nested_info, dict) else nested_info
+                    for nested_name, nested_info in nested_columns.items()
+                }
+            cloned_tables[table_name] = cloned_table
+        cloned_schema["tables"] = cloned_tables
+        return cloned_schema
     
     def _clean_up(self):
         if self._thread_pool_executor is not None:
             self._thread_pool_executor.shutdown(wait=True)
             self._thread_pool_executor = None
+        if self._inner_thread_pool_executor is not None:
+            self._inner_thread_pool_executor.shutdown(wait=True)
+            self._inner_thread_pool_executor = None
         self._vector_db_client_dict = {}
         self._vector_db_collection_dict = {}
+        self._keyword_extractor = None
+        if self._artifact_store is not None:
+            self._artifact_store.close()
         reset_schema_service()
     
     def save_result(self, materialize_snapshot: bool = False):
@@ -232,7 +278,7 @@ class ValueRetrievalRunner:
         data_item.total_time = 0.0
         data_item.total_llm_cost = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         # Copy original schema as-is (no value retrieval enhancement)
-        data_item.database_schema_after_value_retrieval = copy.deepcopy(data_item.database_schema)
+        data_item.database_schema_after_value_retrieval = self._clone_database_schema(data_item.database_schema)
         
         logger.info(f"Skipping value retrieval for item {data_item.question_id}")
 

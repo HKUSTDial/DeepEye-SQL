@@ -30,7 +30,6 @@ lower_meta_data = true
 batch_size = 128
 db_parallel = 2
 column_parallel = 8
-# n_parallel = 8  # deprecated compatibility fallback
 
 ########## Value retrieval configuration ##########
 [value_retrieval]

@@ -18,6 +18,8 @@ PROFILE_STRIPPING_LEVELS = [
 DEFAULT_SQLITE_SCHEMA_CACHE_SIZE = 256
 DEFAULT_SCHEMA_VALUE_EXAMPLES_CACHE_SIZE = 8192
 DEFAULT_SCHEMA_VALUE_STATISTICS_CACHE_SIZE = 8192
+DEFAULT_SCHEMA_PROFILE_CACHE_SIZE = 4096
+DEFAULT_TOKEN_ENCODING_CACHE_SIZE = 16
 
 
 class SchemaService:
@@ -28,10 +30,15 @@ class SchemaService:
         sqlite_schema_cache_size: int = DEFAULT_SQLITE_SCHEMA_CACHE_SIZE,
         value_examples_cache_size: int = DEFAULT_SCHEMA_VALUE_EXAMPLES_CACHE_SIZE,
         value_statistics_cache_size: int = DEFAULT_SCHEMA_VALUE_STATISTICS_CACHE_SIZE,
+        profile_cache_size: int = DEFAULT_SCHEMA_PROFILE_CACHE_SIZE,
+        encoding_cache_size: int = DEFAULT_TOKEN_ENCODING_CACHE_SIZE,
     ):
         self._sqlite_schema_cache: BoundedCache[str, Dict[str, Any]] = BoundedCache(sqlite_schema_cache_size)
         self._value_examples_cache: BoundedCache[tuple[str, str, str], list[str]] = BoundedCache(value_examples_cache_size)
         self._value_statistics_cache: BoundedCache[tuple[str, str, str], Dict[str, Any]] = BoundedCache(value_statistics_cache_size)
+        self._schema_profile_cache: BoundedCache[tuple[Any, ...], str] = BoundedCache(profile_cache_size)
+        self._encoding_cache: BoundedCache[str, Any] = BoundedCache(encoding_cache_size)
+        self._schema_versions: dict[int, int] = {}
         self._schema_locks: dict[str, threading.RLock] = {}
         self._lock = threading.RLock()
         self._max_value_example_length = max_value_example_length
@@ -118,7 +125,21 @@ class SchemaService:
             include_value_statistics=include_value_statistics,
             include_value_examples=include_value_examples,
         )
-        return get_database_schema_profile(
+        cache_key = (
+            id(database_schema_dict),
+            self._schema_versions.get(id(database_schema_dict), 0),
+            compress_identical_schemas,
+            include_description,
+            include_value_statistics,
+            include_value_examples,
+            include_nested_columns,
+        )
+        with self._lock:
+            cached_profile = self._schema_profile_cache.get(cache_key)
+        if cached_profile is not None:
+            return cached_profile
+
+        schema_profile = get_database_schema_profile(
             database_schema_dict,
             compress_identical_schemas=compress_identical_schemas,
             include_description=include_description,
@@ -126,6 +147,9 @@ class SchemaService:
             include_value_examples=include_value_examples,
             include_nested_columns=include_nested_columns,
         )
+        with self._lock:
+            self._schema_profile_cache.set(cache_key, schema_profile)
+        return schema_profile
 
     def build_prompt_with_progressive_schema_stripping(
         self,
@@ -137,18 +161,7 @@ class SchemaService:
         item_id: Any,
         log_prefix: str,
     ) -> tuple[str | None, int]:
-        import tiktoken
-
-        try:
-            encoding = tiktoken.encoding_for_model(encoding_model_name)
-        except Exception:
-            try:
-                encoding = tiktoken.get_encoding("cl100k_base")
-            except Exception as exc:
-                logger.warning(
-                    f"Falling back to approximate prompt length for {log_prefix} item {item_id}: {exc}"
-                )
-                encoding = None
+        encoding = self._get_encoding(encoding_model_name, log_prefix=log_prefix, item_id=item_id)
 
         for level_idx, levels in enumerate(PROFILE_STRIPPING_LEVELS):
             database_schema_profile = self.build_schema_profile(
@@ -167,6 +180,9 @@ class SchemaService:
             self._sqlite_schema_cache.clear()
             self._value_examples_cache.clear()
             self._value_statistics_cache.clear()
+            self._schema_profile_cache.clear()
+            self._encoding_cache.clear()
+            self._schema_versions.clear()
             self._schema_locks.clear()
 
     def _ensure_column_features_locked(
@@ -186,6 +202,7 @@ class SchemaService:
         if include_value_examples and column_schema_dict.get("value_examples") is None:
             if column_type == "BLOB":
                 column_schema_dict["value_examples"] = []
+                self._mark_schema_dirty(database_schema_dict)
             else:
                 cached_examples = self._value_examples_cache.get(column_cache_key)
                 if cached_examples is None:
@@ -197,6 +214,7 @@ class SchemaService:
                     )
                     self._value_examples_cache.set(column_cache_key, cached_examples)
                 column_schema_dict["value_examples"] = cached_examples
+                self._mark_schema_dirty(database_schema_dict)
 
         if include_value_statistics and column_schema_dict.get("value_statistics") is None:
             cached_statistics = self._value_statistics_cache.get(column_cache_key)
@@ -204,6 +222,7 @@ class SchemaService:
                 cached_statistics = load_value_statistics(db_path, table_name, column_name)
                 self._value_statistics_cache.set(column_cache_key, cached_statistics)
             column_schema_dict["value_statistics"] = cached_statistics
+            self._mark_schema_dirty(database_schema_dict)
 
     def _get_schema_lock(self, db_path: str) -> threading.RLock:
         cache_key = str(Path(db_path).resolve())
@@ -211,6 +230,32 @@ class SchemaService:
             if cache_key not in self._schema_locks:
                 self._schema_locks[cache_key] = threading.RLock()
             return self._schema_locks[cache_key]
+
+    def _mark_schema_dirty(self, database_schema_dict: Dict[str, Any]) -> None:
+        schema_id = id(database_schema_dict)
+        with self._lock:
+            self._schema_versions[schema_id] = self._schema_versions.get(schema_id, 0) + 1
+
+    def _get_encoding(self, encoding_model_name: str, *, log_prefix: str, item_id: Any):
+        with self._lock:
+            if encoding_model_name in self._encoding_cache:
+                return self._encoding_cache.get(encoding_model_name)
+
+        import tiktoken
+
+        try:
+            encoding = tiktoken.encoding_for_model(encoding_model_name)
+        except Exception:
+            try:
+                encoding = tiktoken.get_encoding("cl100k_base")
+            except Exception as exc:
+                logger.warning(
+                    f"Falling back to approximate prompt length for {log_prefix} item {item_id}: {exc}"
+                )
+                encoding = None
+        with self._lock:
+            self._encoding_cache.set(encoding_model_name, encoding)
+        return encoding
 
 
 _schema_service: SchemaService | None = None

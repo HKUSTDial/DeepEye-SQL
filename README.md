@@ -279,7 +279,7 @@ max_model_len = 128000
 
 - Each stage can use a different model.
 - All stage outputs are stored as structured `.snapshot` manifests.
-- Legacy `.pkl` compatibility is kept only for migration and wrapper flows.
+- Only structured `.snapshot` manifests are supported.
 
 ## Quick Start
 
@@ -426,18 +426,11 @@ This is useful when you want to quantify:
 - [results/spider2-lite](results/spider2-lite)
 - [results/spider2-snow](results/spider2-snow)
 
-### Utility / migration tools
-
-- [runner/migrate_legacy_snapshot.py](runner/migrate_legacy_snapshot.py)
-- [runner/convert_pkl_to_sql.py](runner/convert_pkl_to_sql.py)
-
-These exist to smooth older pickle-based workflows into the new snapshot format.
-
 ## FAQ
 
 ### Why do I see `.snapshot` instead of `.pkl`?
 
-The repository has moved to a structured snapshot workflow. This makes checkpointing, resume, conversion, and stage-wise inspection much more robust than a monolithic pickle.
+The repository uses a structured snapshot workflow. This makes checkpointing, resume, conversion, and stage-wise inspection much more robust than a monolithic pickle.
 
 ### Does Spider2 need vector retrieval?
 
