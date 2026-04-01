@@ -185,7 +185,7 @@ DeepEye-SQL
 ### 1. Clone
 
 ```bash
-git clone https://github.com/<your-org>/DeepEye-SQL.git
+git clone https://github.com/HKUSTDial/DeepEye-SQL.git
 cd DeepEye-SQL
 ```
 
@@ -224,7 +224,11 @@ This downloads:
 
 ### Spider2
 
-Please obtain Spider2 data from the official release and place it under paths consistent with your config, for example:
+Please obtain Spider2 data from the official repository:
+
+- https://github.com/xlang-ai/Spider2
+
+Follow the official setup instructions there, then place the prepared data under paths consistent with your config, for example:
 
 - `data/spider2-lite`
 - `data/spider2-snow`
