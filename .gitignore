@@ -41,3 +41,5 @@ snowflake_credential.json
 # docs
 docs/
 config/*-ds-reasoner.toml
+
+.codex
