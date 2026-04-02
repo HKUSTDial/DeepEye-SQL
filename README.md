@@ -432,10 +432,6 @@ This is useful when you want to quantify:
 
 ## FAQ
 
-### Why do I see `.snapshot` instead of `.pkl`?
-
-The repository uses a structured snapshot workflow. This makes checkpointing, resume, conversion, and stage-wise inspection much more robust than a monolithic pickle.
-
 ### Does Spider2 need vector retrieval?
 
 No. The current pipeline skips vector DB construction for Spider2 and relies on the Spider2-specific database and schema workflow.
