@@ -21,14 +21,17 @@ store_root_path = "workspace/vector_database/bird/dev"
 max_value_length = 100
 lower_meta_data = true
 batch_size = 128
-db_parallel = 2
+db_parallel = 4
 column_parallel = 8
+build_backend = "local_index"   # chroma | local_index | both
 
 ########## Value retrieval configuration ##########
 [value_retrieval]
 n_results = 5
-n_parallel = 8
-n_internal_parallel = 32   # max workers within a single sample (column retrieval)
+n_parallel = 8   # number of samples to process in parallel
+query_parallel_per_sample = 16   # concurrent Chroma column queries allowed within one sample
+backend = "local_index"   # use "chroma" to keep the original backend
+local_index_device = "auto"   # auto | cpu | cuda | cuda:0 | cuda:1
 save_path = "workspace/value_retrieval/bird/dev.snapshot"
 
 [value_retrieval.llm]
@@ -66,7 +69,7 @@ save_path = "workspace/sql_generation/bird/dev.snapshot"
 dc_sampling_budget = 4
 skeleton_sampling_budget = 4
 icl_sampling_budget = 4
-icl_few_shot_examples_path = "data/bird/dev/few_shots.json"
+icl_few_shot_examples_path = "results/bird_dev_few_shots.json"
 
 [sql_generation.llm]
 model = "your-sql-generation-model-name"

@@ -5,6 +5,7 @@ import shutil
 from tqdm import tqdm
 from typing import List, Dict, Any
 from .qwen_embedding_function import QwenEmbeddingFunction
+from .local_index import get_local_index_path, write_local_index_column, write_local_index_manifest
 from app.db_utils import load_table_names, load_column_names_and_types, execute_sql_without_cache
 from app.logger import logger
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -104,11 +105,13 @@ def _process_one_column(
     max_value_length: int, 
     batch_size: int, 
     lower_meta_data: bool, 
-    collection: Any, 
-    db_id: str
+    collection: Any | None, 
+    db_id: str,
+    embedding_function: Any,
+    local_index_path: str | Path | None,
 ):
     if not _is_text_column_type(column_type):
-        return
+        return None
     
     query_sql = f"""
     SELECT DISTINCT `{column_name}` FROM `{table_name}` 
@@ -123,23 +126,44 @@ def _process_one_column(
         value_examples = [str(row[0]) for row in result.result_rows]
         
         if len(value_examples) == 0:
-            return
+            return None
         
         if _is_uuid_column(value_examples) or _is_number_column(value_examples):
-            return
+            return None
+
+        stored_documents = []
+        stored_embeddings = []
+        stored_table_name = table_name.lower() if lower_meta_data else table_name
+        stored_column_name = column_name.lower() if lower_meta_data else column_name
         
         # Process in batches to stay under ChromaDB's batch size limit
         for i in tqdm(range(0, len(value_examples), batch_size), desc=f"Adding batches for {column_name}", leave=False):
             batch_examples = value_examples[i:i + batch_size]
-            collection.add(
-                ids=[str(uuid.uuid4()) for _ in range(len(batch_examples))],
-                documents=batch_examples,
-                metadatas=[
-                    {"db_id": db_id.lower(), "table_name": table_name.lower(), "column_name": column_name.lower()} 
-                    if lower_meta_data else {"db_id": db_id, "table_name": table_name, "column_name": column_name}
-                    for _ in range(len(batch_examples))
-                ],
+            batch_embeddings = embedding_function(batch_examples)
+            if collection is not None:
+                collection.add(
+                    ids=[str(uuid.uuid4()) for _ in range(len(batch_examples))],
+                    documents=batch_examples,
+                    embeddings=batch_embeddings,
+                    metadatas=[
+                        {"db_id": db_id.lower(), "table_name": table_name.lower(), "column_name": column_name.lower()} 
+                        if lower_meta_data else {"db_id": db_id, "table_name": table_name, "column_name": column_name}
+                        for _ in range(len(batch_examples))
+                    ],
+                )
+            if local_index_path is not None:
+                stored_documents.extend(batch_examples)
+                stored_embeddings.extend(batch_embeddings)
+
+        if local_index_path is not None:
+            return write_local_index_column(
+                local_index_path=local_index_path,
+                table_name=stored_table_name,
+                column_name=stored_column_name,
+                documents=stored_documents,
+                embeddings=stored_embeddings,
             )
+        return None
     else:
         raise RuntimeError(f"Error executing SQL for {db_id}.{table_name}.{column_name}: {result.error_message}")
 
@@ -152,6 +176,7 @@ def make_vector_db(
     column_parallel: int = 1,
     lower_meta_data=True,
     embedding_function=None,
+    build_backend: str = "both",
 ):
     """
     Make a vector database from a database path.
@@ -162,12 +187,23 @@ def make_vector_db(
     
     logger.info(f"Making vector database for {db_path}, vector database path: {vector_db_path}")
     db_id = Path(db_path).stem
-    client = PersistentClient(path=vector_db_path)
-    collection = client.create_collection(
-        name=get_collection_name(db_id),
-        embedding_function=embedding_function,
-        metadata={"hnsw:space": "cosine"}
-    )
+    vector_db_path = Path(vector_db_path)
+    vector_db_path.mkdir(parents=True, exist_ok=True)
+
+    build_chroma = build_backend in {"chroma", "both"}
+    build_local_index = build_backend in {"local_index", "both"}
+    if not build_chroma and not build_local_index:
+        raise ValueError(f"Unsupported build_backend: {build_backend}")
+
+    collection = None
+    if build_chroma:
+        client = PersistentClient(path=vector_db_path)
+        collection = client.create_collection(
+            name=get_collection_name(db_id),
+            embedding_function=embedding_function,
+            metadata={"hnsw:space": "cosine"}
+        )
+    local_index_path = get_local_index_path(vector_db_path) if build_local_index else None
     
     all_column_tasks = []
     for table_name in load_table_names(db_path):
@@ -178,24 +214,30 @@ def make_vector_db(
 
     if len(all_column_tasks) == 0:
         logger.info(f"No text columns found for {db_id}, leaving empty vector database")
+        if build_local_index:
+            write_local_index_manifest(get_local_index_path(vector_db_path), [])
         return True
 
     max_workers = min(len(all_column_tasks), column_parallel)
     logger.info(f"Processing {len(all_column_tasks)} text columns for {db_id} with {max_workers} worker(s)")
 
     failed = False
+    local_index_entries = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = []
         for table_name, column_name, column_type in all_column_tasks:
             futures.append(executor.submit(
                 _process_one_column,
                 db_path, table_name, column_name, column_type, 
-                max_value_length, batch_size, lower_meta_data, collection, db_id
+                max_value_length, batch_size, lower_meta_data, collection, db_id,
+                embedding_function, local_index_path,
             ))
         
         for future in tqdm(as_completed(futures), total=len(futures), desc=f"Making vector database for {db_id}"):
             try:
-                future.result()
+                local_index_entry = future.result()
+                if local_index_entry is not None:
+                    local_index_entries.append(local_index_entry)
             except Exception as e:
                 logger.error(f"Failed to process column: {e}")
                 # Cancel all other pending tasks
@@ -208,5 +250,8 @@ def make_vector_db(
         if Path(vector_db_path).exists():
             shutil.rmtree(vector_db_path)
         return False
+
+    if build_local_index:
+        write_local_index_manifest(local_index_path, local_index_entries)
         
     return True

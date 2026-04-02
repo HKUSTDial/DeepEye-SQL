@@ -37,10 +37,10 @@ class DataItem(BaseModel):
     database_schema_after_value_retrieval: Optional[Dict[str, Any]] = Field(default=None, description="The database schema with retrieved values of the data item")
     
     # Schema Linking Step
-    direct_linked_tables_and_columns: Optional[Dict[str, Dict[str, List[str]]]] = Field(default=None, description="The linked tables and columns of the data item by Direct Linking")
-    reversed_linked_tables_and_columns: Optional[Dict[str, Dict[str, List[str]]]] = Field(default=None, description="The linked tables and columns of the data item by Reversed Linking")
-    value_linked_tables_and_columns: Optional[Dict[str, Dict[str, List[str]]]] = Field(default=None, description="The linked tables and columns of the data item by Value Linking")
-    final_linked_tables_and_columns: Optional[Dict[str, Dict[str, List[str]]]] = Field(default=None, description="The final linked tables and columns of the data item")
+    direct_linked_tables_and_columns: Optional[Dict[str, List[str]]] = Field(default=None, description="The linked tables and columns of the data item by Direct Linking")
+    reversed_linked_tables_and_columns: Optional[Dict[str, List[str]]] = Field(default=None, description="The linked tables and columns of the data item by Reversed Linking")
+    value_linked_tables_and_columns: Optional[Dict[str, List[str]]] = Field(default=None, description="The linked tables and columns of the data item by Value Linking")
+    final_linked_tables_and_columns: Optional[Dict[str, List[str]]] = Field(default=None, description="The final linked tables and columns of the data item")
     database_schema_after_schema_linking: Optional[Dict[str, Any]] = Field(default=None, description="The database schema with linked tables and columns of the data item")
     
     # SQL Generation Step

@@ -100,6 +100,7 @@ def make_vector_db_for_db_path(db_path: str, vector_database_config, column_para
             column_parallel=_resolve_column_parallel(vector_database_config, column_parallel),
             lower_meta_data=vector_database_config.lower_meta_data,
             embedding_function=embedding_function,
+            build_backend=vector_database_config.build_backend,
         )
         
         if not success:

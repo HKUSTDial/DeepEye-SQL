@@ -77,13 +77,16 @@ class VectorDatabaseConfig(BaseModel):
     db_parallel: int = Field(default=1, ge=1, description="The number of databases to process in parallel")
     column_parallel: int = Field(default=1, ge=1, description="The number of columns to scan in parallel within a single database")
     lower_meta_data: bool = Field(default=True, description="Whether to lower the meta data")
+    build_backend: Literal["chroma", "local_index", "both"] = Field(default="both", description="Which retrieval index artifacts to build")
 
 
 class ValueRetrievalConfig(BaseModel):
     llm: LLMConfig = Field(..., description="The llm config, used to extract keywords")
     n_results: int = Field(default=5, description="The number of results to retrieve")
-    n_parallel: int = Field(default=16, description="The number of parallel threads to use")
-    n_internal_parallel: int = Field(default=32, description="Max parallel workers within a single sample (e.g. column retrieval)")
+    n_parallel: int = Field(default=16, description="The number of samples to process in parallel")
+    query_parallel_per_sample: int = Field(default=4, ge=1, description="Maximum concurrent Chroma column queries within a single sample")
+    backend: Literal["chroma", "local_index"] = Field(default="chroma", description="The retrieval backend to use for value retrieval")
+    local_index_device: str = Field(default="auto", description="Execution device for the local index backend, e.g. auto, cpu, cuda, cuda:0, cuda:1")
     save_path: str = Field(default=WORKSPACE_ROOT / "value_retrieval", description="The save path of the value retrieval result")
 
 
@@ -234,6 +237,7 @@ class Config:
             "db_parallel": vector_database_config.get("db_parallel", 1),
             "column_parallel": vector_database_config.get("column_parallel", 1),
             "lower_meta_data": vector_database_config.get("lower_meta_data", True),
+            "build_backend": vector_database_config.get("build_backend", "both"),
         }
         
         # value retrieval config
@@ -242,7 +246,9 @@ class Config:
             "llm": LLMConfig(**value_retrieval_config.get("llm")),
             "n_results": value_retrieval_config.get("n_results", 5),
             "n_parallel": value_retrieval_config.get("n_parallel", 16),
-            "n_internal_parallel": value_retrieval_config.get("n_internal_parallel", 32),
+            "query_parallel_per_sample": value_retrieval_config.get("query_parallel_per_sample", 4),
+            "backend": value_retrieval_config.get("backend", "chroma"),
+            "local_index_device": value_retrieval_config.get("local_index_device", "auto"),
             "save_path": value_retrieval_config.get("save_path", WORKSPACE_ROOT / "value_retrieval"),
         }
         

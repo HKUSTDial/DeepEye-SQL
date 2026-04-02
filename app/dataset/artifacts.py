@@ -35,10 +35,10 @@ class ValueRetrievalArtifact(BaseModel):
 
 
 class SchemaLinkingArtifact(BaseModel):
-    direct_linked_tables_and_columns: Optional[Dict[str, Dict[str, List[str]]]] = Field(default=None)
-    reversed_linked_tables_and_columns: Optional[Dict[str, Dict[str, List[str]]]] = Field(default=None)
-    value_linked_tables_and_columns: Optional[Dict[str, Dict[str, List[str]]]] = Field(default=None)
-    final_linked_tables_and_columns: Optional[Dict[str, Dict[str, List[str]]]] = Field(default=None)
+    direct_linked_tables_and_columns: Optional[Dict[str, List[str]]] = Field(default=None)
+    reversed_linked_tables_and_columns: Optional[Dict[str, List[str]]] = Field(default=None)
+    value_linked_tables_and_columns: Optional[Dict[str, List[str]]] = Field(default=None)
+    final_linked_tables_and_columns: Optional[Dict[str, List[str]]] = Field(default=None)
     database_schema_after_schema_linking: Optional[Dict[str, Any]] = Field(default=None)
     direct_linking_recall: Optional[Dict[str, float]] = Field(default=None)
     reversed_linking_recall: Optional[Dict[str, float]] = Field(default=None)
