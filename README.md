@@ -446,14 +446,17 @@ That is intentional fail-fast behavior. Each stage expects its predecessor snaps
 
 ## Citation
 
-If you find DeepEye-SQL useful in your research, please cite the paper once the final bibliographic metadata is available.
+If you find DeepEye-SQL useful in your research, please cite:
 
 ```bibtex
-@inproceedings{deepeye_sql_sigmod_2026,
-  title     = {DeepEye-SQL: Software-Engineering-Inspired Text-to-SQL},
-  booktitle = {Proceedings of the ACM SIGMOD International Conference on Management of Data},
-  year      = {2026},
-  note      = {Citation metadata will be updated after publication}
+@article{li2025deepeye,
+  author  = {Boyan Li and Chong Chen and Zhujun Xue and Yinan Mei and Yuyu Luo},
+  title   = {{DeepEye-SQL:} A Software-Engineering-Inspired Text-to-SQL Framework},
+  journal = {Proc. {ACM} Manag. Data},
+  volume  = {4},
+  number  = {3},
+  year    = {2026},
+  doi     = {10.1145/3802035}
 }
 ```
 
