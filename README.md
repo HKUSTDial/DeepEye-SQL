@@ -6,6 +6,7 @@
 <p>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white" alt="Python"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-1f6feb" alt="License"></a>
+  <a href="https://arxiv.org/abs/2510.17586"><img src="https://img.shields.io/badge/Paper-arXiv%3A2510.17586-b31b1b?logo=arxiv&logoColor=white" alt="Paper"></a>
   <img src="https://img.shields.io/badge/Task-Text--to--SQL-0f766e" alt="Task">
   <img src="https://img.shields.io/badge/Benchmarks-Spider%20%7C%20BIRD%20%7C%20Spider2-7c3aed" alt="Benchmarks">
   <img src="https://img.shields.io/badge/Architecture-Multi--Stage%20Pipeline-f97316" alt="Architecture">
@@ -447,6 +448,8 @@ That is intentional fail-fast behavior. Each stage expects its predecessor snaps
 ## Citation
 
 If you find DeepEye-SQL useful in your research, please cite:
+
+Paper: [arXiv:2510.17586](https://arxiv.org/abs/2510.17586)
 
 ```bibtex
 @article{li2025deepeye,
