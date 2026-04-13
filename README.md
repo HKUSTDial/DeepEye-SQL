@@ -4,13 +4,16 @@
 <p><strong>SIGMOD 2026 · Software-Engineering-Inspired Text-to-SQL</strong></p>
 
 <p>
-  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white" alt="Python"></a>
-  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-1f6feb" alt="License"></a>
-  <a href="https://arxiv.org/abs/2510.17586"><img src="https://img.shields.io/badge/Paper-arXiv%3A2510.17586-b31b1b?logo=arxiv&logoColor=white" alt="Paper"></a>
   <a href="https://deepeyesql-hahwwmgj.manus.space"><img src="https://img.shields.io/badge/Homepage-Visit-0ea5e9" alt="Homepage"></a>
+  <a href="https://arxiv.org/abs/2510.17586"><img src="https://img.shields.io/badge/Paper-arXiv%3A2510.17586-b31b1b?logo=arxiv&logoColor=white" alt="Paper"></a>
   <img src="https://img.shields.io/badge/Task-Text--to--SQL-0f766e" alt="Task">
   <img src="https://img.shields.io/badge/Benchmarks-Spider%20%7C%20BIRD%20%7C%20Spider2-7c3aed" alt="Benchmarks">
+</p>
+
+<p>
   <img src="https://img.shields.io/badge/Architecture-Multi--Stage%20Pipeline-f97316" alt="Architecture">
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white" alt="Python"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-1f6feb" alt="License"></a>
 </p>
 
 <p>
