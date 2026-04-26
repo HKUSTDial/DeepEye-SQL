@@ -16,6 +16,10 @@ if not Path(WORKSPACE_ROOT).exists():
     Path(WORKSPACE_ROOT).mkdir(parents=True, exist_ok=True)
 
 
+def _path_to_str(path: str | Path) -> str:
+    return str(path)
+
+
 class LLMConfig(BaseModel):
     model: str = Field(..., description="The model name")
     base_url: str = Field(..., description="The base url of the model service")
@@ -34,7 +38,7 @@ class DatasetConfig(BaseModel):
     type: Literal["spider", "bird", "spider2"] = Field(..., description="The type of the dataset")
     split: Optional[str] = Field(default="", description="The split of the dataset")
     root_path: Optional[str] = Field(..., description="The root path of the dataset")
-    save_path: str = Field(default=WORKSPACE_ROOT / "dataset" / f"{type}" / f"{split}.snapshot", description="The save path of the dataset snapshot manifest")
+    save_path: Optional[str] = Field(default=None, description="The save path of the dataset snapshot manifest")
     max_samples: Optional[int] = Field(default=None, description="The maximum number of samples to load")
     max_samples_per_db: Optional[int] = Field(default=None, description="The maximum number of samples to load per database")
     
@@ -46,7 +50,7 @@ class DatasetConfig(BaseModel):
     max_value_example_length: int = Field(default=100, description="The maximum length of the value examples in the schema")
     
     @model_validator(mode="after")
-    def validate_split(self):
+    def validate_split_and_defaults(self):
         if self.type == "spider":
             if self.split not in ["dev", "test"]:
                 raise ValueError(f"Invalid split: {self.split}")
@@ -60,6 +64,10 @@ class DatasetConfig(BaseModel):
                 raise ValueError(f"Invalid split for spider2: {self.split}. Expected 'lite' or 'snow'")
         else:
             raise ValueError(f"Invalid dataset type: {self.type}")
+        if self.save_path is None:
+            self.save_path = _path_to_str(WORKSPACE_ROOT / "dataset" / self.type / f"{self.split}.snapshot")
+        else:
+            self.save_path = _path_to_str(self.save_path)
         return self
 
 
@@ -71,7 +79,8 @@ class VectorDatabaseConfig(BaseModel):
     normalize_embeddings: bool = Field(default=False, description="Whether to normalize embeddings")
     base_url: Optional[str] = Field(default=None, description="The base url of the embedding model service")
     api_key: Optional[str] = Field(default=None, description="The api key of the embedding model service")
-    store_root_path: str = Field(default=WORKSPACE_ROOT / "vector_store", description="The root path of the vector database")
+    store_root_path: str = Field(default=_path_to_str(WORKSPACE_ROOT / "vector_store"), description="The root path of the vector database")
+    embedding_device: str = Field(default="auto", description="Execution device for local embedding models, e.g. auto, cpu, cuda, cuda:0")
     max_value_length: int = Field(default=100, description="The maximum length of the value")
     batch_size: int = Field(default=1024, description="The batch size for adding documents to the vector database")
     db_parallel: int = Field(default=1, ge=1, description="The number of databases to process in parallel")
@@ -87,14 +96,14 @@ class ValueRetrievalConfig(BaseModel):
     query_parallel_per_sample: int = Field(default=4, ge=1, description="Maximum concurrent Chroma column queries within a single sample")
     backend: Literal["chroma", "local_index"] = Field(default="chroma", description="The retrieval backend to use for value retrieval")
     local_index_device: str = Field(default="auto", description="Execution device for the local index backend, e.g. auto, cpu, cuda, cuda:0, cuda:1")
-    save_path: str = Field(default=WORKSPACE_ROOT / "value_retrieval", description="The save path of the value retrieval result")
+    save_path: str = Field(default=_path_to_str(WORKSPACE_ROOT / "value_retrieval"), description="The save path of the value retrieval result")
 
 
 class SchemaLinkingConfig(BaseModel):
     llm: LLMConfig = Field(..., description="The llm config, used to link tables and columns")
     n_parallel: int = Field(default=16, description="The number of parallel threads to use")
     n_internal_parallel: int = Field(default=3, description="Max parallel workers within a single sample (direct/reversed/value linkers)")
-    save_path: str = Field(default=WORKSPACE_ROOT / "schema_linking", description="The save path of the schema linking result")
+    save_path: str = Field(default=_path_to_str(WORKSPACE_ROOT / "schema_linking"), description="The save path of the schema linking result")
     direct_linking_sampling_budget: int = Field(default=5, description="The sampling budget of the direct linking")
     reversed_linking_sampling_budget: int = Field(default=5, description="The sampling budget of the reversed linking")
     value_distance_threshold: float = Field(default=0.05, description="The threshold of the value distance in value linking")
@@ -104,7 +113,7 @@ class SQLGenerationConfig(BaseModel):
     llm: LLMConfig = Field(..., description="The llm config, used to generate sql")
     n_parallel: int = Field(default=16, description="The number of parallel threads to use")
     n_internal_parallel: int = Field(default=3, description="Max parallel workers within a single sample (dc/skeleton/icl generators)")
-    save_path: str = Field(default=WORKSPACE_ROOT / "sql_generation", description="The save path of the sql generation result")
+    save_path: str = Field(default=_path_to_str(WORKSPACE_ROOT / "sql_generation"), description="The save path of the sql generation result")
     dc_sampling_budget: int = Field(default=5, description="The sampling budget of the dc generation")
     skeleton_sampling_budget: int = Field(default=5, description="The sampling budget of the skeleton generation")
     icl_sampling_budget: int = Field(default=5, description="The sampling budget of the icl generation")
@@ -115,7 +124,7 @@ class SQLRevisionConfig(BaseModel):
     llm: LLMConfig = Field(..., description="The llm config, used to revise sql")
     n_parallel: int = Field(default=16, description="The number of parallel threads to use")
     n_internal_parallel: int = Field(default=16, description="Max parallel workers within a single sample (revising unique candidates)")
-    save_path: str = Field(default=WORKSPACE_ROOT / "sql_revision", description="The save path of the sql revision result")
+    save_path: str = Field(default=_path_to_str(WORKSPACE_ROOT / "sql_revision"), description="The save path of the sql revision result")
     checker_sampling_budget: int = Field(default=5, description="The sampling budget of the checker")
     checkers: List[str] = Field(default=[], description="The list of checkers to enable")
 
@@ -124,7 +133,7 @@ class SQLSelectionConfig(BaseModel):
     llm: LLMConfig = Field(..., description="The llm config, used to select sql")
     n_parallel: int = Field(default=16, description="The number of parallel threads to use")
     n_internal_parallel: int = Field(default=8, description="Max parallel workers within a single sample (pairwise SQL comparison)")
-    save_path: str = Field(default=WORKSPACE_ROOT / "sql_selection", description="The save path of the sql selection result")
+    save_path: str = Field(default=_path_to_str(WORKSPACE_ROOT / "sql_selection"), description="The save path of the sql selection result")
     filter_top_k_sql: int = Field(default=2, description="The number of top k sql to filter")
     evaluator_sampling_budget: int = Field(default=1, description="The sampling budget of the evaluator")
     shortcut_consistency_score_threshold: float = Field(default=0.8, description="The threshold of the consistency score to shortcut")
@@ -211,7 +220,7 @@ class Config:
             "type": dataset_type,
             "split": dataset_split,
             "root_path": dataset_config.get("root_path"),
-            "save_path": dataset_config.get("save_path", WORKSPACE_ROOT / "dataset" / f"{dataset_type}" / f"{dataset_split}.snapshot"),
+            "save_path": dataset_config.get("save_path"),
             "max_samples": dataset_config.get("max_samples", None),
             "max_samples_per_db": dataset_config.get("max_samples_per_db", None),
             # Spider2 specific configurations
@@ -226,7 +235,8 @@ class Config:
         vector_database_settings = {
             "api_type": vector_database_config.get("api_type", "local"),
             "embedding_model_name_or_path": vector_database_config.get("embedding_model_name_or_path"),
-            "store_root_path": vector_database_config.get("store_root_path", WORKSPACE_ROOT / "vector_store"),
+            "store_root_path": _path_to_str(vector_database_config.get("store_root_path", WORKSPACE_ROOT / "vector_store")),
+            "embedding_device": vector_database_config.get("embedding_device", "auto"),
             "use_qwen3_embedding": vector_database_config.get("use_qwen3_embedding", False),
             "local_files_only": vector_database_config.get("local_files_only", False),
             "normalize_embeddings": vector_database_config.get("normalize_embeddings", False),
@@ -249,7 +259,7 @@ class Config:
             "query_parallel_per_sample": value_retrieval_config.get("query_parallel_per_sample", 4),
             "backend": value_retrieval_config.get("backend", "chroma"),
             "local_index_device": value_retrieval_config.get("local_index_device", "auto"),
-            "save_path": value_retrieval_config.get("save_path", WORKSPACE_ROOT / "value_retrieval"),
+            "save_path": _path_to_str(value_retrieval_config.get("save_path", WORKSPACE_ROOT / "value_retrieval")),
         }
         
         # schema linking config
@@ -258,7 +268,7 @@ class Config:
             "llm": LLMConfig(**schema_linking_config.get("llm")),
             "n_parallel": schema_linking_config.get("n_parallel", 16),
             "n_internal_parallel": schema_linking_config.get("n_internal_parallel", 3),
-            "save_path": schema_linking_config.get("save_path", WORKSPACE_ROOT / "schema_linking"),
+            "save_path": _path_to_str(schema_linking_config.get("save_path", WORKSPACE_ROOT / "schema_linking")),
             "direct_linking_sampling_budget": schema_linking_config.get("direct_linking_sampling_budget", 5),
             "reversed_linking_sampling_budget": schema_linking_config.get("reversed_linking_sampling_budget", 5),
             "value_distance_threshold": schema_linking_config.get("value_distance_threshold", 0.05),
@@ -270,7 +280,7 @@ class Config:
             "llm": LLMConfig(**sql_generation_config.get("llm")),
             "n_parallel": sql_generation_config.get("n_parallel", 16),
             "n_internal_parallel": sql_generation_config.get("n_internal_parallel", 3),
-            "save_path": sql_generation_config.get("save_path", WORKSPACE_ROOT / "sql_generation"),
+            "save_path": _path_to_str(sql_generation_config.get("save_path", WORKSPACE_ROOT / "sql_generation")),
             "dc_sampling_budget": sql_generation_config.get("dc_sampling_budget", 5),
             "skeleton_sampling_budget": sql_generation_config.get("skeleton_sampling_budget", 5),
             "icl_sampling_budget": sql_generation_config.get("icl_sampling_budget", 5),
@@ -283,7 +293,7 @@ class Config:
             "llm": LLMConfig(**sql_revision_config.get("llm")),
             "n_parallel": sql_revision_config.get("n_parallel", 16),
             "n_internal_parallel": sql_revision_config.get("n_internal_parallel", 16),
-            "save_path": sql_revision_config.get("save_path", WORKSPACE_ROOT / "sql_revision"),
+            "save_path": _path_to_str(sql_revision_config.get("save_path", WORKSPACE_ROOT / "sql_revision")),
             "checker_sampling_budget": sql_revision_config.get("checker_sampling_budget", 5),
             "checkers": sql_revision_config.get("checkers", []),
         }
@@ -294,7 +304,7 @@ class Config:
             "llm": LLMConfig(**sql_selection_config.get("llm")),
             "n_parallel": sql_selection_config.get("n_parallel", 16),
             "n_internal_parallel": sql_selection_config.get("n_internal_parallel", 8),
-            "save_path": sql_selection_config.get("save_path", WORKSPACE_ROOT / "sql_selection"),
+            "save_path": _path_to_str(sql_selection_config.get("save_path", WORKSPACE_ROOT / "sql_selection")),
             "filter_top_k_sql": sql_selection_config.get("filter_top_k_sql", 10),
             "evaluator_sampling_budget": sql_selection_config.get("evaluator_sampling_budget", 1),
             "shortcut_consistency_score_threshold": sql_selection_config.get("shortcut_consistency_score_threshold", 0.8),

@@ -175,10 +175,11 @@ class SchemaLinkingRunner:
                 logger.info(f"Linking tables and columns {idx} / {len(future_to_item)} completed")
                 self.save_result()
         logger.info("Linking tables and columns completed")
-        self.save_result(materialize_snapshot=True)
         
         # Validate that all required fields are filled
+        self._artifact_store.flush()
         validate_pipeline_step(self._dataset, "schema_linking")
+        self.save_result(materialize_snapshot=True)
         
         self._clean_up()
         

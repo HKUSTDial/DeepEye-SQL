@@ -97,6 +97,7 @@ class ValueRetrievalRunner:
                 normalize_embeddings=self._vector_database_config.normalize_embeddings,
                 base_url=self._vector_database_config.base_url,
                 api_key=self._vector_database_config.api_key,
+                embedding_device=self._vector_database_config.embedding_device,
             )
         else:
             logger.info("Skipping embedding function initialization for Spider2 dataset")
@@ -486,9 +487,9 @@ class ValueRetrievalRunner:
                 logger.info(f"Value Retrieval {idx} / {len(future_to_item)} completed")
                 self.save_result()
             
-        self.save_result(materialize_snapshot=True)
-        
         # Validate that all required fields are filled
+        self._artifact_store.flush()
         validate_pipeline_step(self._dataset, "value_retrieval")
+        self.save_result(materialize_snapshot=True)
         
         self._clean_up()

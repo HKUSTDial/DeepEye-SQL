@@ -98,7 +98,7 @@ def log_validation_results(step_name: str, results: Dict[str, Any]) -> bool:
         return False
 
 
-def validate_pipeline_step(dataset: BaseDataset, step_name: str) -> bool:
+def validate_pipeline_step(dataset: BaseDataset, step_name: str, *, raise_on_failure: bool = True) -> bool:
     """
     Convenience function to validate and log results for a pipeline step.
     
@@ -107,7 +107,16 @@ def validate_pipeline_step(dataset: BaseDataset, step_name: str) -> bool:
         step_name: The pipeline step name
     
     Returns:
-        True if validation passed, False otherwise
+        True if validation passed, False otherwise.
+
+    Raises:
+        RuntimeError: If validation fails and raise_on_failure is True.
     """
     results = validate_step(dataset, step_name)
-    return log_validation_results(step_name, results)
+    passed = log_validation_results(step_name, results)
+    if not passed and raise_on_failure:
+        raise RuntimeError(
+            f"[{step_name}] Validation failed: "
+            f"{results['invalid_items']}/{results['total_items']} items have missing required fields"
+        )
+    return passed

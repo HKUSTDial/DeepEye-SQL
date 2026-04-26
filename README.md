@@ -268,6 +268,7 @@ save_path = "workspace/dataset/bird/dev.snapshot"
 api_type = "openai"          # or local
 embedding_model_name_or_path = "your-embedding-model"
 store_root_path = "workspace/vector_database/bird/dev"
+embedding_device = "auto"       # auto | cpu | cuda | cuda:0
 db_parallel = 2
 column_parallel = 8
 ```

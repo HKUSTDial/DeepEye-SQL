@@ -25,6 +25,7 @@ embedding_model_name_or_path = "your-embedding-model-name"
 base_url = "your-embedding-model-base-url"
 api_key = "your-embedding-model-api-key"
 store_root_path = "workspace/vector_database/spider/test"
+embedding_device = "auto"   # auto | cpu | cuda | cuda:0
 max_value_length = 100
 lower_meta_data = true
 batch_size = 128

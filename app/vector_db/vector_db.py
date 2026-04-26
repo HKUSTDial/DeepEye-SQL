@@ -65,23 +65,25 @@ def get_embedding_function(
     local_files_only: bool = False, 
     normalize_embeddings: bool = False, 
     base_url: str = None, 
-    api_key: str = None
+    api_key: str = None,
+    embedding_device: str = "auto",
 ):
     if api_type == "local":
+        resolved_device = _resolve_local_embedding_device(embedding_device)
         if use_qwen3_embedding:
-            logger.info(f"Using Qwen3 embedding function for {model_name_or_path}")
+            logger.info(f"Using Qwen3 embedding function for {model_name_or_path} on {resolved_device}")
             return QwenEmbeddingFunction(
                 model_name=model_name_or_path,
-                device="cuda",
+                device=resolved_device,
                 trust_remote_code=True,
                 local_files_only=local_files_only,
                 normalize_embeddings=normalize_embeddings
             )
         else:
-            logger.info(f"Using SentenceTransformer embedding function for {model_name_or_path}")
+            logger.info(f"Using SentenceTransformer embedding function for {model_name_or_path} on {resolved_device}")
             return SentenceTransformerEmbeddingFunction(
                 model_name=model_name_or_path,
-                device="cuda",
+                device=resolved_device,
                 trust_remote_code=True,
                 local_files_only=local_files_only,
                 normalize_embeddings=normalize_embeddings
@@ -95,6 +97,31 @@ def get_embedding_function(
         )
     else:
         raise ValueError(f"Unsupported embedding api_type: {api_type}")
+
+
+def _resolve_local_embedding_device(embedding_device: str) -> str:
+    normalized_device = (embedding_device or "auto").lower()
+    if normalized_device == "auto":
+        try:
+            import torch
+
+            return "cuda" if torch.cuda.is_available() else "cpu"
+        except Exception as exc:
+            logger.warning(f"Could not inspect CUDA availability ({exc}); falling back to CPU")
+            return "cpu"
+
+    if normalized_device.startswith("cuda"):
+        try:
+            import torch
+
+            if not torch.cuda.is_available():
+                logger.warning(f"Requested embedding_device={embedding_device}, but CUDA is unavailable; falling back to CPU")
+                return "cpu"
+        except Exception as exc:
+            logger.warning(f"Could not inspect CUDA availability ({exc}); falling back to CPU")
+            return "cpu"
+
+    return embedding_device
 
 
 def _process_one_column(

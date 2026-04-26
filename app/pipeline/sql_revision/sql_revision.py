@@ -214,10 +214,11 @@ class SQLRevisionRunner:
                 logger.info(f"Revising SQL {idx} / {len(future_to_item)} completed")
                 self.save_result()
         logger.info("Revising SQL completed")
-        self.save_result(materialize_snapshot=True)
         
         # Validate that all required fields are filled
+        self._artifact_store.flush()
         validate_pipeline_step(self._dataset, "sql_revision")
+        self.save_result(materialize_snapshot=True)
         
         self._clean_up()
         

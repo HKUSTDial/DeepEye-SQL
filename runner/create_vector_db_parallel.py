@@ -24,6 +24,7 @@ def _embedding_config_key(vector_database_config) -> tuple:
         vector_database_config.normalize_embeddings,
         vector_database_config.base_url,
         vector_database_config.api_key,
+        vector_database_config.embedding_device,
     )
 
 
@@ -47,6 +48,7 @@ def _get_worker_embedding_function(vector_database_config):
             normalize_embeddings=vector_database_config.normalize_embeddings,
             base_url=vector_database_config.base_url,
             api_key=vector_database_config.api_key,
+            embedding_device=vector_database_config.embedding_device,
         )
     return embedding_cache[cache_key]
 
