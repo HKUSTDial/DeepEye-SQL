@@ -79,7 +79,7 @@ class LLM:
             messages = [system_message] + messages
             
         target_n = kwargs.pop("n", 1)
-        max_request_n = self._config.max_request_n or target_n
+        max_request_n = 1 if self._config.n_call_strategy == "split" else (self._config.max_request_n or target_n)
         
         all_choices = []
         total_token_usage = {

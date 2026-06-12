@@ -1,5 +1,6 @@
-import tomllib
+import shutil
 import threading
+import tomllib
 from typing import Dict, List, Optional, Literal, Any
 from pathlib import Path
 from pydantic import BaseModel, Field, model_validator
@@ -26,6 +27,7 @@ class LLMConfig(BaseModel):
     api_key: str = Field(..., description="The api key of the model service")
     max_tokens: int = Field(default=4096, description="The maximum number of tokens to generate per request")
     max_request_n: Optional[int] = Field(default=None, ge=1, description="The maximum number of choices (n) per request; None means no limit")
+    n_call_strategy: Literal["single", "split"] = Field(default="single", description="How to request multiple choices: single uses n>1 in one request, split sends multiple n=1 requests")
     temperature: float = Field(default=0.7, description="The temperature of the model")
     api_type: Literal["openai", "azure"] = Field(default="openai", description="The type of the api")
     api_version: Optional[str] = Field(default=None, description="The version of the Azure API")
@@ -56,8 +58,7 @@ class DatasetConfig(BaseModel):
             if self.split not in ["dev", "test"]:
                 raise ValueError(f"Invalid split: {self.split}")
         elif self.type == "bird":
-            # only dev split is supported for bird dataset
-            if self.split not in ["dev"]:
+            if self.split not in ["dev", "test"]:
                 raise ValueError(f"Invalid split: {self.split}")
         elif self.type == "spider2":
             # Spider2 supports lite and snow splits
@@ -162,6 +163,8 @@ class AppConfig(BaseModel):
     
 class Config:
     _app_config: AppConfig = None
+    _config_path: Optional[Path] = None
+    _workspace_config_path: Optional[Path] = None
     _instance = None
     _lock = threading.Lock()
     
@@ -196,6 +199,8 @@ class Config:
     def _initialize_config(self, config_path: Optional[Path] = None):
         if config_path is None:
             config_path = Config._get_config_path()
+        config_path = config_path.resolve()
+        self._config_path = config_path
         config = Config._load_config(config_path)
         
         # llm config
@@ -208,6 +213,7 @@ class Config:
                 "api_key": llm_config.get("api_key"),
                 "max_tokens": llm_config.get("max_tokens", 4096),
                 "max_request_n": llm_config.get("max_request_n", None),
+                "n_call_strategy": llm_config.get("n_call_strategy", "single"),
                 "temperature": llm_config.get("temperature", 0.7),
                 "api_type": llm_config.get("api_type", "openai"),
                 "api_version": llm_config.get("api_version", None),
@@ -334,11 +340,30 @@ class Config:
             llm_extractor=LLMExtractorConfig(**llm_extractor_settings),
             logger=LoggerConfig(**logger_settings)
         )
+        self._copy_config_to_workspace()
+
+    def _copy_config_to_workspace(self) -> None:
+        if self._config_path is None:
+            return
+
+        workspace_config_dir = WORKSPACE_ROOT / "config"
+        workspace_config_dir.mkdir(parents=True, exist_ok=True)
+        workspace_config_path = workspace_config_dir / self._config_path.name
+        shutil.copy2(self._config_path, workspace_config_path)
+        self._workspace_config_path = workspace_config_path
 
     @property
     def app_config(self):
         return self._app_config
     
+    @property
+    def config_path(self):
+        return self._config_path
+
+    @property
+    def workspace_config_path(self):
+        return self._workspace_config_path
+
     @property
     def dataset_config(self):
         return self._app_config.dataset

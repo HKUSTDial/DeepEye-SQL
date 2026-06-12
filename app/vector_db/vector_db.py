@@ -159,7 +159,7 @@ def _process_one_column(
     # Keep vector DB scans bounded so large/slow SQLite tables do not stall the pipeline indefinitely.
     # These full-column scans are one-shot ingestion work; bypass the shared SQL cache
     # so large result sets do not evict more valuable execution entries.
-    result = execute_sql_without_cache(db_path, query_sql, timeout=300)
+    result = execute_sql_without_cache(db_path, query_sql, timeout=600)
     if result.result_type in ["success", "empty_result"]:
         value_examples = [str(row[0]) for row in result.result_rows]
         

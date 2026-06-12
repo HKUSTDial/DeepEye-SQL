@@ -327,10 +327,14 @@ Typical outputs land under `workspace/`:
   [workspace/sql_generation](workspace/sql_generation),
   [workspace/sql_revision](workspace/sql_revision),
   [workspace/sql_selection](workspace/sql_selection)
+- active config copy:
+  `workspace/config/<config-file>.toml`
 
 ## Reproducibility Workflow
 
 DeepEye-SQL uses a structured snapshot format to make long-running experiments resumable and inspectable.
+
+Each run that loads `app.config.get_config()` copies the active TOML config to `workspace/config/<config-file>.toml`, so workspace outputs can be checked against the config used for the run.
 
 ### 1. Preprocess dataset
 

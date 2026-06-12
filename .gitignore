@@ -43,3 +43,4 @@ docs/
 config/*-ds-reasoner.toml
 
 .codex
+config/config-bird-kimi-k2.6-openrouter.toml
