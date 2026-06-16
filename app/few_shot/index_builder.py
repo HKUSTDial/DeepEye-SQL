@@ -36,6 +36,7 @@ def build_few_shot_index(
     n_parallel: int = 1,
     llm_timeout: int = 300,
     max_samples: Optional[int] = None,
+    max_samples_per_db: Optional[int] = None,
     force_rebuild: bool = False,
     skip_mask_llm: bool = False,
 ) -> FewShotIndexBuildResult:
@@ -73,6 +74,7 @@ def build_few_shot_index(
         dataset_type=dataset_type,
         root_path=root_path,
         max_samples=max_samples,
+        max_samples_per_db=max_samples_per_db,
     )
     if not examples:
         raise ValueError(f"No training examples loaded for dataset={dataset_type}, root_path={root_path}")
@@ -132,6 +134,7 @@ def build_few_shot_index(
         n_parallel=n_parallel,
         llm_timeout=llm_timeout,
         max_samples=max_samples,
+        max_samples_per_db=max_samples_per_db,
         skip_mask_llm=skip_mask_llm,
         question_embedding_dim=question_embeddings.shape[1],
         sql_embedding_dim=sql_embeddings.shape[1],
@@ -243,6 +246,7 @@ def _build_manifest(
     n_parallel: int,
     llm_timeout: int,
     max_samples: Optional[int],
+    max_samples_per_db: Optional[int],
     skip_mask_llm: bool,
     question_embedding_dim: int,
     sql_embedding_dim: int,
@@ -274,6 +278,7 @@ def _build_manifest(
             "normalized": True,
         },
         "max_samples": max_samples,
+        "max_samples_per_db": max_samples_per_db,
     }
 
 

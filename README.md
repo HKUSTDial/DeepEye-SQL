@@ -177,6 +177,7 @@ DeepEye-SQL
 - [runner/run_value_retrieval.py](runner/run_value_retrieval.py)
 - [runner/build_few_shot_index.py](runner/build_few_shot_index.py): build the masked training-example retrieval index
 - [runner/run_few_shot_preparation.py](runner/run_few_shot_preparation.py): attach dynamic few-shot examples before schema linking
+- [runner/inspect_few_shot_preparation.py](runner/inspect_few_shot_preparation.py): summarize preliminary SQL and retrieval quality
 - [runner/run_schema_linking.py](runner/run_schema_linking.py)
 - [runner/run_sql_generation.py](runner/run_sql_generation.py)
 - [runner/run_sql_revision.py](runner/run_sql_revision.py)

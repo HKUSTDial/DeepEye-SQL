@@ -142,6 +142,7 @@ class FewShotIndexConfig(BaseModel):
     sql_weight: float = Field(default=0.5, ge=0.0, description="The retrieval weight for masked SQL similarity")
     exclude_same_db: bool = Field(default=False, description="Whether to exclude training examples from the target database id")
     max_samples: Optional[int] = Field(default=None, ge=1, description="The maximum number of training examples to index")
+    max_samples_per_db: Optional[int] = Field(default=None, ge=1, description="The maximum number of training examples to index per source database")
     force_rebuild: bool = Field(default=False, description="Whether to overwrite an existing few-shot index")
     llm: Optional[LLMConfig] = Field(default=None, description="The LLM config used for question/SQL masking")
     embedding: Optional[EmbeddingConfig] = Field(default=None, description="The embedding config used for few-shot index vectors")
@@ -357,6 +358,7 @@ class Config:
             "sql_weight": few_shot_index_config.get("sql_weight", 0.5),
             "exclude_same_db": few_shot_index_config.get("exclude_same_db", False),
             "max_samples": few_shot_index_config.get("max_samples", None),
+            "max_samples_per_db": few_shot_index_config.get("max_samples_per_db", None),
             "force_rebuild": few_shot_index_config.get("force_rebuild", False),
             "llm": LLMConfig(**few_shot_index_llm_config) if few_shot_index_llm_config else None,
             "embedding": EmbeddingConfig(**few_shot_index_embedding_config) if few_shot_index_embedding_config else None,

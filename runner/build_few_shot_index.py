@@ -17,6 +17,7 @@ def main() -> None:
     parser.add_argument("--save_path", type=str, default=None, help="Few-shot index output path")
     parser.add_argument("--mask_cache_path", type=str, default=None, help="Optional JSONL cache path for masked examples")
     parser.add_argument("--max_samples", type=int, default=None, help="Maximum number of training examples to index")
+    parser.add_argument("--max_samples_per_db", type=int, default=None, help="Maximum number of training examples to index per source database")
     parser.add_argument("--batch_size", type=int, default=None, help="Embedding batch size")
     parser.add_argument("--n_parallel", type=int, default=None, help="Parallel LLM requests for masking")
     parser.add_argument("--skip_mask_llm", action="store_true", help="Use raw question/SQL text instead of LLM-masked text")
@@ -37,6 +38,7 @@ def main() -> None:
     save_path = args.save_path or few_shot_config.save_path
     mask_cache_path = args.mask_cache_path or few_shot_config.mask_cache_path
     max_samples = args.max_samples if args.max_samples is not None else few_shot_config.max_samples
+    max_samples_per_db = args.max_samples_per_db if args.max_samples_per_db is not None else few_shot_config.max_samples_per_db
     batch_size = args.batch_size if args.batch_size is not None else few_shot_config.batch_size
     n_parallel = args.n_parallel if args.n_parallel is not None else few_shot_config.n_parallel
     force_rebuild = args.force or few_shot_config.force_rebuild
@@ -63,6 +65,7 @@ def main() -> None:
         n_parallel=n_parallel,
         llm_timeout=few_shot_config.llm_timeout,
         max_samples=max_samples,
+        max_samples_per_db=max_samples_per_db,
         force_rebuild=force_rebuild,
         skip_mask_llm=args.skip_mask_llm,
     )

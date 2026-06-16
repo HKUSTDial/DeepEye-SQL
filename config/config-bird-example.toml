@@ -40,6 +40,7 @@ sql_weight = 0.5
 exclude_same_db = false
 force_rebuild = false
 # max_samples = 100       # Limit training examples to index (optional)
+# max_samples_per_db = 2  # Limit indexed training examples per source database (optional)
 
 [few_shot_index.llm]
 model = "your-few-shot-mask-model-name"
@@ -116,7 +117,8 @@ save_path = "workspace/sql_generation/bird/dev.snapshot"
 dc_sampling_budget = 4
 skeleton_sampling_budget = 4
 icl_sampling_budget = 4
-icl_few_shot_examples_path = "results/bird_dev_few_shots.json"
+# Optional static fallback. Leave unset to use dynamic examples from few-shot preparation.
+# icl_few_shot_examples_path = "results/bird_dev_few_shots.json"
 
 [sql_generation.llm]
 model = "your-sql-generation-model-name"

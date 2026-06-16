@@ -44,6 +44,7 @@ def load_training_examples(
     dataset_type: str,
     root_path: str | Path,
     max_samples: Optional[int] = None,
+    max_samples_per_db: Optional[int] = None,
 ) -> List[TrainingExample]:
     dataset_type = dataset_type.lower()
     root_path = Path(root_path)
@@ -55,9 +56,26 @@ def load_training_examples(
     else:
         raise ValueError(f"Unsupported few-shot training dataset: {dataset_type}")
 
+    if max_samples_per_db is not None:
+        examples = _limit_examples_per_db(examples, max_samples_per_db)
     if max_samples is not None:
         examples = examples[:max_samples]
     return examples
+
+
+def _limit_examples_per_db(examples: List[TrainingExample], max_samples_per_db: int) -> List[TrainingExample]:
+    if max_samples_per_db < 1:
+        raise ValueError(f"max_samples_per_db must be >= 1, got {max_samples_per_db}")
+
+    db_counts: Dict[str, int] = {}
+    limited_examples = []
+    for example in examples:
+        count = db_counts.get(example.db_id, 0)
+        if count >= max_samples_per_db:
+            continue
+        limited_examples.append(example)
+        db_counts[example.db_id] = count + 1
+    return limited_examples
 
 
 def _load_bird_training_examples(root_path: Path) -> List[TrainingExample]:
