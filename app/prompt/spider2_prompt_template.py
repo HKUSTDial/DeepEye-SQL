@@ -159,6 +159,7 @@ Your task is to generate a SQL query for the target question by learning from th
 # Instructions:
 1. **Analyze the Examples**: Study the provided few-shot examples carefully. Each example contains:
    - A question from a different database domain
+   - Optional hint/evidence when the source example provides it
    - The corresponding SQL query that answers the question
 
 2. **Identify Patterns**: Look for common SQL patterns, query structures, and logical approaches used in the examples:

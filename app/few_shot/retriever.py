@@ -24,10 +24,14 @@ class FewShotRetrievalResult:
     sql_score: Optional[float]
 
     def to_few_shot_example(self) -> FewShotExample:
-        return {
+        few_shot_example = {
             "question": str(self.example["question"]),
             "sql": str(self.example["sql"]),
         }
+        evidence = str(self.example.get("evidence", "")).strip()
+        if evidence:
+            few_shot_example["evidence"] = evidence
+        return few_shot_example
 
 
 class FewShotIndex:

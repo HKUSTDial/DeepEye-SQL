@@ -112,6 +112,7 @@ def prepare_few_shot_examples_for_item(
     examples = [
         {
             "question": result.example["question"],
+            "evidence": result.example.get("evidence", ""),
             "sql": result.example["sql"],
             "source_example_id": result.example.get("example_id"),
             "source_db_id": result.example.get("db_id"),

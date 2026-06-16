@@ -17,13 +17,18 @@ def normalize_few_shot_examples(raw_examples: Any) -> List[FewShotExample]:
 
         question = raw_example.get("question")
         sql = raw_example.get("sql", raw_example.get("SQL"))
+        evidence = raw_example.get("evidence", raw_example.get("hint", raw_example.get("HINT", "")))
         if not isinstance(question, str) or not isinstance(sql, str):
             continue
 
         question = question.strip()
         sql = sql.strip()
+        evidence = evidence.strip() if isinstance(evidence, str) else ""
         if question and sql:
-            examples.append({"question": question, "sql": sql})
+            example = {"question": question, "sql": sql}
+            if evidence:
+                example["evidence"] = evidence
+            examples.append(example)
 
     return examples
 

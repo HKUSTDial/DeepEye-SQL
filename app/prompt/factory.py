@@ -8,6 +8,15 @@ def _is_spider2_db_type(db_type: Optional[str]) -> bool:
     return db_type is not None and db_type in ("bigquery", "snowflake", "sqlite")
 
 
+def _format_few_shot_example(index: int, example: Dict[str, Any]) -> str:
+    lines = [f"- Example {index}:", f"Question: {example['question']}"]
+    evidence = str(example.get("evidence", example.get("hint", ""))).strip()
+    if evidence:
+        lines.append(f"Hint: {evidence}")
+    lines.append(f"SQL: {example['sql']}")
+    return "\n".join(lines)
+
+
 class PromptFactory:
     
     @staticmethod
@@ -35,7 +44,8 @@ class PromptFactory:
     @staticmethod
     def format_icl_sql_generation_prompt(few_shot_examples: List[Dict[str, Any]], database_schema: str, question: str, hint: str, db_type: Optional[str] = None) -> str:
         few_shot_examples_str = "\n".join(
-            [f"- Example {i+1}:\nQuestion: {example['question']}\nSQL: {example['sql']}" for i, example in enumerate(few_shot_examples)]
+            _format_few_shot_example(i + 1, example)
+            for i, example in enumerate(few_shot_examples)
         )
         if _is_spider2_db_type(db_type):
             return SPIDER2_ICL_SQL_GENERATION_PROMPT.format(FEW_SHOT_EXAMPLES=few_shot_examples_str, DATABASE_SCHEMA=database_schema, QUESTION=question, HINT=hint, DATABASE_ENGINE=db_type.upper())
