@@ -133,10 +133,19 @@ def mask_training_examples(
     llm: Optional[LLM],
     cache: Optional[MaskCache] = None,
     skip_llm: bool = False,
+    llm_timeout: int = 300,
 ) -> List[MaskResult]:
     results: List[MaskResult] = []
     for example in examples:
-        results.append(mask_training_example(example=example, llm=llm, cache=cache, skip_llm=skip_llm))
+        results.append(
+            mask_training_example(
+                example=example,
+                llm=llm,
+                cache=cache,
+                skip_llm=skip_llm,
+                llm_timeout=llm_timeout,
+            )
+        )
     return results
 
 
@@ -145,6 +154,7 @@ def mask_training_example(
     llm: Optional[LLM],
     cache: Optional[MaskCache] = None,
     skip_llm: bool = False,
+    llm_timeout: int = 300,
 ) -> MaskResult:
     if skip_llm:
         return MaskResult(masked_question=example.question_context, masked_sql=example.sql, source="raw")
@@ -176,9 +186,7 @@ def mask_training_example(
         choices, _ = llm.ask(
             messages=messages,
             system_message=MASK_SYSTEM_PROMPT,
-            max_tokens=2048,
-            temperature=0.0,
-            timeout=300,
+            timeout=llm_timeout,
         )
         parsed = parse_mask_response(choices[0].content)
         result = MaskResult(

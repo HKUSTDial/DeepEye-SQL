@@ -43,21 +43,25 @@ def main() -> None:
 
     if dataset_type not in ("bird", "spider"):
         raise ValueError(f"Few-shot index building supports bird/spider training sets, got dataset={dataset_type}")
+    if few_shot_config.embedding is None:
+        raise ValueError("[few_shot_index.embedding] is required to build the few-shot index.")
 
     llm = None
     if not args.skip_mask_llm:
-        llm_config = few_shot_config.llm or app_config.value_retrieval_config.llm
-        llm = LLM(llm_config)
+        if few_shot_config.llm is None:
+            raise ValueError("[few_shot_index.llm] is required unless --skip_mask_llm is set.")
+        llm = LLM(few_shot_config.llm)
 
     result = build_few_shot_index(
         dataset_type=dataset_type,
         root_path=root_path,
         save_path=save_path,
-        vector_database_config=app_config.vector_database_config,
+        embedding_config=few_shot_config.embedding,
         llm=llm,
         mask_cache_path=mask_cache_path,
         batch_size=batch_size,
         n_parallel=n_parallel,
+        llm_timeout=few_shot_config.llm_timeout,
         max_samples=max_samples,
         force_rebuild=force_rebuild,
         skip_mask_llm=args.skip_mask_llm,

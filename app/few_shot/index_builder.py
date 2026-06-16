@@ -29,11 +29,12 @@ def build_few_shot_index(
     dataset_type: str,
     root_path: str | Path,
     save_path: str | Path,
-    vector_database_config: Any,
+    embedding_config: Any,
     llm: Optional[LLM] = None,
     mask_cache_path: Optional[str | Path] = None,
     batch_size: int = 128,
     n_parallel: int = 1,
+    llm_timeout: int = 300,
     max_samples: Optional[int] = None,
     force_rebuild: bool = False,
     skip_mask_llm: bool = False,
@@ -60,6 +61,8 @@ def build_few_shot_index(
         raise ValueError(f"batch_size must be >= 1, got {batch_size}")
     if n_parallel < 1:
         raise ValueError(f"n_parallel must be >= 1, got {n_parallel}")
+    if llm_timeout < 1:
+        raise ValueError(f"llm_timeout must be >= 1, got {llm_timeout}")
     if not skip_mask_llm and llm is None:
         raise ValueError("llm is required for LLM masking. Set skip_mask_llm=True to build a raw-text index.")
 
@@ -82,20 +85,21 @@ def build_few_shot_index(
         cache=cache,
         skip_mask_llm=skip_mask_llm,
         n_parallel=n_parallel,
+        llm_timeout=llm_timeout,
     )
 
     examples_path = save_path / "examples.jsonl"
     _write_examples(examples_path=examples_path, examples=examples, mask_results=mask_results)
 
     embedding_function = get_embedding_function(
-        model_name_or_path=vector_database_config.embedding_model_name_or_path,
-        api_type=vector_database_config.api_type,
-        use_qwen3_embedding=vector_database_config.use_qwen3_embedding,
-        local_files_only=vector_database_config.local_files_only,
-        normalize_embeddings=vector_database_config.normalize_embeddings,
-        base_url=vector_database_config.base_url,
-        api_key=vector_database_config.api_key,
-        embedding_device=vector_database_config.embedding_device,
+        model_name_or_path=embedding_config.embedding_model_name_or_path,
+        api_type=embedding_config.api_type,
+        use_qwen3_embedding=embedding_config.use_qwen3_embedding,
+        local_files_only=embedding_config.local_files_only,
+        normalize_embeddings=embedding_config.normalize_embeddings,
+        base_url=embedding_config.base_url,
+        api_key=embedding_config.api_key,
+        embedding_device=embedding_config.embedding_device,
     )
 
     question_embeddings = _embed_texts(
@@ -121,11 +125,12 @@ def build_few_shot_index(
         root_path=root_path,
         save_path=save_path,
         example_count=len(examples),
-        vector_database_config=vector_database_config,
+        embedding_config=embedding_config,
         llm_config=llm.llm_config if llm is not None and not skip_mask_llm else None,
         mask_cache_path=resolved_cache_path if not skip_mask_llm else None,
         batch_size=batch_size,
         n_parallel=n_parallel,
+        llm_timeout=llm_timeout,
         max_samples=max_samples,
         skip_mask_llm=skip_mask_llm,
         question_embedding_dim=question_embeddings.shape[1],
@@ -148,11 +153,20 @@ def _mask_examples(
     cache: Optional[MaskCache],
     skip_mask_llm: bool,
     n_parallel: int,
+    llm_timeout: int,
 ) -> List[MaskResult]:
     if n_parallel == 1:
         results = []
         for idx, example in enumerate(examples, start=1):
-            results.append(mask_training_example(example=example, llm=llm, cache=cache, skip_llm=skip_mask_llm))
+            results.append(
+                mask_training_example(
+                    example=example,
+                    llm=llm,
+                    cache=cache,
+                    skip_llm=skip_mask_llm,
+                    llm_timeout=llm_timeout,
+                )
+            )
             _log_progress("Masking few-shot examples", idx, len(examples))
         return results
 
@@ -160,7 +174,7 @@ def _mask_examples(
     completed = 0
     with ThreadPoolExecutor(max_workers=n_parallel) as executor:
         futures = {
-            executor.submit(mask_training_example, example, llm, cache, skip_mask_llm): idx
+            executor.submit(mask_training_example, example, llm, cache, skip_mask_llm, llm_timeout): idx
             for idx, example in enumerate(examples)
         }
         for future in as_completed(futures):
@@ -222,11 +236,12 @@ def _build_manifest(
     root_path: str | Path,
     save_path: Path,
     example_count: int,
-    vector_database_config: Any,
+    embedding_config: Any,
     llm_config: Any,
     mask_cache_path: Optional[Path],
     batch_size: int,
     n_parallel: int,
+    llm_timeout: int,
     max_samples: Optional[int],
     skip_mask_llm: bool,
     question_embedding_dim: int,
@@ -248,10 +263,11 @@ def _build_manifest(
             "skip_mask_llm": skip_mask_llm,
             "cache_path": str(mask_cache_path) if mask_cache_path is not None else None,
             "n_parallel": n_parallel,
+            "llm_timeout": llm_timeout,
             "llm": _redact_config(llm_config) if llm_config is not None else None,
         },
         "embedding": {
-            "config": _redact_config(vector_database_config),
+            "config": _redact_config(embedding_config),
             "batch_size": batch_size,
             "question_embedding_dim": question_embedding_dim,
             "sql_embedding_dim": sql_embedding_dim,

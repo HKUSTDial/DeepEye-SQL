@@ -91,6 +91,17 @@ class VectorDatabaseConfig(BaseModel):
     build_backend: Literal["chroma", "local_index", "both"] = Field(default="both", description="Which retrieval index artifacts to build")
 
 
+class EmbeddingConfig(BaseModel):
+    api_type: Literal["local", "openai"] = Field(default="local", description="The type of the embedding api")
+    embedding_model_name_or_path: str = Field(..., description="The embedding model name or path")
+    use_qwen3_embedding: bool = Field(default=False, description="Whether to use Qwen3 embedding")
+    local_files_only: bool = Field(default=False, description="Whether to use local files only")
+    normalize_embeddings: bool = Field(default=False, description="Whether to normalize embeddings")
+    base_url: Optional[str] = Field(default=None, description="The base url of the embedding model service")
+    api_key: Optional[str] = Field(default=None, description="The api key of the embedding model service")
+    embedding_device: str = Field(default="auto", description="Execution device for local embedding models, e.g. auto, cpu, cuda, cuda:0")
+
+
 class ValueRetrievalConfig(BaseModel):
     llm: LLMConfig = Field(..., description="The llm config, used to extract keywords")
     n_results: int = Field(default=5, description="The number of results to retrieve")
@@ -106,9 +117,11 @@ class FewShotIndexConfig(BaseModel):
     mask_cache_path: Optional[str] = Field(default=None, description="The JSONL cache path for LLM-masked training examples")
     batch_size: int = Field(default=128, ge=1, description="The embedding batch size when building the few-shot index")
     n_parallel: int = Field(default=1, ge=1, description="The number of parallel LLM mask requests")
+    llm_timeout: int = Field(default=300, ge=1, description="The timeout for each LLM mask request in seconds")
     max_samples: Optional[int] = Field(default=None, ge=1, description="The maximum number of training examples to index")
     force_rebuild: bool = Field(default=False, description="Whether to overwrite an existing few-shot index")
-    llm: Optional[LLMConfig] = Field(default=None, description="Optional LLM config used for question/SQL masking; defaults to value_retrieval.llm")
+    llm: Optional[LLMConfig] = Field(default=None, description="The LLM config used for question/SQL masking")
+    embedding: Optional[EmbeddingConfig] = Field(default=None, description="The embedding config used for few-shot index vectors")
 
 
 class SchemaLinkingConfig(BaseModel):
@@ -283,6 +296,7 @@ class Config:
         # few-shot index config
         few_shot_index_config = config.get("few_shot_index", {})
         few_shot_index_llm_config = few_shot_index_config.get("llm")
+        few_shot_index_embedding_config = few_shot_index_config.get("embedding")
         few_shot_index_settings = {
             "save_path": _path_to_str(few_shot_index_config.get("save_path", WORKSPACE_ROOT / "few_shot_index" / str(dataset_type) / "train")),
             "mask_cache_path": (
@@ -290,11 +304,13 @@ class Config:
                 if few_shot_index_config.get("mask_cache_path") is not None
                 else None
             ),
-            "batch_size": few_shot_index_config.get("batch_size", vector_database_settings["batch_size"]),
+            "batch_size": few_shot_index_config.get("batch_size", 128),
             "n_parallel": few_shot_index_config.get("n_parallel", 1),
+            "llm_timeout": few_shot_index_config.get("llm_timeout", 300),
             "max_samples": few_shot_index_config.get("max_samples", None),
             "force_rebuild": few_shot_index_config.get("force_rebuild", False),
             "llm": LLMConfig(**few_shot_index_llm_config) if few_shot_index_llm_config else None,
+            "embedding": EmbeddingConfig(**few_shot_index_embedding_config) if few_shot_index_embedding_config else None,
         }
         
         # schema linking config

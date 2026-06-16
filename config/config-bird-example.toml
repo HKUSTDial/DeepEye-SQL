@@ -26,6 +26,31 @@ db_parallel = 4
 column_parallel = 8
 build_backend = "local_index"   # chroma | local_index | both
 
+########## Few-shot index configuration ##########
+[few_shot_index]
+save_path = "workspace/few_shot_index/bird/train"
+batch_size = 128
+n_parallel = 4
+llm_timeout = 300
+force_rebuild = false
+# max_samples = 100       # Limit training examples to index (optional)
+
+[few_shot_index.llm]
+model = "your-few-shot-mask-model-name"
+base_url = "your-few-shot-mask-model-base-url"
+api_key = "your-few-shot-mask-model-api-key"
+max_tokens = 2048
+temperature = 0.0
+api_type = "openai"
+max_model_len = 128000
+
+[few_shot_index.embedding]
+api_type = "openai"
+embedding_model_name_or_path = "your-few-shot-embedding-model-name"
+base_url = "your-few-shot-embedding-model-base-url"
+api_key = "your-few-shot-embedding-model-api-key"
+embedding_device = "auto"   # auto | cpu | cuda | cuda:0
+
 ########## Value retrieval configuration ##########
 [value_retrieval]
 n_results = 5
