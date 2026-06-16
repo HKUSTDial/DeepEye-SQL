@@ -114,13 +114,16 @@ class ValueRetrievalConfig(BaseModel):
 
 class FewShotIndexConfig(BaseModel):
     save_path: str = Field(default=_path_to_str(WORKSPACE_ROOT / "few_shot_index"), description="The save path of the few-shot training index")
+    prepared_save_path: str = Field(default=_path_to_str(WORKSPACE_ROOT / "few_shot_preparation"), description="The save path of the dataset snapshot with prepared few-shot examples")
     mask_cache_path: Optional[str] = Field(default=None, description="The JSONL cache path for LLM-masked training examples")
+    target_mask_cache_path: Optional[str] = Field(default=None, description="The JSONL cache path for LLM-masked target items")
     batch_size: int = Field(default=128, ge=1, description="The embedding batch size when building the few-shot index")
     n_parallel: int = Field(default=1, ge=1, description="The number of parallel LLM mask requests")
     llm_timeout: int = Field(default=300, ge=1, description="The timeout for each LLM mask request in seconds")
     n_results: int = Field(default=5, ge=1, description="The number of few-shot examples to retrieve")
     question_weight: float = Field(default=0.5, ge=0.0, description="The retrieval weight for masked question similarity")
     sql_weight: float = Field(default=0.5, ge=0.0, description="The retrieval weight for masked SQL similarity")
+    exclude_same_db: bool = Field(default=False, description="Whether to exclude training examples from the target database id")
     max_samples: Optional[int] = Field(default=None, ge=1, description="The maximum number of training examples to index")
     force_rebuild: bool = Field(default=False, description="Whether to overwrite an existing few-shot index")
     llm: Optional[LLMConfig] = Field(default=None, description="The LLM config used for question/SQL masking")
@@ -308,9 +311,15 @@ class Config:
         few_shot_index_embedding_config = few_shot_index_config.get("embedding")
         few_shot_index_settings = {
             "save_path": _path_to_str(few_shot_index_config.get("save_path", WORKSPACE_ROOT / "few_shot_index" / str(dataset_type) / "train")),
+            "prepared_save_path": _path_to_str(few_shot_index_config.get("prepared_save_path", WORKSPACE_ROOT / "few_shot_preparation" / str(dataset_type) / f"{dataset_split}.snapshot")),
             "mask_cache_path": (
                 _path_to_str(few_shot_index_config.get("mask_cache_path"))
                 if few_shot_index_config.get("mask_cache_path") is not None
+                else None
+            ),
+            "target_mask_cache_path": (
+                _path_to_str(few_shot_index_config.get("target_mask_cache_path"))
+                if few_shot_index_config.get("target_mask_cache_path") is not None
                 else None
             ),
             "batch_size": few_shot_index_config.get("batch_size", 128),
@@ -319,6 +328,7 @@ class Config:
             "n_results": few_shot_index_config.get("n_results", 5),
             "question_weight": few_shot_index_config.get("question_weight", 0.5),
             "sql_weight": few_shot_index_config.get("sql_weight", 0.5),
+            "exclude_same_db": few_shot_index_config.get("exclude_same_db", False),
             "max_samples": few_shot_index_config.get("max_samples", None),
             "force_rebuild": few_shot_index_config.get("force_rebuild", False),
             "llm": LLMConfig(**few_shot_index_llm_config) if few_shot_index_llm_config else None,

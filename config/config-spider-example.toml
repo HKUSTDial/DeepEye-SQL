@@ -29,12 +29,15 @@ build_backend = "local_index"   # chroma | local_index | both
 ########## Few-shot index configuration ##########
 [few_shot_index]
 save_path = "workspace/few_shot_index/spider/train"
+prepared_save_path = "workspace/few_shot_preparation/spider/test.snapshot"
+target_mask_cache_path = "workspace/few_shot_preparation/spider/test_target_mask_cache.jsonl"
 batch_size = 128
 n_parallel = 4
 llm_timeout = 300
 n_results = 5
 question_weight = 0.5
 sql_weight = 0.5
+exclude_same_db = false
 force_rebuild = false
 # max_samples = 100       # Limit training examples to index (optional)
 

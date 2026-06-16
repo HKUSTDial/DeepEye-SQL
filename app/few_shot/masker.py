@@ -52,10 +52,40 @@ SQL:
 """
 
 
+MASK_QUESTION_ONLY_USER_PROMPT_TEMPLATE = """Mask database-specific names and literal values while preserving question intent.
+
+Rules:
+- Replace schema names, entity names, literal values, numbers, dates, and domain-specific nouns with generic placeholders such as <entity>, <value>, <number>, <date>, or <concept>.
+- Preserve the question's compositional intent: aggregation, comparison, ordering, grouping, filtering, superlatives, and set logic.
+- If the hint/evidence clarifies an entity or value, reflect only its abstract role in the masked question.
+- Return exactly this JSON schema: {{"masked_question": "..."}}
+
+Examples:
+Question: Who is the director of the movie Sex, Drink and Bloodshed?
+Masked Question: Who is the <concept> of the movie <value>?
+
+Question: How many heads of the departments are older than 56?
+Masked Question: How many <entity> of the <entity> are older than <number>?
+
+Question:
+{question}
+
+Evidence:
+{evidence}
+"""
+
+
 @dataclass
 class MaskResult:
     masked_question: str
     masked_sql: str
+    source: str
+
+
+@dataclass
+class TargetMaskResult:
+    masked_question: str
+    masked_sql: Optional[str]
     source: str
 
 
@@ -202,6 +232,88 @@ def mask_training_example(
         return MaskResult(masked_question=example.question_context, masked_sql=example.sql, source="fallback")
 
 
+def mask_target_question_sql(
+    question: str,
+    evidence: str,
+    sql: Optional[str],
+    llm: Optional[LLM],
+    skip_llm: bool = False,
+    llm_timeout: int = 300,
+    item_id: Optional[str] = None,
+) -> TargetMaskResult:
+    question = question.strip()
+    evidence = evidence.strip() if evidence else ""
+    sql = sql.strip() if sql else None
+    question_context = f"{question}\nHint: {evidence}" if evidence else question
+
+    if skip_llm or llm is None:
+        return TargetMaskResult(masked_question=question_context, masked_sql=sql, source="raw")
+
+    try:
+        if sql:
+            parsed = _ask_mask_question_sql(
+                question=question,
+                evidence=evidence,
+                sql=sql,
+                llm=llm,
+                llm_timeout=llm_timeout,
+            )
+            return TargetMaskResult(
+                masked_question=parsed["masked_question"],
+                masked_sql=parsed["masked_sql"],
+                source="llm",
+            )
+
+        parsed_question = _ask_mask_question_only(
+            question=question,
+            evidence=evidence,
+            llm=llm,
+            llm_timeout=llm_timeout,
+        )
+        return TargetMaskResult(masked_question=parsed_question, masked_sql=None, source="llm")
+    except Exception as exc:
+        prefix = f" for item {item_id}" if item_id is not None else ""
+        logger.warning(f"Failed to mask target question/SQL{prefix}; using raw text for this run. Error: {exc}")
+        return TargetMaskResult(masked_question=question_context, masked_sql=sql, source="fallback")
+
+
+def _ask_mask_question_sql(question: str, evidence: str, sql: str, llm: LLM, llm_timeout: int) -> Dict[str, str]:
+    messages = [
+        {
+            "role": "user",
+            "content": MASK_USER_PROMPT_TEMPLATE.format(
+                question=question,
+                evidence=evidence or "None",
+                sql=sql,
+            ),
+        }
+    ]
+    choices, _ = llm.ask(
+        messages=messages,
+        system_message=MASK_SYSTEM_PROMPT,
+        timeout=llm_timeout,
+    )
+    return parse_mask_response(choices[0].content)
+
+
+def _ask_mask_question_only(question: str, evidence: str, llm: LLM, llm_timeout: int) -> str:
+    messages = [
+        {
+            "role": "user",
+            "content": MASK_QUESTION_ONLY_USER_PROMPT_TEMPLATE.format(
+                question=question,
+                evidence=evidence or "None",
+            ),
+        }
+    ]
+    choices, _ = llm.ask(
+        messages=messages,
+        system_message=MASK_SYSTEM_PROMPT,
+        timeout=llm_timeout,
+    )
+    return parse_question_only_mask_response(choices[0].content)
+
+
 def parse_mask_response(response: str) -> Dict[str, str]:
     if not isinstance(response, str) or not response.strip():
         raise ValueError("Mask response is empty")
@@ -223,6 +335,27 @@ def parse_mask_response(response: str) -> Dict[str, str]:
                 return {"masked_question": masked_question, "masked_sql": masked_sql}
 
     raise ValueError(f"Could not parse masked question/sql JSON from response: {response[:500]}")
+
+
+def parse_question_only_mask_response(response: str) -> str:
+    if not isinstance(response, str) or not response.strip():
+        raise ValueError("Question-only mask response is empty")
+
+    for candidate in _iter_json_candidates(response):
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(parsed, dict):
+            continue
+
+        masked_question = parsed.get("masked_question")
+        if isinstance(masked_question, str):
+            masked_question = masked_question.strip()
+            if masked_question:
+                return masked_question
+
+    raise ValueError(f"Could not parse masked_question JSON from response: {response[:500]}")
 
 
 def _iter_json_candidates(response: str) -> Iterable[str]:
