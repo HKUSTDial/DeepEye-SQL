@@ -35,6 +35,7 @@ def build_few_shot_index(
     batch_size: int = 128,
     n_parallel: int = 1,
     llm_timeout: int = 300,
+    progress_log_interval: int = 50,
     max_samples: Optional[int] = None,
     max_samples_per_db: Optional[int] = None,
     force_rebuild: bool = False,
@@ -64,6 +65,8 @@ def build_few_shot_index(
         raise ValueError(f"n_parallel must be >= 1, got {n_parallel}")
     if llm_timeout < 1:
         raise ValueError(f"llm_timeout must be >= 1, got {llm_timeout}")
+    if progress_log_interval < 1:
+        raise ValueError(f"progress_log_interval must be >= 1, got {progress_log_interval}")
     if not skip_mask_llm and llm is None:
         raise ValueError("llm is required for LLM masking. Set skip_mask_llm=True to build a raw-text index.")
 
@@ -88,6 +91,7 @@ def build_few_shot_index(
         skip_mask_llm=skip_mask_llm,
         n_parallel=n_parallel,
         llm_timeout=llm_timeout,
+        progress_log_interval=progress_log_interval,
     )
 
     examples_path = save_path / "examples.jsonl"
@@ -109,12 +113,14 @@ def build_few_shot_index(
         embedding_function=embedding_function,
         batch_size=batch_size,
         label="masked questions",
+        progress_log_interval=progress_log_interval,
     )
     sql_embeddings = _embed_texts(
         texts=[mask_result.masked_sql for mask_result in mask_results],
         embedding_function=embedding_function,
         batch_size=batch_size,
         label="masked SQL",
+        progress_log_interval=progress_log_interval,
     )
 
     question_embeddings_path = save_path / "question_embeddings.npy"
@@ -157,6 +163,7 @@ def _mask_examples(
     skip_mask_llm: bool,
     n_parallel: int,
     llm_timeout: int,
+    progress_log_interval: int,
 ) -> List[MaskResult]:
     if n_parallel == 1:
         results = []
@@ -170,7 +177,7 @@ def _mask_examples(
                     llm_timeout=llm_timeout,
                 )
             )
-            _log_progress("Masking few-shot examples", idx, len(examples))
+            _log_progress("Masking few-shot examples", idx, len(examples), progress_log_interval, previous_completed=idx - 1)
         return results
 
     results: List[Optional[MaskResult]] = [None] * len(examples)
@@ -183,8 +190,9 @@ def _mask_examples(
         for future in as_completed(futures):
             idx = futures[future]
             results[idx] = future.result()
+            previous_completed = completed
             completed += 1
-            _log_progress("Masking few-shot examples", completed, len(examples))
+            _log_progress("Masking few-shot examples", completed, len(examples), progress_log_interval, previous_completed=previous_completed)
 
     if any(result is None for result in results):
         raise RuntimeError("Some few-shot examples did not produce mask results")
@@ -205,14 +213,20 @@ def _write_examples(examples_path: Path, examples: List[TrainingExample], mask_r
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
-def _embed_texts(texts: List[str], embedding_function: Any, batch_size: int, label: str) -> np.ndarray:
+def _embed_texts(texts: List[str], embedding_function: Any, batch_size: int, label: str, progress_log_interval: int) -> np.ndarray:
     embeddings: List[List[float]] = []
     total = len(texts)
     for start in range(0, total, batch_size):
         batch = texts[start : start + batch_size]
         batch_embeddings = embedding_function(batch)
         embeddings.extend(batch_embeddings)
-        _log_progress(f"Embedding {label}", min(start + len(batch), total), total)
+        _log_progress(
+            f"Embedding {label}",
+            min(start + len(batch), total),
+            total,
+            progress_log_interval,
+            previous_completed=start,
+        )
 
     matrix = np.asarray(embeddings, dtype=np.float32)
     if matrix.ndim != 2 or matrix.shape[0] != total:
@@ -226,12 +240,33 @@ def _l2_normalize(matrix: np.ndarray) -> np.ndarray:
     return matrix / norms
 
 
-def _log_progress(label: str, completed: int, total: int) -> None:
+def _log_progress(
+    label: str,
+    completed: int,
+    total: int,
+    progress_log_interval: int = 50,
+    previous_completed: Optional[int] = None,
+) -> None:
     if total <= 0:
         return
+    completed = min(max(completed, 0), total)
+    if completed == 0:
+        return
+
     markers = {1, total, max(1, total // 4), max(1, total // 2), max(1, (total * 3) // 4)}
-    if completed in markers:
-        logger.info(f"{label}: {completed}/{total}")
+    should_log = completed in markers
+
+    if not should_log:
+        interval = max(progress_log_interval, 1)
+        if previous_completed is None:
+            should_log = completed % interval == 0
+        else:
+            previous_completed = min(max(previous_completed, 0), total)
+            should_log = completed // interval > previous_completed // interval
+
+    if should_log:
+        percent = completed / total * 100
+        logger.info(f"{label}: {completed}/{total} ({percent:.1f}%)")
 
 
 def _build_manifest(

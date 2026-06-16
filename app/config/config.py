@@ -137,6 +137,7 @@ class FewShotIndexConfig(BaseModel):
     batch_size: int = Field(default=128, ge=1, description="The embedding batch size when building the few-shot index")
     n_parallel: int = Field(default=1, ge=1, description="The number of parallel LLM mask requests")
     llm_timeout: int = Field(default=300, ge=1, description="The timeout for each LLM mask request in seconds")
+    progress_log_interval: int = Field(default=50, ge=1, description="Log few-shot index build progress every N completed examples")
     n_results: int = Field(default=5, ge=1, description="The number of few-shot examples to retrieve")
     question_weight: float = Field(default=0.5, ge=0.0, description="The retrieval weight for masked question similarity")
     sql_weight: float = Field(default=0.5, ge=0.0, description="The retrieval weight for masked SQL similarity")
@@ -353,6 +354,7 @@ class Config:
             "batch_size": few_shot_index_config.get("batch_size", 128),
             "n_parallel": few_shot_index_config.get("n_parallel", 1),
             "llm_timeout": few_shot_index_config.get("llm_timeout", 300),
+            "progress_log_interval": few_shot_index_config.get("progress_log_interval", 50),
             "n_results": few_shot_index_config.get("n_results", 5),
             "question_weight": few_shot_index_config.get("question_weight", 0.5),
             "sql_weight": few_shot_index_config.get("sql_weight", 0.5),
