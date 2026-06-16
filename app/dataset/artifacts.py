@@ -22,6 +22,8 @@ class DataItemInput(BaseModel):
     database_path: str = Field(..., description="The database path of the data item")
     database_schema: Dict[str, Any] = Field(..., description="The database schema of the data item")
     few_shot_examples: Optional[List[Dict[str, Any]]] = Field(default=None, description="Prepared few-shot examples for this item")
+    few_shot_preliminary_sql: Optional[str] = Field(default=None, description="Selected preliminary SQL used for few-shot retrieval")
+    few_shot_preparation_metadata: Optional[Dict[str, Any]] = Field(default=None, description="Metadata for dynamic few-shot preparation")
     instance_id: Optional[str] = Field(default=None, description="Spider2 instance id when present")
     db_type: Optional[str] = Field(default=None, description="Database type when present")
     external_knowledge_path: Optional[str] = Field(default=None, description="External knowledge path when present")

@@ -57,23 +57,52 @@ echo -e "\nStep 3: Value Retrieval..."
 uv run runner/run_value_retrieval.py
 if [ $? -ne 0 ]; then echo "Value retrieval failed!"; exit 1; fi
 
-# 4. Schema Linking
-echo -e "\nStep 4: Schema Linking..."
+# 4. Dynamic Few-shot Preparation
+if [ "${SKIP_FEW_SHOT_PREPARATION:-0}" = "1" ]; then
+    echo -e "\nStep 4: Dynamic Few-shot Preparation skipped (SKIP_FEW_SHOT_PREPARATION=1)."
+else
+    FEW_SHOT_READY=$(uv run python - <<'PY'
+from app.config import get_config
+
+cfg = get_config()
+ready = (
+    cfg.dataset_config.type in {"bird", "spider"}
+    and cfg.few_shot_index_config.embedding is not None
+    and cfg.few_shot_index_config.llm is not None
+)
+print("1" if ready else "0")
+PY
+)
+    if [ "$FEW_SHOT_READY" = "1" ]; then
+        echo -e "\nStep 4a: Building Few-shot Training Index..."
+        uv run runner/build_few_shot_index.py
+        if [ $? -ne 0 ]; then echo "Few-shot index build failed!"; exit 1; fi
+
+        echo -e "\nStep 4b: Dynamic Few-shot Preparation..."
+        uv run runner/run_few_shot_preparation.py
+        if [ $? -ne 0 ]; then echo "Few-shot preparation failed!"; exit 1; fi
+    else
+        echo -e "\nStep 4: Dynamic Few-shot Preparation skipped (unsupported dataset or missing [few_shot_index] model config)."
+    fi
+fi
+
+# 5. Schema Linking
+echo -e "\nStep 5: Schema Linking..."
 uv run runner/run_schema_linking.py
 if [ $? -ne 0 ]; then echo "Schema linking failed!"; exit 1; fi
 
-# 5. SQL Generation
-echo -e "\nStep 5: SQL Generation..."
+# 6. SQL Generation
+echo -e "\nStep 6: SQL Generation..."
 uv run runner/run_sql_generation.py
 if [ $? -ne 0 ]; then echo "SQL generation failed!"; exit 1; fi
 
-# 6. SQL Revision
-echo -e "\nStep 6: SQL Revision..."
+# 7. SQL Revision
+echo -e "\nStep 7: SQL Revision..."
 uv run runner/run_sql_revision.py
 if [ $? -ne 0 ]; then echo "SQL revision failed!"; exit 1; fi
 
-# 7. SQL Selection
-echo -e "\nStep 7: SQL Selection..."
+# 8. SQL Selection
+echo -e "\nStep 8: SQL Selection..."
 uv run runner/run_sql_selection.py
 if [ $? -ne 0 ]; then echo "SQL selection failed!"; exit 1; fi
 

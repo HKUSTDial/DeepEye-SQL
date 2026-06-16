@@ -9,6 +9,7 @@ from tqdm import tqdm
 from app.logger import logger
 import time
 import traceback
+from pathlib import Path
 from app.services import ArtifactStore, STAGE_ARTIFACT_FIELDS, configure_schema_service, load_stage_dataset, reset_schema_service
 
 class SchemaLinkingRunner:
@@ -74,10 +75,13 @@ class SchemaLinkingRunner:
             from app.config import get_config
 
             app_config = get_config()
+        input_save_path = app_config.few_shot_index_config.prepared_save_path
+        if not Path(input_save_path).exists():
+            input_save_path = app_config.value_retrieval_config.save_path
         return cls(
             stage_config=app_config.schema_linking_config,
             dataset_config=app_config.dataset_config,
-            input_save_path=app_config.value_retrieval_config.save_path,
+            input_save_path=input_save_path,
             few_shot_examples_path=app_config.sql_generation_config.icl_few_shot_examples_path,
             extractor_max_retry=app_config.llm_extractor_config.max_retry,
         )

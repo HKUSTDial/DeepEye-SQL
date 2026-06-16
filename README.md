@@ -123,19 +123,23 @@ Natural Language Question
    Ground relevant values from the database / vector index
         |
         v
-2. Schema Linking
+2. Dynamic Few-shot Preparation
+   Retrieve training examples with masked question and preliminary SQL similarity
+        |
+        v
+3. Schema Linking
    Merge direct linking, reversed linking, and value linking
         |
         v
-3. SQL Generation
+4. SQL Generation
    Produce diverse SQL candidates via multiple generators
         |
         v
-4. SQL Revision
+5. SQL Revision
    Repair candidates using checker-style debugging passes
         |
         v
-5. SQL Selection
+6. SQL Selection
    Execute, compare, and select the final SQL
 ```
 
@@ -171,6 +175,8 @@ DeepEye-SQL
 - [runner/preprocess_dataset.py](runner/preprocess_dataset.py): build initial dataset snapshot
 - [runner/create_vector_db_parallel.py](runner/create_vector_db_parallel.py): create value-retrieval vector indices
 - [runner/run_value_retrieval.py](runner/run_value_retrieval.py)
+- [runner/build_few_shot_index.py](runner/build_few_shot_index.py): build the masked training-example retrieval index
+- [runner/run_few_shot_preparation.py](runner/run_few_shot_preparation.py): attach dynamic few-shot examples before schema linking
 - [runner/run_schema_linking.py](runner/run_schema_linking.py)
 - [runner/run_sql_generation.py](runner/run_sql_generation.py)
 - [runner/run_sql_revision.py](runner/run_sql_revision.py)

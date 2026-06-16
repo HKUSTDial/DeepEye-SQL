@@ -112,6 +112,23 @@ class ValueRetrievalConfig(BaseModel):
     save_path: str = Field(default=_path_to_str(WORKSPACE_ROOT / "value_retrieval"), description="The save path of the value retrieval result")
 
 
+class PreliminarySQLConfig(BaseModel):
+    enabled: bool = Field(default=False, description="Whether to generate preliminary SQL before few-shot retrieval")
+    dc_sampling_budget: int = Field(default=2, ge=0, description="Sampling budget for preliminary divide-and-conquer SQL generation")
+    skeleton_sampling_budget: int = Field(default=2, ge=0, description="Sampling budget for preliminary skeleton SQL generation")
+    n_internal_parallel: int = Field(default=2, ge=1, description="Max workers within one item for preliminary SQL generation")
+    llm: Optional[LLMConfig] = Field(default=None, description="The LLM config used for preliminary SQL generation")
+
+    @model_validator(mode="after")
+    def validate_enabled_config(self):
+        if self.enabled:
+            if self.llm is None:
+                raise ValueError("[few_shot_index.preliminary_sql.llm] is required when preliminary SQL is enabled")
+            if self.dc_sampling_budget + self.skeleton_sampling_budget <= 0:
+                raise ValueError("preliminary SQL generation requires at least one positive sampling budget")
+        return self
+
+
 class FewShotIndexConfig(BaseModel):
     save_path: str = Field(default=_path_to_str(WORKSPACE_ROOT / "few_shot_index"), description="The save path of the few-shot training index")
     prepared_save_path: str = Field(default=_path_to_str(WORKSPACE_ROOT / "few_shot_preparation"), description="The save path of the dataset snapshot with prepared few-shot examples")
@@ -128,6 +145,7 @@ class FewShotIndexConfig(BaseModel):
     force_rebuild: bool = Field(default=False, description="Whether to overwrite an existing few-shot index")
     llm: Optional[LLMConfig] = Field(default=None, description="The LLM config used for question/SQL masking")
     embedding: Optional[EmbeddingConfig] = Field(default=None, description="The embedding config used for few-shot index vectors")
+    preliminary_sql: PreliminarySQLConfig = Field(default_factory=PreliminarySQLConfig, description="Preliminary SQL generation config used before few-shot retrieval")
 
     @model_validator(mode="after")
     def validate_retrieval_weights(self):
@@ -309,6 +327,15 @@ class Config:
         few_shot_index_config = config.get("few_shot_index", {})
         few_shot_index_llm_config = few_shot_index_config.get("llm")
         few_shot_index_embedding_config = few_shot_index_config.get("embedding")
+        preliminary_sql_config = few_shot_index_config.get("preliminary_sql", {})
+        preliminary_sql_llm_config = preliminary_sql_config.get("llm")
+        preliminary_sql_settings = {
+            "enabled": preliminary_sql_config.get("enabled", False),
+            "dc_sampling_budget": preliminary_sql_config.get("dc_sampling_budget", 2),
+            "skeleton_sampling_budget": preliminary_sql_config.get("skeleton_sampling_budget", 2),
+            "n_internal_parallel": preliminary_sql_config.get("n_internal_parallel", 2),
+            "llm": LLMConfig(**preliminary_sql_llm_config) if preliminary_sql_llm_config else None,
+        }
         few_shot_index_settings = {
             "save_path": _path_to_str(few_shot_index_config.get("save_path", WORKSPACE_ROOT / "few_shot_index" / str(dataset_type) / "train")),
             "prepared_save_path": _path_to_str(few_shot_index_config.get("prepared_save_path", WORKSPACE_ROOT / "few_shot_preparation" / str(dataset_type) / f"{dataset_split}.snapshot")),
@@ -333,6 +360,7 @@ class Config:
             "force_rebuild": few_shot_index_config.get("force_rebuild", False),
             "llm": LLMConfig(**few_shot_index_llm_config) if few_shot_index_llm_config else None,
             "embedding": EmbeddingConfig(**few_shot_index_embedding_config) if few_shot_index_embedding_config else None,
+            "preliminary_sql": PreliminarySQLConfig(**preliminary_sql_settings),
         }
         
         # schema linking config

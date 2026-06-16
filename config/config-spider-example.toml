@@ -57,6 +57,21 @@ base_url = "your-few-shot-embedding-model-base-url"
 api_key = "your-few-shot-embedding-model-api-key"
 embedding_device = "auto"   # auto | cpu | cuda | cuda:0
 
+[few_shot_index.preliminary_sql]
+enabled = false
+dc_sampling_budget = 2
+skeleton_sampling_budget = 2
+n_internal_parallel = 2
+
+[few_shot_index.preliminary_sql.llm]
+model = "your-few-shot-preliminary-sql-model-name"
+base_url = "your-few-shot-preliminary-sql-model-base-url"
+api_key = "your-few-shot-preliminary-sql-model-api-key"
+max_tokens = 4096
+temperature = 0.6
+api_type = "openai"
+max_model_len = 128000
+
 ########## Value retrieval configuration ##########
 [value_retrieval]
 n_results = 5
