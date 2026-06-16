@@ -30,6 +30,7 @@ class DataItem(BaseModel):
     database_id: str = Field(..., description="The database id of the data item")
     database_path: str = Field(..., description="The database path of the data item")
     database_schema: Dict[str, Any] = Field(..., description="The database schema of the data item")
+    few_shot_examples: Optional[List[Dict[str, Any]]] = Field(default=None, description="Prepared few-shot examples for this item")
     
     # Value Retrieval Step
     question_keywords: Optional[List[str]] = Field(default=None, description="The question keywords of the data item")
@@ -84,6 +85,7 @@ class DataItem(BaseModel):
             database_id=self.database_id,
             database_path=self.database_path,
             database_schema=self.database_schema,
+            few_shot_examples=self.few_shot_examples,
             instance_id=getattr(self, "instance_id", None),
             db_type=getattr(self, "db_type", None),
             external_knowledge_path=getattr(self, "external_knowledge_path", None),
@@ -102,6 +104,7 @@ class DataItem(BaseModel):
             "database_id",
             "database_path",
             "database_schema",
+            "few_shot_examples",
         )
         for field_name in base_fields:
             setattr(self, field_name, getattr(input_record, field_name))

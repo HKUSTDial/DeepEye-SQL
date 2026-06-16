@@ -5,6 +5,7 @@ from app.llm import LLM
 from app.logger import logger
 from app.prompt import PromptFactory
 from app.db_utils import map_lower_table_name_to_original_table_name, map_lower_column_name_to_original_column_name
+from app.few_shot import get_few_shot_examples_for_item
 from app.services import get_schema_service
 from typing import Dict, List, Optional, Any
 from pathlib import Path
@@ -30,52 +31,33 @@ class ReversedLinker(BaseSchemaLinker):
                 self._few_shot_examples = {}
                 self._few_shot_available = False
         else:
-            logger.warning(f"Few-shot examples file not found: {few_shot_examples_path}")
+            if few_shot_examples_path:
+                logger.warning(f"Few-shot examples file not found: {few_shot_examples_path}")
+            else:
+                logger.info("Static few-shot examples path is not provided. ReversedLinker will use dynamic examples when available.")
             self._few_shot_examples = {}
             self._few_shot_available = False
+
+    def _get_few_shot_examples(self, data_item: DataItem) -> tuple[List[Dict[str, str]], Optional[str]]:
+        examples_by_id = self._few_shot_examples if self._few_shot_available else None
+        return get_few_shot_examples_for_item(data_item, examples_by_id)
     
     def _has_few_shot_examples(self, data_item: DataItem) -> bool:
         """Check if few-shot examples are available for this data item."""
-        if not self._few_shot_available or not self._few_shot_examples:
-            return False
-        
-        # Check by question_id
-        question_id = str(data_item.question_id) if hasattr(data_item, 'question_id') else None
-        if question_id and question_id in self._few_shot_examples:
-            examples = self._few_shot_examples[question_id]
-            return isinstance(examples, list) and len(examples) > 0
-        
-        # Check by instance_id (for Spider2)
-        instance_id = str(data_item.instance_id) if hasattr(data_item, 'instance_id') else None
-        if instance_id and instance_id in self._few_shot_examples:
-            examples = self._few_shot_examples[instance_id]
-            return isinstance(examples, list) and len(examples) > 0
-        
-        return False
+        examples, _ = self._get_few_shot_examples(data_item)
+        return len(examples) > 0
     
     def link(self, data_item: DataItem, llm: LLM, sampling_budget: int = 1) -> tuple[Dict[str, List[str]], Dict[str, int]]:
         if sampling_budget == 0:
             return {}, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         
-        # Check if few-shot examples are available; if not, fallback to DC-based approach
-        if not self._has_few_shot_examples(data_item):
+        few_shot_examples, few_shot_source = self._get_few_shot_examples(data_item)
+        if not few_shot_examples:
             logger.info(f"No few-shot examples available for {getattr(data_item, 'instance_id', data_item.question_id)}, falling back to DC-based SQL generation")
             return self._link_with_dc_fallback(data_item, llm, sampling_budget)
-        
-        # Get few-shot examples by question_id or instance_id
-        question_id = str(data_item.question_id) if hasattr(data_item, 'question_id') else None
-        instance_id = str(data_item.instance_id) if hasattr(data_item, 'instance_id') else None
-        
-        few_shot_examples = None
-        if question_id and question_id in self._few_shot_examples:
-            few_shot_examples = self._few_shot_examples[question_id]
-        elif instance_id and instance_id in self._few_shot_examples:
-            few_shot_examples = self._few_shot_examples[instance_id]
-        
-        if not few_shot_examples:
-            logger.warning(f"Few-shot examples not found, falling back to DC-based SQL generation")
-            return self._link_with_dc_fallback(data_item, llm, sampling_budget)
-            
+
+        logger.debug(f"Using {len(few_shot_examples)} few-shot examples from {few_shot_source} for reversed linking item {data_item.get_item_id()}")
+
         db_type = getattr(data_item, "db_type", None)
 
         max_prompt_len = llm.llm_config.max_model_len - llm.llm_config.max_tokens

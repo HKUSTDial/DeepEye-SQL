@@ -3,6 +3,7 @@ from app.dataset import DataItem
 from app.llm import LLM
 from app.logger import logger
 from app.prompt import PromptFactory
+from app.few_shot import get_few_shot_examples_for_item
 from typing import Dict, List, Optional, Tuple
 from pathlib import Path
 import json
@@ -26,25 +27,19 @@ class ICLGenerator(BaseSQLGenerator):
             else:
                 logger.warning(f"ICL few-shot examples path does not exist: {few_shot_examples_path}")
         else:
-            logger.info("ICL few-shot examples path is not provided. ICL Generator will be disabled.")
+            logger.info("Static ICL few-shot examples path is not provided. ICLGenerator will use dynamic examples when available.")
     
     def generate(self, data_item: DataItem, llm: LLM, sampling_budget: int = 1) -> Tuple[List[str], Dict[str, int]]:
-        if sampling_budget == 0 or not self._few_shot_examples:
+        if sampling_budget == 0:
             return [], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         
-        # Determine question_id or instance_id (Spider2)
-        question_id = str(data_item.question_id) if hasattr(data_item, 'question_id') else None
-        instance_id = str(data_item.instance_id) if hasattr(data_item, 'instance_id') else None
-        
-        few_shot_examples = None
-        if question_id and question_id in self._few_shot_examples:
-            few_shot_examples = self._few_shot_examples[question_id]
-        elif instance_id and instance_id in self._few_shot_examples:
-            few_shot_examples = self._few_shot_examples[instance_id]
+        few_shot_examples, few_shot_source = get_few_shot_examples_for_item(data_item, self._few_shot_examples)
             
         if not few_shot_examples:
-            logger.warning(f"Few-shot examples not found for {question_id or instance_id}, returning empty result.")
+            logger.warning(f"Few-shot examples not found for {data_item.get_item_id()}, returning empty result.")
             return [], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+        logger.debug(f"Using {len(few_shot_examples)} few-shot examples from {few_shot_source} for ICL item {data_item.get_item_id()}")
 
         db_type = getattr(data_item, "db_type", None)
         
