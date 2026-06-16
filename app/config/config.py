@@ -101,6 +101,16 @@ class ValueRetrievalConfig(BaseModel):
     save_path: str = Field(default=_path_to_str(WORKSPACE_ROOT / "value_retrieval"), description="The save path of the value retrieval result")
 
 
+class FewShotIndexConfig(BaseModel):
+    save_path: str = Field(default=_path_to_str(WORKSPACE_ROOT / "few_shot_index"), description="The save path of the few-shot training index")
+    mask_cache_path: Optional[str] = Field(default=None, description="The JSONL cache path for LLM-masked training examples")
+    batch_size: int = Field(default=128, ge=1, description="The embedding batch size when building the few-shot index")
+    n_parallel: int = Field(default=1, ge=1, description="The number of parallel LLM mask requests")
+    max_samples: Optional[int] = Field(default=None, ge=1, description="The maximum number of training examples to index")
+    force_rebuild: bool = Field(default=False, description="Whether to overwrite an existing few-shot index")
+    llm: Optional[LLMConfig] = Field(default=None, description="Optional LLM config used for question/SQL masking; defaults to value_retrieval.llm")
+
+
 class SchemaLinkingConfig(BaseModel):
     llm: LLMConfig = Field(..., description="The llm config, used to link tables and columns")
     n_parallel: int = Field(default=16, description="The number of parallel threads to use")
@@ -153,6 +163,7 @@ class AppConfig(BaseModel):
     dataset: DatasetConfig = Field(default_factory=DatasetConfig, description="The config of the dataset")
     vector_database: VectorDatabaseConfig = Field(default_factory=VectorDatabaseConfig, description="The config of the vector database")
     value_retrieval: ValueRetrievalConfig = Field(default_factory=ValueRetrievalConfig, description="The config of the value retrieval")
+    few_shot_index: FewShotIndexConfig = Field(default_factory=FewShotIndexConfig, description="The config of the few-shot training index")
     schema_linking: SchemaLinkingConfig = Field(default_factory=SchemaLinkingConfig, description="The config of the schema linking")
     sql_generation: SQLGenerationConfig = Field(default_factory=SQLGenerationConfig, description="The config of the sql generation")
     sql_revision: SQLRevisionConfig = Field(default_factory=SQLRevisionConfig, description="The config of the sql revision")
@@ -268,6 +279,23 @@ class Config:
             "local_index_device": value_retrieval_config.get("local_index_device", "auto"),
             "save_path": _path_to_str(value_retrieval_config.get("save_path", WORKSPACE_ROOT / "value_retrieval")),
         }
+
+        # few-shot index config
+        few_shot_index_config = config.get("few_shot_index", {})
+        few_shot_index_llm_config = few_shot_index_config.get("llm")
+        few_shot_index_settings = {
+            "save_path": _path_to_str(few_shot_index_config.get("save_path", WORKSPACE_ROOT / "few_shot_index" / str(dataset_type) / "train")),
+            "mask_cache_path": (
+                _path_to_str(few_shot_index_config.get("mask_cache_path"))
+                if few_shot_index_config.get("mask_cache_path") is not None
+                else None
+            ),
+            "batch_size": few_shot_index_config.get("batch_size", vector_database_settings["batch_size"]),
+            "n_parallel": few_shot_index_config.get("n_parallel", 1),
+            "max_samples": few_shot_index_config.get("max_samples", None),
+            "force_rebuild": few_shot_index_config.get("force_rebuild", False),
+            "llm": LLMConfig(**few_shot_index_llm_config) if few_shot_index_llm_config else None,
+        }
         
         # schema linking config
         schema_linking_config = config.get("schema_linking", {})
@@ -333,6 +361,7 @@ class Config:
             dataset=DatasetConfig(**dataset_settings),
             vector_database=VectorDatabaseConfig(**vector_database_settings),
             value_retrieval=ValueRetrievalConfig(**value_retrieval_settings),
+            few_shot_index=FewShotIndexConfig(**few_shot_index_settings),
             schema_linking=SchemaLinkingConfig(**schema_linking_settings),
             sql_generation=SQLGenerationConfig(**sql_generation_settings),
             sql_revision=SQLRevisionConfig(**sql_revision_settings),
@@ -375,6 +404,10 @@ class Config:
     @property
     def value_retrieval_config(self):
         return self._app_config.value_retrieval
+
+    @property
+    def few_shot_index_config(self):
+        return self._app_config.few_shot_index
     
     @property
     def schema_linking_config(self):
