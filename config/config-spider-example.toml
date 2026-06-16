@@ -32,6 +32,9 @@ save_path = "workspace/few_shot_index/spider/train"
 batch_size = 128
 n_parallel = 4
 llm_timeout = 300
+n_results = 5
+question_weight = 0.5
+sql_weight = 0.5
 force_rebuild = false
 # max_samples = 100       # Limit training examples to index (optional)
 
