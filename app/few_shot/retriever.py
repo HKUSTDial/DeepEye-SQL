@@ -3,11 +3,18 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
 
 import numpy as np
 
+from app.logger import logger
 from app.vector_db.vector_db import get_embedding_function
+
+try:
+    import torch
+except ImportError:  # pragma: no cover - torch is expected in normal runtime, but CPU fallback is valid.
+    torch = None
 
 
 FewShotRecord = Dict[str, Any]
@@ -42,16 +49,31 @@ class FewShotIndex:
         question_embeddings: np.ndarray,
         sql_embeddings: np.ndarray,
         manifest: Dict[str, Any],
+        similarity_device: str = "cpu",
     ) -> None:
         self.index_path = Path(index_path)
         self.records = records
         self.question_embeddings = _normalize_matrix(question_embeddings)
         self.sql_embeddings = _normalize_matrix(sql_embeddings)
         self.manifest = manifest
+        self._similarity_device = _resolve_similarity_device(similarity_device)
+        self._similarity_tensor_lock = Lock()
+        self._question_embeddings_tensor = None
+        self._sql_embeddings_tensor = None
         self._validate()
+        logger.info(f"Using few-shot similarity_device={self.similarity_device}")
+
+    @property
+    def similarity_device(self) -> str:
+        return self._similarity_device or "cpu"
 
     @classmethod
-    def load(cls, index_path: str | Path, mmap_mode: Optional[str] = "r") -> "FewShotIndex":
+    def load(
+        cls,
+        index_path: str | Path,
+        mmap_mode: Optional[str] = "r",
+        similarity_device: str = "cpu",
+    ) -> "FewShotIndex":
         index_path = Path(index_path)
         manifest_path = index_path / "manifest.json"
         if not manifest_path.exists():
@@ -74,6 +96,7 @@ class FewShotIndex:
             question_embeddings=question_embeddings,
             sql_embeddings=sql_embeddings,
             manifest=manifest,
+            similarity_device=similarity_device,
         )
 
     def retrieve_by_embeddings(
@@ -101,8 +124,7 @@ class FewShotIndex:
                 f"query={question_vector.shape[0]}, index={self.question_embeddings.shape[1]}"
             )
 
-        question_scores = np.clip(np.asarray(self.question_embeddings @ question_vector, dtype=np.float32), -1.0, 1.0)
-        sql_scores: Optional[np.ndarray] = None
+        sql_vector: Optional[np.ndarray] = None
         if sql_embedding is not None and sql_weight > 0:
             sql_vector = _normalize_vector(np.asarray(sql_embedding, dtype=np.float32))
             if sql_vector.shape[0] != self.sql_embeddings.shape[1]:
@@ -110,7 +132,12 @@ class FewShotIndex:
                     "SQL embedding dimension mismatch: "
                     f"query={sql_vector.shape[0]}, index={self.sql_embeddings.shape[1]}"
                 )
-            sql_scores = np.clip(np.asarray(self.sql_embeddings @ sql_vector, dtype=np.float32), -1.0, 1.0)
+
+        question_scores, sql_scores = self._score_embeddings(
+            question_vector=question_vector,
+            sql_vector=sql_vector,
+        )
+        if sql_scores is not None:
             combined_scores = np.clip(question_weight * question_scores + sql_weight * sql_scores, -1.0, 1.0)
         else:
             combined_scores = question_scores
@@ -143,6 +170,64 @@ class FewShotIndex:
                 )
             )
         return results
+
+    def _score_embeddings(
+        self,
+        question_vector: np.ndarray,
+        sql_vector: Optional[np.ndarray],
+    ) -> tuple[np.ndarray, Optional[np.ndarray]]:
+        if self._similarity_device is not None:
+            return self._score_embeddings_torch(question_vector=question_vector, sql_vector=sql_vector)
+
+        question_scores = np.clip(np.asarray(self.question_embeddings @ question_vector, dtype=np.float32), -1.0, 1.0)
+        sql_scores = None
+        if sql_vector is not None:
+            sql_scores = np.clip(np.asarray(self.sql_embeddings @ sql_vector, dtype=np.float32), -1.0, 1.0)
+        return question_scores, sql_scores
+
+    def _score_embeddings_torch(
+        self,
+        question_vector: np.ndarray,
+        sql_vector: Optional[np.ndarray],
+    ) -> tuple[np.ndarray, Optional[np.ndarray]]:
+        if torch is None or self._similarity_device is None:
+            return self._score_embeddings(question_vector=question_vector, sql_vector=sql_vector)
+
+        question_embeddings_tensor, sql_embeddings_tensor = self._get_similarity_tensors()
+        with torch.no_grad():
+            question_tensor = torch.as_tensor(question_vector, dtype=torch.float32, device=self._similarity_device)
+            question_scores_tensor = torch.clamp(question_embeddings_tensor @ question_tensor, -1.0, 1.0)
+            question_scores = question_scores_tensor.detach().cpu().numpy().astype(np.float32, copy=False)
+
+            sql_scores = None
+            if sql_vector is not None:
+                sql_tensor = torch.as_tensor(sql_vector, dtype=torch.float32, device=self._similarity_device)
+                sql_scores_tensor = torch.clamp(sql_embeddings_tensor @ sql_tensor, -1.0, 1.0)
+                sql_scores = sql_scores_tensor.detach().cpu().numpy().astype(np.float32, copy=False)
+
+        return question_scores, sql_scores
+
+    def _get_similarity_tensors(self):
+        if torch is None or self._similarity_device is None:
+            raise RuntimeError("Torch similarity tensors requested without an active torch device")
+
+        if self._question_embeddings_tensor is not None and self._sql_embeddings_tensor is not None:
+            return self._question_embeddings_tensor, self._sql_embeddings_tensor
+
+        with self._similarity_tensor_lock:
+            if self._question_embeddings_tensor is None:
+                self._question_embeddings_tensor = torch.as_tensor(
+                    self.question_embeddings,
+                    dtype=torch.float32,
+                    device=self._similarity_device,
+                )
+            if self._sql_embeddings_tensor is None:
+                self._sql_embeddings_tensor = torch.as_tensor(
+                    self.sql_embeddings,
+                    dtype=torch.float32,
+                    device=self._similarity_device,
+                )
+            return self._question_embeddings_tensor, self._sql_embeddings_tensor
 
     def _allowed_indices(
         self,
@@ -196,9 +281,14 @@ class FewShotRetriever:
         embedding_config: Any,
         batch_size: int = 128,
         mmap_mode: Optional[str] = "r",
+        similarity_device: str = "cpu",
     ) -> "FewShotRetriever":
         return cls(
-            index=FewShotIndex.load(index_path=index_path, mmap_mode=mmap_mode),
+            index=FewShotIndex.load(
+                index_path=index_path,
+                mmap_mode=mmap_mode,
+                similarity_device=similarity_device,
+            ),
             embedding_config=embedding_config,
             batch_size=batch_size,
         )
@@ -281,6 +371,34 @@ def _validate_record(record: Any, examples_path: Path, line_number: int) -> None
         value = record.get(field_name)
         if not isinstance(value, str) or not value.strip():
             raise ValueError(f"Missing or empty {field_name} in {examples_path}:{line_number}")
+
+
+def _resolve_similarity_device(device: str) -> Optional[str]:
+    requested_device = (device or "cpu").strip().lower()
+    if requested_device == "cpu":
+        return None
+    if torch is None:
+        logger.warning(f"Requested few-shot similarity_device={device}, but torch is unavailable; falling back to CPU")
+        return None
+
+    if requested_device == "auto":
+        requested_device = "cuda" if torch.cuda.is_available() else "cpu"
+    if requested_device == "cpu":
+        return None
+
+    resolved_device = torch.device(requested_device)
+    if resolved_device.type == "cuda":
+        if not torch.cuda.is_available():
+            logger.warning(f"Requested few-shot similarity_device={device}, but CUDA is unavailable; falling back to CPU")
+            return None
+        if resolved_device.index is not None and resolved_device.index >= torch.cuda.device_count():
+            raise ValueError(
+                f"Requested few-shot similarity_device={device}, but only "
+                f"{torch.cuda.device_count()} CUDA device(s) are visible"
+            )
+        return str(resolved_device)
+
+    raise ValueError(f"Unsupported few-shot similarity_device={device}; expected cpu, auto, cuda, or cuda:N")
 
 
 def _resolve_weights(question_weight: float, sql_weight: float, has_sql_embedding: bool) -> tuple[float, float]:

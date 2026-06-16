@@ -38,6 +38,7 @@ progress_log_interval = 50
 n_results = 5
 question_weight = 0.5
 sql_weight = 0.5
+similarity_device = "cpu"  # cpu | auto | cuda | cuda:0
 exclude_same_db = false
 force_rebuild = false
 # max_samples = 100       # Limit training examples to index (optional)

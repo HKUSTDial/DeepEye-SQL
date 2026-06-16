@@ -18,6 +18,7 @@ def main() -> None:
     parser.add_argument("--top_k", type=int, default=None, help="Number of examples to retrieve")
     parser.add_argument("--question_weight", type=float, default=None, help="Masked question similarity weight")
     parser.add_argument("--sql_weight", type=float, default=None, help="Masked SQL similarity weight")
+    parser.add_argument("--similarity_device", type=str, default=None, help="Device for few-shot similarity scoring, e.g. cpu, auto, cuda:0")
     parser.add_argument("--exclude_example_id", action="append", default=None, help="Example ID to exclude; can repeat")
     parser.add_argument("--exclude_db_id", action="append", default=None, help="Database ID to exclude; can repeat")
     args = parser.parse_args()
@@ -38,11 +39,13 @@ def main() -> None:
     top_k = args.top_k if args.top_k is not None else few_shot_config.n_results
     question_weight = args.question_weight if args.question_weight is not None else few_shot_config.question_weight
     sql_weight = args.sql_weight if args.sql_weight is not None else few_shot_config.sql_weight
+    similarity_device = args.similarity_device or few_shot_config.similarity_device
 
     retriever = FewShotRetriever.from_index_path(
         index_path=index_path,
         embedding_config=few_shot_config.embedding,
         batch_size=few_shot_config.batch_size,
+        similarity_device=similarity_device,
     )
     results = retriever.retrieve_by_texts(
         masked_question=args.masked_question,

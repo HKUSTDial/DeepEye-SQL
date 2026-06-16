@@ -90,6 +90,7 @@ def main() -> None:
         index_path=index_path,
         embedding_config=few_shot_config.embedding,
         batch_size=few_shot_config.batch_size,
+        similarity_device=few_shot_config.similarity_device,
     )
     llm = None if args.skip_mask_llm else LLM(few_shot_config.llm)
     cache = None
