@@ -171,7 +171,8 @@ DeepEye-SQL
 
 ### Key entry points
 
-- [script/run_pipeline.sh](script/run_pipeline.sh): full pipeline automation
+- [script/run_pipeline.sh](script/run_pipeline.sh): full pipeline automation for one TOML config
+- [script/bird-full-run-commands.sh](script/bird-full-run-commands.sh): standard BIRD full-run command wrapper for dev/test, inspection, evaluation, and export
 - [runner/preprocess_dataset.py](runner/preprocess_dataset.py): build initial dataset snapshot
 - [runner/create_vector_db_parallel.py](runner/create_vector_db_parallel.py): create value-retrieval vector indices
 - [runner/run_value_retrieval.py](runner/run_value_retrieval.py)
@@ -230,10 +231,12 @@ Use the provided helper script:
 bash script/download_dataset.sh
 ```
 
-This downloads:
+This downloads and prepares:
 
-- Spider test split
+- Spider train/dev/test assets included in the Spider package
 - BIRD dev split
+- BIRD train databases from the official BIRD release
+- BIRD train question/SQL labels from the cleaned `birdsql/bird23-train-filtered` Hugging Face dataset
 
 ### Spider2
 
@@ -280,6 +283,25 @@ db_parallel = 2
 column_parallel = 8
 ```
 
+#### Few-shot retrieval
+
+```toml
+[few_shot_index]
+save_path = "workspace/few_shot_index/bird/train"
+n_results = 5
+question_weight = 0.5
+sql_weight = 0.5
+similarity_device = "cpu"  # cpu | auto | cuda | cuda:0
+
+[few_shot_index.embedding]
+api_type = "openai"
+embedding_model_name_or_path = "your-embedding-model"
+base_url = "https://your-openai-compatible-embedding-endpoint/v1"
+api_key = "your-api-key"
+```
+
+`similarity_device` controls where few-shot question/SQL vector similarity is computed. It is separate from the embedding endpoint or local embedding model.
+
 #### Stage LLMs
 
 ```toml
@@ -301,14 +323,38 @@ max_model_len = 128000
 
 ## Quick Start
 
-### Option A: full pipeline
+### Option A: one-config full pipeline
 
 ```bash
 export CONFIG_PATH=config/config-bird-example.toml
 bash script/run_pipeline.sh
 ```
 
-### Option B: stage-by-stage
+### Option B: BIRD full-run command wrapper
+
+For larger BIRD dev/test runs, keep local endpoint-specific configs under `workspace/run_configs/` and use the standard wrapper:
+
+```bash
+bash script/bird-full-run-commands.sh dev
+bash script/bird-full-run-commands.sh inspect-dev
+bash script/bird-full-run-commands.sh eval-dev
+bash script/bird-full-run-commands.sh export-dev
+
+bash script/bird-full-run-commands.sh test
+bash script/bird-full-run-commands.sh inspect-test
+bash script/bird-full-run-commands.sh export-test
+```
+
+By default the wrapper reads `workspace/run_configs/bird-full-dev.toml` and `workspace/run_configs/bird-full-test.toml`. Override them when needed:
+
+```bash
+DEV_CONFIG=path/to/dev.toml TEST_CONFIG=path/to/test.toml \
+  bash script/bird-full-run-commands.sh dev
+```
+
+The `dev`/`test` commands run Step 4a automatically: if the few-shot training index is missing, it is built from the training set; if `manifest.json` already exists, it is reused. Use `rebuild-index` only for an intentional overwrite or an incomplete index directory.
+
+### Option C: stage-by-stage
 
 ```bash
 export CONFIG_PATH=config/config-bird-example.toml
@@ -316,6 +362,8 @@ export CONFIG_PATH=config/config-bird-example.toml
 uv run runner/preprocess_dataset.py
 uv run runner/create_vector_db_parallel.py
 uv run runner/run_value_retrieval.py
+uv run runner/build_few_shot_index.py
+uv run runner/run_few_shot_preparation.py
 uv run runner/run_schema_linking.py
 uv run runner/run_sql_generation.py
 uv run runner/run_sql_revision.py
@@ -330,6 +378,7 @@ Typical outputs land under `workspace/`:
   [workspace/dataset](workspace/dataset)
 - stage snapshots:
   [workspace/value_retrieval](workspace/value_retrieval),
+  [workspace/few_shot_preparation](workspace/few_shot_preparation),
   [workspace/schema_linking](workspace/schema_linking),
   [workspace/sql_generation](workspace/sql_generation),
   [workspace/sql_revision](workspace/sql_revision),
