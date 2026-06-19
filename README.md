@@ -261,6 +261,23 @@ Three examples are included:
 
 ### Important config blocks
 
+#### Run Outputs
+
+```toml
+[run]
+save_root = "workspace/runs"
+exp_name = "bird-dev"
+parallelism = 8
+embedding_batch_size = 128
+llm_timeout = 300
+progress_log_interval = 50
+checkpoint_interval = 20
+```
+
+By default, stage outputs are written under `save_root/exp_name`, for example `dataset.snapshot`, `value_retrieval.snapshot`, `schema_linking.snapshot`, and `sql_selection.snapshot`. Reusable training artifacts such as the few-shot index are written under `save_root/_shared/<dataset>/`.
+
+`parallelism` is the global concurrency setting for LLM-heavy stages, value retrieval, and vector DB build work. `embedding_batch_size` controls the batch size used when sending texts to the embedding model or endpoint. `progress_log_interval` controls progress log cadence; `checkpoint_interval` controls intermediate pipeline checkpoint saves.
+
 #### Dataset
 
 ```toml
@@ -268,44 +285,41 @@ Three examples are included:
 type = "bird"                # spider | bird | spider2
 split = "dev"
 root_path = "data/bird"
-save_path = "workspace/dataset/bird/dev.snapshot"
 ```
 
 #### Embedding / vector DB
 
 ```toml
-[vector_database]
+[embedding]
 api_type = "openai"          # or local
 embedding_model_name_or_path = "your-embedding-model"
-store_root_path = "workspace/vector_database/bird/dev"
+base_url = "https://your-openai-compatible-embedding-endpoint/v1"
+api_key = "your-api-key"
 embedding_device = "auto"       # auto | cpu | cuda | cuda:0
-db_parallel = 2
-column_parallel = 8
+
+[vector_database]
+max_value_length = 100
+build_backend = "local_index"   # chroma | local_index | both
 ```
 
 #### Few-shot retrieval
 
 ```toml
 [few_shot_index]
-save_path = "workspace/few_shot_index/bird/train"
-n_results = 5
-question_weight = 0.5
-sql_weight = 0.5
+num_examples = 5
+question_weight = 0.6
+sql_weight = 0.4
 similarity_device = "cpu"  # cpu | auto | cuda | cuda:0
-
-[few_shot_index.embedding]
-api_type = "openai"
-embedding_model_name_or_path = "your-embedding-model"
-base_url = "https://your-openai-compatible-embedding-endpoint/v1"
-api_key = "your-api-key"
 ```
 
 `similarity_device` controls where few-shot question/SQL vector similarity is computed. It is separate from the embedding endpoint or local embedding model.
 
-#### Stage LLMs
+Few-shot index builds are resumable: masking uses the JSONL mask cache, and embedding batches are checkpointed under `.build_checkpoint` until the final `manifest.json` is written.
+
+#### Default and Stage LLMs
 
 ```toml
-[sql_generation.llm]
+[llm]
 model = "your-model-name"
 base_url = "https://your-openai-compatible-endpoint/v1"
 api_key = "your-api-key"
@@ -313,11 +327,17 @@ max_tokens = 4096
 temperature = 0.7
 api_type = "openai"
 max_model_len = 128000
+
+# Optional: any stage can override only the fields that differ.
+[sql_generation.llm]
+temperature = 0.6
 ```
 
 ### Notes
 
-- Each stage can use a different model.
+- `save_path`, `store_root_path`, and cache path fields are optional. Set them only when you need to override the managed paths from `[run]`.
+- `[llm]` and `[embedding]` provide defaults. Stage-specific `[... .llm]` and `[... .embedding]` blocks only need to include overridden fields.
+- Each stage can still use a different model by overriding `model`, `base_url`, or other fields in that stage's block.
 - All stage outputs are stored as structured `.snapshot` manifests.
 - Only structured `.snapshot` manifests are supported.
 
@@ -372,17 +392,18 @@ uv run runner/run_sql_selection.py
 
 ### What gets produced?
 
-Typical outputs land under `workspace/`:
+With `[run] save_root = "workspace/runs"` and `exp_name = "bird-dev"`, stage outputs land under `workspace/runs/bird-dev/`:
 
-- dataset snapshot:
-  [workspace/dataset](workspace/dataset)
-- stage snapshots:
-  [workspace/value_retrieval](workspace/value_retrieval),
-  [workspace/few_shot_preparation](workspace/few_shot_preparation),
-  [workspace/schema_linking](workspace/schema_linking),
-  [workspace/sql_generation](workspace/sql_generation),
-  [workspace/sql_revision](workspace/sql_revision),
-  [workspace/sql_selection](workspace/sql_selection)
+- `dataset.snapshot`
+- `value_retrieval.snapshot`
+- `few_shot_preparation.snapshot`
+- `schema_linking.snapshot`
+- `sql_generation.snapshot`
+- `sql_revision.snapshot`
+- `sql_selection.snapshot`
+
+Reusable training artifacts such as the few-shot train index are stored under `workspace/runs/_shared/<dataset>/`.
+
 - active config copy:
   `workspace/config/<config-file>.toml`
 
@@ -398,7 +419,7 @@ Each run that loads `app.config.get_config()` copies the active TOML config to `
 uv run runner/preprocess_dataset.py
 ```
 
-This creates the initial dataset snapshot referenced by `dataset.save_path`.
+This creates the initial dataset snapshot referenced by the resolved `dataset.save_path`.
 
 ### 2. Build value index
 
@@ -419,14 +440,14 @@ Each stage consumes the previous stage snapshot and writes a new one.
 
 ```bash
 uv run runner/convert_snapshot_to_sql.py \
-  --snapshot_path workspace/sql_selection/bird/dev.snapshot
+  --snapshot_path workspace/runs/bird-dev/sql_selection.snapshot
 ```
 
 ### 5. Evaluate
 
 ```bash
 uv run runner/evaluation.py \
-  --snapshot_path workspace/sql_selection/bird/dev.snapshot
+  --snapshot_path workspace/runs/bird-dev/sql_selection.snapshot
 ```
 
 ## Evaluation
@@ -441,7 +462,7 @@ uv run runner/evaluation.py --help
 
 ```bash
 uv run runner/evaluation.py \
-  --snapshot_path workspace/sql_selection/bird/dev.snapshot \
+  --snapshot_path workspace/runs/bird-dev/sql_selection.snapshot \
   --dataset_type bird
 ```
 
@@ -449,7 +470,7 @@ uv run runner/evaluation.py \
 
 ```bash
 uv run runner/evaluation.py \
-  --snapshot_path workspace/sql_selection/spider2/lite.snapshot \
+  --snapshot_path workspace/runs/spider2-lite/sql_selection.snapshot \
   --dataset_type spider2 \
   --dataset_split lite
 ```
@@ -477,7 +498,7 @@ uv run runner/benchmark_execution.py \
 
 ```bash
 uv run runner/benchmark_execution.py \
-  --snapshot-path workspace/sql_selection/bird/dev.snapshot \
+  --snapshot-path workspace/runs/bird-dev/sql_selection.snapshot \
   --snapshot-sample-size 20
 ```
 

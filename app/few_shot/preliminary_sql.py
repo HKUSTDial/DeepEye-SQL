@@ -43,6 +43,7 @@ class PreliminarySQLGenerator:
         dataset_config: DatasetConfig,
         *,
         extractor_max_retry: int,
+        parallelism: int,
     ) -> None:
         if config.llm is None:
             raise ValueError("[few_shot_index.preliminary_sql.llm] is required")
@@ -56,7 +57,9 @@ class PreliminarySQLGenerator:
             snowflake_credential_path=dataset_config.snowflake_credential_path,
         )
         self._llm = LLM(config.llm)
-        self._executor = ThreadPoolExecutor(max_workers=max(1, config.n_internal_parallel))
+        self._parallelism = max(1, parallelism)
+        self._executor = ThreadPoolExecutor(max_workers=self._parallelism)
+        logger.info(f"Preliminary SQL parallelism: {self._parallelism}")
         self._execution_service = get_execution_service()
         self._dc_generator = DCGenerator(extractor_max_retry=extractor_max_retry)
         self._skeleton_generator = SkeletonGenerator(extractor_max_retry=extractor_max_retry)

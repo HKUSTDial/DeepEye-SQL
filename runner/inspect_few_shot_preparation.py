@@ -73,7 +73,6 @@ def _inspect_item(item: Any) -> Dict[str, Any]:
     question_scores = [_optional_float(example.get("question_score")) for example in examples]
     sql_scores = [_optional_float(example.get("sql_score")) for example in examples]
     source_db_ids = [str(example.get("source_db_id")) for example in examples if example.get("source_db_id") is not None]
-    same_db_example_count = sum(1 for db_id in source_db_ids if db_id == str(getattr(item, "database_id", "")))
 
     return {
         "item_id": item.get_item_id() if hasattr(item, "get_item_id") else str(getattr(item, "question_id", "")),
@@ -86,7 +85,6 @@ def _inspect_item(item: Any) -> Dict[str, Any]:
         "mean_question_score": _mean([score for score in question_scores if score is not None]),
         "mean_sql_score": _mean([score for score in sql_scores if score is not None]),
         "source_db_count": len(set(source_db_ids)),
-        "same_db_example_count": same_db_example_count,
         "preliminary_sql_selected": selected,
         "preliminary_sql_source": source,
         "preliminary_sql_length": len(preliminary_sql or ""),
@@ -97,7 +95,6 @@ def _inspect_item(item: Any) -> Dict[str, Any]:
         "preliminary_total_tokens": _extract_total_tokens(preliminary_metadata.get("token_usage")),
         "target_mask_source": metadata.get("target_mask_source", "unknown"),
         "used_sql_similarity": bool(metadata.get("used_sql_similarity", any(score is not None for score in sql_scores))),
-        "exclude_same_db": bool(metadata.get("exclude_same_db", False)),
     }
 
 
@@ -108,7 +105,6 @@ def _summarize(details: List[Dict[str, Any]], *, input_path: str) -> Dict[str, A
     selected_count = sum(1 for detail in details if detail["preliminary_sql_selected"])
     items_with_examples = sum(1 for detail in details if detail["example_count"] > 0)
     items_using_sql_similarity = sum(1 for detail in details if detail["used_sql_similarity"])
-    same_db_example_items = sum(1 for detail in details if detail["same_db_example_count"] > 0)
 
     candidate_counts = _present_numbers(detail["candidate_count"] for detail in details)
     executable_counts = _present_numbers(detail["executable_candidate_count"] for detail in details)
@@ -134,8 +130,6 @@ def _summarize(details: List[Dict[str, Any]], *, input_path: str) -> Dict[str, A
             "items_with_examples_rate": _rate(items_with_examples, total_items),
             "example_count": _stats(detail["example_count"] for detail in details),
             "source_db_count": _stats(detail["source_db_count"] for detail in details),
-            "same_db_example_items": same_db_example_items,
-            "same_db_example_item_rate": _rate(same_db_example_items, total_items),
         },
         "retrieval_scores": {
             "top1_retrieval_score": _stats(detail["top1_retrieval_score"] for detail in details),

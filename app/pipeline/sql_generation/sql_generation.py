@@ -5,6 +5,7 @@ from .generators import DCGenerator, SkeletonGenerator, ICLGenerator
 from app.pipeline.validation import validate_pipeline_step
 import time
 from app.logger import logger
+from app.progress import log_progress, should_checkpoint
 from tqdm import tqdm
 import traceback
 from app.services import ArtifactStore, STAGE_ARTIFACT_FIELDS, configure_schema_service, load_stage_dataset, reset_schema_service
@@ -25,12 +26,27 @@ class SQLGenerationRunner:
     _stage_config = None
     _input_save_path: str = ""
     _dataset_config = None
+    _parallelism: int = 16
+    _progress_log_interval: int = 50
+    _checkpoint_interval: int = 20
     
-    def __init__(self, stage_config, dataset_config, input_save_path: str, extractor_max_retry: int):
+    def __init__(
+        self,
+        stage_config,
+        dataset_config,
+        input_save_path: str,
+        extractor_max_retry: int,
+        parallelism: int,
+        progress_log_interval: int,
+        checkpoint_interval: int,
+    ):
         self._stage_config = stage_config
         self._dataset_config = dataset_config
         self._input_save_path = input_save_path
         self._extractor_max_retry = extractor_max_retry
+        self._parallelism = max(1, parallelism)
+        self._progress_log_interval = max(1, progress_log_interval)
+        self._checkpoint_interval = max(1, checkpoint_interval)
         self._artifact_store = ArtifactStore(
             self._stage_config.save_path,
             "sql_generation",
@@ -46,8 +62,9 @@ class SQLGenerationRunner:
         logger.info(f"Initialized SQL generation dataset from {checkpoint_source}")
         configure_schema_service(max_value_example_length=self._dataset_config.max_value_example_length)
         self._llm = LLM(self._stage_config.llm)
-        self._thread_pool_executor = ThreadPoolExecutor(max_workers=self._stage_config.n_parallel)
-        self._inner_thread_pool_executor = ThreadPoolExecutor(max_workers=max(1, self._stage_config.n_internal_parallel))
+        logger.info(f"SQL generation parallelism: {self._parallelism}")
+        self._thread_pool_executor = ThreadPoolExecutor(max_workers=self._parallelism)
+        self._inner_thread_pool_executor = ThreadPoolExecutor(max_workers=self._parallelism)
         self._dc_generator = DCGenerator(extractor_max_retry=self._extractor_max_retry)
         self._skeleton_generator = SkeletonGenerator(extractor_max_retry=self._extractor_max_retry)
         self._icl_generator = ICLGenerator(
@@ -66,6 +83,9 @@ class SQLGenerationRunner:
             dataset_config=app_config.dataset_config,
             input_save_path=app_config.schema_linking_config.save_path,
             extractor_max_retry=app_config.llm_extractor_config.max_retry,
+            parallelism=app_config.run_config.parallelism,
+            progress_log_interval=app_config.run_config.progress_log_interval,
+            checkpoint_interval=app_config.run_config.checkpoint_interval,
         )
         
     def _generate_sql(self, data_item: DataItem) -> None:
@@ -136,8 +156,8 @@ class SQLGenerationRunner:
         for idx, future in tqdm(enumerate(as_completed(future_to_item), start=1), total=len(future_to_item), desc="Generating SQL"):
             future.result()
             self._artifact_store.record_item(future_to_item[future])
-            if idx % 5 == 0:
-                logger.info(f"Generating SQL {idx} / {len(future_to_item)} completed")
+            log_progress("Generating SQL", idx, len(future_to_item), self._progress_log_interval, previous_completed=idx - 1)
+            if should_checkpoint(idx, self._checkpoint_interval):
                 self.save_result()
         logger.info("Generating SQL completed")
         

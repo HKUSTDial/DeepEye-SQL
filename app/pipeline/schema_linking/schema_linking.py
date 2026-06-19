@@ -7,6 +7,7 @@ from app.pipeline.validation import validate_pipeline_step
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 from app.logger import logger
+from app.progress import log_progress, should_checkpoint
 import time
 import traceback
 from pathlib import Path
@@ -28,6 +29,9 @@ class SchemaLinkingRunner:
     _input_save_path: str = ""
     _few_shot_examples_path: str | None = None
     _dataset_config = None
+    _parallelism: int = 16
+    _progress_log_interval: int = 50
+    _checkpoint_interval: int = 20
     
     def __init__(
         self,
@@ -36,12 +40,18 @@ class SchemaLinkingRunner:
         input_save_path: str,
         few_shot_examples_path: str | None,
         extractor_max_retry: int,
+        parallelism: int,
+        progress_log_interval: int,
+        checkpoint_interval: int,
     ):
         self._stage_config = stage_config
         self._dataset_config = dataset_config
         self._input_save_path = input_save_path
         self._few_shot_examples_path = few_shot_examples_path
         self._extractor_max_retry = extractor_max_retry
+        self._parallelism = max(1, parallelism)
+        self._progress_log_interval = max(1, progress_log_interval)
+        self._checkpoint_interval = max(1, checkpoint_interval)
         self._artifact_store = ArtifactStore(
             self._stage_config.save_path,
             "schema_linking",
@@ -57,8 +67,9 @@ class SchemaLinkingRunner:
         logger.info(f"Initialized schema linking dataset from {checkpoint_source}")
         configure_schema_service(max_value_example_length=self._dataset_config.max_value_example_length)
         self._llm = LLM(self._stage_config.llm)
-        self._thread_pool_executor = ThreadPoolExecutor(max_workers=self._stage_config.n_parallel)
-        self._inner_thread_pool_executor = ThreadPoolExecutor(max_workers=max(1, self._stage_config.n_internal_parallel))
+        logger.info(f"Schema linking parallelism: {self._parallelism}")
+        self._thread_pool_executor = ThreadPoolExecutor(max_workers=self._parallelism)
+        self._inner_thread_pool_executor = ThreadPoolExecutor(max_workers=self._parallelism)
         self._direct_linker = DirectLinker(extractor_max_retry=self._extractor_max_retry)
         self._reversed_linker = ReversedLinker(
             few_shot_examples_path=self._few_shot_examples_path,
@@ -84,6 +95,9 @@ class SchemaLinkingRunner:
             input_save_path=input_save_path,
             few_shot_examples_path=app_config.sql_generation_config.icl_few_shot_examples_path,
             extractor_max_retry=app_config.llm_extractor_config.max_retry,
+            parallelism=app_config.run_config.parallelism,
+            progress_log_interval=app_config.run_config.progress_log_interval,
+            checkpoint_interval=app_config.run_config.checkpoint_interval,
         )
     
     def _link_tables_and_columns(self, data_item: DataItem) -> None:
@@ -175,8 +189,8 @@ class SchemaLinkingRunner:
         for idx, future in tqdm(enumerate(as_completed(future_to_item), start=1), total=len(future_to_item), desc="Linking tables and columns"):
             future.result()
             self._artifact_store.record_item(future_to_item[future])
-            if idx % 5 == 0:
-                logger.info(f"Linking tables and columns {idx} / {len(future_to_item)} completed")
+            log_progress("Linking tables and columns", idx, len(future_to_item), self._progress_log_interval, previous_completed=idx - 1)
+            if should_checkpoint(idx, self._checkpoint_interval):
                 self.save_result()
         logger.info("Linking tables and columns completed")
         

@@ -83,7 +83,7 @@ def extract_keywords(
     stop=stop_after_attempt(10),
     retry=retry_if_exception_type((RateLimitError, APITimeoutError))
 )
-def embed_keywords(keywords: List[str], embedding_function: Any, batch_size: int) -> List[List[float]]:
+def embed_keywords(keywords: List[str], embedding_function: Any, embedding_batch_size: int) -> List[List[float]]:
     """
     Independently embed keywords with batching and retry logic.
     """
@@ -93,8 +93,8 @@ def embed_keywords(keywords: List[str], embedding_function: Any, batch_size: int
     all_embeddings = []
     
     # Manual batching to respect API limits (e.g., max 10 per request)
-    for i in range(0, len(keywords), batch_size):
-        batch = keywords[i : i + batch_size]
+    for i in range(0, len(keywords), embedding_batch_size):
+        batch = keywords[i : i + embedding_batch_size]
         batch_embeddings = embedding_function(batch)
         all_embeddings.extend(batch_embeddings)
         
@@ -106,7 +106,7 @@ def retrieve_values_for_one_column(
     collection: Collection,
     table_name: str,
     column_name: str,
-    n_results: int,
+    max_values_per_column: int,
     lower_meta_data: bool
 ) -> Dict[str, Any]:
     table_name = table_name.lower() if lower_meta_data else table_name
@@ -123,7 +123,7 @@ def retrieve_values_for_one_column(
     query_results = collection.query(
         query_embeddings=query_embeddings, # Pass pre-computed embeddings
         where={"$and": [{"table_name": {"$eq": table_name}}, {"column_name": {"$eq": column_name}}]},
-        n_results=n_results,
+        n_results=max_values_per_column,
     )
     
     values = []
@@ -136,7 +136,7 @@ def retrieve_values_for_one_column(
         if value not in seen_values:
             seen_values.add(value)
             top_k_values.append({"value": value, "distance": distance})
-            if len(top_k_values) >= n_results:
+            if len(top_k_values) >= max_values_per_column:
                 break
     
     return {

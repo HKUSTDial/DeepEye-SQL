@@ -266,12 +266,12 @@ class FewShotIndex:
 
 
 class FewShotRetriever:
-    def __init__(self, index: FewShotIndex, embedding_config: Any, batch_size: int = 128) -> None:
-        if batch_size < 1:
-            raise ValueError(f"batch_size must be >= 1, got {batch_size}")
+    def __init__(self, index: FewShotIndex, embedding_config: Any, embedding_batch_size: int = 128) -> None:
+        if embedding_batch_size < 1:
+            raise ValueError(f"embedding_batch_size must be >= 1, got {embedding_batch_size}")
         self.index = index
         self.embedding_config = embedding_config
-        self.batch_size = batch_size
+        self.embedding_batch_size = embedding_batch_size
         self._embedding_function = None
 
     @classmethod
@@ -279,7 +279,7 @@ class FewShotRetriever:
         cls,
         index_path: str | Path,
         embedding_config: Any,
-        batch_size: int = 128,
+        embedding_batch_size: int = 128,
         mmap_mode: Optional[str] = "r",
         similarity_device: str = "cpu",
     ) -> "FewShotRetriever":
@@ -290,7 +290,7 @@ class FewShotRetriever:
                 similarity_device=similarity_device,
             ),
             embedding_config=embedding_config,
-            batch_size=batch_size,
+            embedding_batch_size=embedding_batch_size,
         )
 
     def retrieve_by_texts(
@@ -323,8 +323,8 @@ class FewShotRetriever:
     def _embed_texts(self, texts: List[str]) -> List[np.ndarray]:
         embedding_function = self._get_embedding_function()
         embeddings: List[np.ndarray] = []
-        for start in range(0, len(texts), self.batch_size):
-            batch = texts[start : start + self.batch_size]
+        for start in range(0, len(texts), self.embedding_batch_size):
+            batch = texts[start : start + self.embedding_batch_size]
             batch_embeddings = embedding_function(batch)
             embeddings.extend(np.asarray(embedding, dtype=np.float32) for embedding in batch_embeddings)
         return embeddings

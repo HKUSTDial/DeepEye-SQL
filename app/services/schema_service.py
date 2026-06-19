@@ -204,7 +204,8 @@ class SchemaService:
                 column_schema_dict["value_examples"] = []
                 self._mark_schema_dirty(database_schema_dict)
             else:
-                cached_examples = self._value_examples_cache.get(column_cache_key)
+                with self._lock:
+                    cached_examples = self._value_examples_cache.get(column_cache_key)
                 if cached_examples is None:
                     cached_examples = load_value_examples(
                         db_path,
@@ -212,15 +213,18 @@ class SchemaService:
                         column_name,
                         max_example_length=self._max_value_example_length,
                     )
-                    self._value_examples_cache.set(column_cache_key, cached_examples)
+                    with self._lock:
+                        self._value_examples_cache.set(column_cache_key, cached_examples)
                 column_schema_dict["value_examples"] = cached_examples
                 self._mark_schema_dirty(database_schema_dict)
 
         if include_value_statistics and column_schema_dict.get("value_statistics") is None:
-            cached_statistics = self._value_statistics_cache.get(column_cache_key)
+            with self._lock:
+                cached_statistics = self._value_statistics_cache.get(column_cache_key)
             if cached_statistics is None:
                 cached_statistics = load_value_statistics(db_path, table_name, column_name)
-                self._value_statistics_cache.set(column_cache_key, cached_statistics)
+                with self._lock:
+                    self._value_statistics_cache.set(column_cache_key, cached_statistics)
             column_schema_dict["value_statistics"] = cached_statistics
             self._mark_schema_dirty(database_schema_dict)
 

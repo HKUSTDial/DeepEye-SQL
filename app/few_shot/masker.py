@@ -25,21 +25,30 @@ MASK_SYSTEM_PROMPT = {
 MASK_USER_PROMPT_TEMPLATE = """Mask database-specific names and literal values while preserving query intent.
 
 Rules:
+- Treat the Question and Evidence as one retrieval query.
 - In the question, replace schema names, entity names, literal values, numbers, dates, and domain-specific nouns with generic placeholders such as <entity>, <value>, <number>, <date>, or <concept>.
+- If Evidence is provided and useful, fold a masked version of it into masked_question as a short "Hint: ..." line. Do not return a separate evidence field.
 - In the SQL, replace every table name, column name, alias, string literal, numeric literal, and date/time literal with placeholders.
 - Use SQL placeholders such as <table>, <column>, <alias>, <value>, <number>, and <date>.
 - The masked_sql MUST NOT contain original table names, original column names, aliases, string literals, numeric literals, or date/time literals from the input SQL.
 - Preserve SQL operators, aggregation functions, GROUP BY / HAVING / ORDER BY / LIMIT, joins, subqueries, set operators, and comparison logic.
 - Keep the masked SQL syntactically recognizable enough to compare query skeletons.
-- If the hint/evidence clarifies an entity or value, reflect only its abstract role in the masked question.
 - Return exactly this JSON schema: {{"masked_question": "...", "masked_sql": "..."}}
 
 Examples:
-Input SQL: SELECT director_name FROM movies WHERE movie_title = 'Sex, Drink and Bloodshed'
-Masked SQL: SELECT <column> FROM <table> WHERE <column> = <value>
+Input:
+Question: Who is the director of the movie Sex, Drink and Bloodshed?
+Evidence: None
+SQL: SELECT director_name FROM movies WHERE movie_title = 'Sex, Drink and Bloodshed'
+Output:
+{{"masked_question": "Who is the <concept> of the movie <value>?", "masked_sql": "SELECT <column> FROM <table> WHERE <column> = <value>"}}
 
-Input SQL: SELECT COUNT(*) FROM head WHERE age > 56 GROUP BY department_id ORDER BY COUNT(*) DESC LIMIT 1
-Masked SQL: SELECT COUNT(*) FROM <table> WHERE <column> > <number> GROUP BY <column> ORDER BY COUNT(*) DESC LIMIT <number>
+Input:
+Question: Which department has the most heads older than 56?
+Evidence: head means department head.
+SQL: SELECT department_id FROM head WHERE age > 56 GROUP BY department_id ORDER BY COUNT(*) DESC LIMIT 1
+Output:
+{{"masked_question": "Which <entity> has the most <entity> older than <number>?\\nHint: <entity> means <entity>.", "masked_sql": "SELECT <column> FROM <table> WHERE <column> > <number> GROUP BY <column> ORDER BY COUNT(*) DESC LIMIT <number>"}}
 
 Question:
 {question}
@@ -55,17 +64,20 @@ SQL:
 MASK_QUESTION_ONLY_USER_PROMPT_TEMPLATE = """Mask database-specific names and literal values while preserving question intent.
 
 Rules:
+- Treat the Question and Evidence as one retrieval query.
 - Replace schema names, entity names, literal values, numbers, dates, and domain-specific nouns with generic placeholders such as <entity>, <value>, <number>, <date>, or <concept>.
 - Preserve the question's compositional intent: aggregation, comparison, ordering, grouping, filtering, superlatives, and set logic.
-- If the hint/evidence clarifies an entity or value, reflect only its abstract role in the masked question.
+- If Evidence is provided and useful, fold a masked version of it into masked_question as a short "Hint: ..." line. Do not return a separate evidence field.
 - Return exactly this JSON schema: {{"masked_question": "..."}}
 
 Examples:
 Question: Who is the director of the movie Sex, Drink and Bloodshed?
-Masked Question: Who is the <concept> of the movie <value>?
+Evidence: None
+Output: {{"masked_question": "Who is the <concept> of the movie <value>?"}}
 
 Question: How many heads of the departments are older than 56?
-Masked Question: How many <entity> of the <entity> are older than <number>?
+Evidence: head means department head.
+Output: {{"masked_question": "How many <entity> of the <entity> are older than <number>?\\nHint: <entity> means <entity>."}}
 
 Question:
 {question}
@@ -148,6 +160,7 @@ class MaskCache:
 
 def make_mask_cache_key(example: TrainingExample) -> str:
     payload = {
+        "version": 2,
         "dataset": example.dataset,
         "db_id": example.db_id,
         "question": example.question,

@@ -2,12 +2,39 @@
 [logger]
 print_level = "INFO"      # Console log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
 
+########## Run output configuration ##########
+[run]
+save_root = "workspace/runs"
+exp_name = "spider2-lite"
+parallelism = 8
+embedding_batch_size = 128
+llm_timeout = 300
+progress_log_interval = 50
+checkpoint_interval = 20
+
+########## Default LLM configuration ##########
+[llm]
+model = "your-llm-model-name"
+base_url = "your-llm-model-base-url"
+api_key = "your-llm-api-key"
+max_tokens = 4096
+temperature = 0.7
+api_type = "openai"
+max_model_len = 128000
+
+########## Default embedding configuration ##########
+[embedding]
+api_type = "openai"
+embedding_model_name_or_path = "your-embedding-model-name"
+base_url = "your-embedding-model-base-url"
+api_key = "your-embedding-api-key"
+embedding_device = "auto"   # auto | cpu | cuda | cuda:0
+
 ########## Dataset configuration ##########
 [dataset]
 type = "spider2"
 split = "lite"            # Options: "lite" or "snow"
 root_path = "data/spider2-lite"  # Use "data/spider2-snow" for snow split
-save_path = "workspace/dataset/spider2/lite.snapshot"
 # max_samples = 100       # Limit total samples to load (optional)
 # max_samples_per_db = 5  # Limit samples per database (optional, None means load all samples from each database)
 
@@ -20,108 +47,39 @@ max_value_example_length = 50
 
 ########## Vector database configuration ##########
 [vector_database]
-api_type = "openai"
-embedding_model_name_or_path = "your-embedding-model-name"
-base_url = "your-embedding-model-base-url"
-api_key = "your-embedding-model-api-key"
-store_root_path = "workspace/vector_database/spider/test"
-embedding_device = "auto"   # auto | cpu | cuda | cuda:0
 max_value_length = 100
 lower_meta_data = true
-batch_size = 128
-db_parallel = 2
-column_parallel = 8
 build_backend = "local_index"   # chroma | local_index | both
 
 ########## Value retrieval configuration ##########
 [value_retrieval]
-n_results = 5
-n_parallel = 8   # number of samples to process in parallel
-query_parallel_per_sample = 4   # concurrent Chroma column queries allowed within one sample
+max_values_per_column = 5
 backend = "local_index"   # use "chroma" to keep the original backend
 local_index_device = "auto"   # auto | cpu | cuda | cuda:0 | cuda:1
-save_path = "workspace/value_retrieval/spider2/lite.snapshot"
-
-[value_retrieval.llm]
-model = "your-value-retrieval-model-name"
-base_url = "your-value-retrieval-model-base-url"
-api_key = "your-value-retrieval-model-api-key"
-max_tokens = 4096
-temperature = 0.7
-api_type = "openai"
-max_model_len = 128000
 
 ########## Schema linking configuration ##########
 [schema_linking]
-n_parallel = 8
-n_internal_parallel = 3   # max workers within a single sample (direct/reversed/value linkers)
-save_path = "workspace/schema_linking/spider2/lite.snapshot"
 direct_linking_sampling_budget = 4
 reversed_linking_sampling_budget = 4
 value_distance_threshold = 0.02
 
-[schema_linking.llm]
-model = "your-schema-linking-model-name"
-base_url = "your-schema-linking-model-base-url"
-api_key = "your-schema-linking-model-api-key"
-max_tokens = 4096
-temperature = 0.7
-api_type = "openai"
-max_model_len = 128000
-
 ########## SQL generation configuration ##########
 [sql_generation]
-n_parallel = 8
-n_internal_parallel = 3   # max workers within a single sample (dc/skeleton/icl generators)
-save_path = "workspace/sql_generation/spider2/lite.snapshot"
 dc_sampling_budget = 4
 skeleton_sampling_budget = 4
 icl_sampling_budget = 4
 
-[sql_generation.llm]
-model = "your-sql-generation-model-name"
-base_url = "your-sql-generation-model-base-url"
-api_key = "your-sql-generation-model-api-key"
-max_tokens = 4096
-temperature = 0.7
-api_type = "openai"
-max_model_len = 128000
-
 ########## SQL revision configuration ##########
 [sql_revision]
-n_parallel = 8
-n_internal_parallel = 16   # max workers within a single sample (revising unique candidates)
-save_path = "workspace/sql_revision/spider2/lite.snapshot"
 checker_sampling_budget = 3
 # For Spider2, recommend using only SyntaxChecker and ResultChecker
 checkers = ["SyntaxChecker", "ResultChecker"]
 
-[sql_revision.llm]
-model = "your-sql-revision-model-name"
-base_url = "your-sql-revision-model-base-url"
-api_key = "your-sql-revision-model-api-key"
-max_tokens = 4096
-temperature = 0.7
-api_type = "openai"
-max_model_len = 128000
-
 ########## SQL selection configuration ##########
 [sql_selection]
-n_parallel = 8
-n_internal_parallel = 8   # max workers within a single sample (pairwise SQL comparison)
-save_path = "workspace/sql_selection/spider2/lite.snapshot"
 filter_top_k_sql = 2
 evaluator_sampling_budget = 3
 shortcut_consistency_score_threshold = 0.6
-
-[sql_selection.llm]
-model = "your-sql-selection-model-name"
-base_url = "your-sql-selection-model-base-url"
-api_key = "your-sql-selection-model-api-key"
-max_tokens = 4096
-temperature = 0.7
-api_type = "openai"
-max_model_len = 128000
 
 ########## LLM extractor configuration ##########
 [llm_extractor]

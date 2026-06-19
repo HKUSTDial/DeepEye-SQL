@@ -36,7 +36,7 @@ def main() -> None:
         raise ValueError("[few_shot_index.embedding] is required to query the few-shot index.")
 
     index_path = args.index_path or few_shot_config.save_path
-    top_k = args.top_k if args.top_k is not None else few_shot_config.n_results
+    top_k = args.top_k if args.top_k is not None else few_shot_config.num_examples
     question_weight = args.question_weight if args.question_weight is not None else few_shot_config.question_weight
     sql_weight = args.sql_weight if args.sql_weight is not None else few_shot_config.sql_weight
     similarity_device = args.similarity_device or few_shot_config.similarity_device
@@ -44,7 +44,7 @@ def main() -> None:
     retriever = FewShotRetriever.from_index_path(
         index_path=index_path,
         embedding_config=few_shot_config.embedding,
-        batch_size=few_shot_config.batch_size,
+        embedding_batch_size=app_config.run_config.embedding_batch_size,
         similarity_device=similarity_device,
     )
     results = retriever.retrieve_by_texts(

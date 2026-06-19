@@ -160,7 +160,7 @@ class LocalValueIndex:
         query_embeddings: List[List[float]],
         table_name: str,
         column_name: str,
-        n_results: int,
+        max_values_per_column: int,
         lower_meta_data: bool,
     ) -> Dict[str, Any]:
         lookup_table_name = table_name.lower() if lower_meta_data else table_name
@@ -195,7 +195,7 @@ class LocalValueIndex:
             query_tensor = query_tensor.unsqueeze(0)
         query_tensor = torch.nn.functional.normalize(query_tensor, p=2, dim=1, eps=1e-12)
 
-        top_k = min(n_results, column_embeddings.shape[0])
+        top_k = min(max_values_per_column, column_embeddings.shape[0])
         similarities = query_tensor @ column_embeddings.T
         top_similarities, top_indices = torch.topk(similarities, k=top_k, dim=1)
 
@@ -214,7 +214,7 @@ class LocalValueIndex:
                 continue
             seen_values.add(value)
             top_values.append({"value": value, "distance": distance})
-            if len(top_values) >= n_results:
+            if len(top_values) >= max_values_per_column:
                 break
 
         return {

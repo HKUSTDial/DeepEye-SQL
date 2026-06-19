@@ -90,7 +90,6 @@ def prepare_few_shot_examples_for_item(
     cache: Optional[TargetMaskCache] = None,
     skip_mask_llm: bool = False,
     llm_timeout: int = 300,
-    exclude_same_db: bool = False,
 ) -> PreparedFewShotExamples:
     mask_result = _get_or_create_target_mask(
         data_item=data_item,
@@ -100,14 +99,12 @@ def prepare_few_shot_examples_for_item(
         skip_mask_llm=skip_mask_llm,
         llm_timeout=llm_timeout,
     )
-    exclude_db_ids = [data_item.database_id] if exclude_same_db else None
     retrieval_results = retriever.retrieve_by_texts(
         masked_question=mask_result.masked_question,
         masked_sql=mask_result.masked_sql,
         top_k=top_k,
         question_weight=question_weight,
         sql_weight=sql_weight,
-        exclude_db_ids=exclude_db_ids,
     )
     examples = [
         {
@@ -166,7 +163,7 @@ def _get_or_create_target_mask(
 
 def make_target_mask_cache_key(data_item: Any, preliminary_sql: Optional[str]) -> str:
     payload = {
-        "version": 1,
+        "version": 2,
         "item_id": data_item.get_item_id() if hasattr(data_item, "get_item_id") else getattr(data_item, "question_id", None),
         "database_id": getattr(data_item, "database_id", ""),
         "question": getattr(data_item, "question", ""),

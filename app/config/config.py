@@ -84,9 +84,6 @@ class VectorDatabaseConfig(BaseModel):
     store_root_path: str = Field(default=_path_to_str(WORKSPACE_ROOT / "vector_store"), description="The root path of the vector database")
     embedding_device: str = Field(default="auto", description="Execution device for local embedding models, e.g. auto, cpu, cuda, cuda:0")
     max_value_length: int = Field(default=100, description="The maximum length of the value")
-    batch_size: int = Field(default=1024, description="The batch size for adding documents to the vector database")
-    db_parallel: int = Field(default=1, ge=1, description="The number of databases to process in parallel")
-    column_parallel: int = Field(default=1, ge=1, description="The number of columns to scan in parallel within a single database")
     lower_meta_data: bool = Field(default=True, description="Whether to lower the meta data")
     build_backend: Literal["chroma", "local_index", "both"] = Field(default="both", description="Which retrieval index artifacts to build")
 
@@ -102,11 +99,97 @@ class EmbeddingConfig(BaseModel):
     embedding_device: str = Field(default="auto", description="Execution device for local embedding models, e.g. auto, cpu, cuda, cuda:0")
 
 
+def _deep_merge_dicts(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge_dicts(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _merge_section_defaults(
+    default_config: Optional[Dict[str, Any]],
+    section_config: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    if default_config is None and section_config is None:
+        return None
+    return _deep_merge_dicts(default_config or {}, section_config or {})
+
+
+def _resolve_llm_config(
+    default_config: Optional[Dict[str, Any]],
+    section_config: Optional[Dict[str, Any]],
+    section_name: str,
+    *,
+    required: bool,
+) -> Optional[LLMConfig]:
+    merged = _merge_section_defaults(default_config, section_config)
+    if merged is None:
+        if required:
+            raise ValueError(f"{section_name}.llm is required when top-level [llm] is not configured")
+        return None
+    try:
+        return LLMConfig(**merged)
+    except Exception as exc:
+        raise ValueError(
+            f"Invalid LLM config for {section_name}. "
+            "Provide a complete top-level [llm] section or a complete section-specific .llm override."
+        ) from exc
+
+
+def _resolve_embedding_config(
+    default_config: Optional[Dict[str, Any]],
+    section_config: Optional[Dict[str, Any]],
+    section_name: str,
+    *,
+    required: bool,
+) -> Optional[EmbeddingConfig]:
+    merged = _merge_section_defaults(default_config, section_config)
+    if merged is None:
+        if required:
+            raise ValueError(f"{section_name}.embedding is required when top-level [embedding] is not configured")
+        return None
+    try:
+        return EmbeddingConfig(**merged)
+    except Exception as exc:
+        raise ValueError(
+            f"Invalid embedding config for {section_name}. "
+            "Provide a complete top-level [embedding] section or a complete section-specific embedding override."
+        ) from exc
+
+
+def _get_path_value(
+    section_config: Dict[str, Any],
+    key: str,
+    managed_paths: bool,
+    managed_default: str | Path,
+    legacy_default: str | Path,
+) -> str:
+    if section_config.get(key) is not None:
+        return _path_to_str(section_config.get(key))
+    if managed_paths:
+        return _path_to_str(managed_default)
+    return _path_to_str(legacy_default)
+
+
+def _get_optional_path_value(
+    section_config: Dict[str, Any],
+    key: str,
+    managed_paths: bool,
+    managed_default: str | Path,
+) -> Optional[str]:
+    if section_config.get(key) is not None:
+        return _path_to_str(section_config.get(key))
+    if managed_paths:
+        return _path_to_str(managed_default)
+    return None
+
+
 class ValueRetrievalConfig(BaseModel):
     llm: LLMConfig = Field(..., description="The llm config, used to extract keywords")
-    n_results: int = Field(default=5, description="The number of results to retrieve")
-    n_parallel: int = Field(default=16, description="The number of samples to process in parallel")
-    query_parallel_per_sample: int = Field(default=4, ge=1, description="Maximum concurrent Chroma column queries within a single sample")
+    max_values_per_column: int = Field(default=5, ge=1, description="Maximum number of retrieved value examples to keep per column")
     backend: Literal["chroma", "local_index"] = Field(default="chroma", description="The retrieval backend to use for value retrieval")
     local_index_device: str = Field(default="auto", description="Execution device for the local index backend, e.g. auto, cpu, cuda, cuda:0, cuda:1")
     save_path: str = Field(default=_path_to_str(WORKSPACE_ROOT / "value_retrieval"), description="The save path of the value retrieval result")
@@ -116,7 +199,6 @@ class PreliminarySQLConfig(BaseModel):
     enabled: bool = Field(default=False, description="Whether to generate preliminary SQL before few-shot retrieval")
     dc_sampling_budget: int = Field(default=2, ge=0, description="Sampling budget for preliminary divide-and-conquer SQL generation")
     skeleton_sampling_budget: int = Field(default=2, ge=0, description="Sampling budget for preliminary skeleton SQL generation")
-    n_internal_parallel: int = Field(default=2, ge=1, description="Max workers within one item for preliminary SQL generation")
     llm: Optional[LLMConfig] = Field(default=None, description="The LLM config used for preliminary SQL generation")
 
     @model_validator(mode="after")
@@ -134,15 +216,10 @@ class FewShotIndexConfig(BaseModel):
     prepared_save_path: str = Field(default=_path_to_str(WORKSPACE_ROOT / "few_shot_preparation"), description="The save path of the dataset snapshot with prepared few-shot examples")
     mask_cache_path: Optional[str] = Field(default=None, description="The JSONL cache path for LLM-masked training examples")
     target_mask_cache_path: Optional[str] = Field(default=None, description="The JSONL cache path for LLM-masked target items")
-    batch_size: int = Field(default=128, ge=1, description="The embedding batch size when building the few-shot index")
-    n_parallel: int = Field(default=1, ge=1, description="The number of parallel LLM mask requests")
-    llm_timeout: int = Field(default=300, ge=1, description="The timeout for each LLM mask request in seconds")
-    progress_log_interval: int = Field(default=50, ge=1, description="Log few-shot index build progress every N completed examples")
     similarity_device: str = Field(default="cpu", description="Execution device for few-shot similarity scoring, e.g. cpu, auto, cuda, cuda:0")
-    n_results: int = Field(default=5, ge=1, description="The number of few-shot examples to retrieve")
+    num_examples: int = Field(default=5, ge=1, description="The number of few-shot examples to retrieve")
     question_weight: float = Field(default=0.5, ge=0.0, description="The retrieval weight for masked question similarity")
     sql_weight: float = Field(default=0.5, ge=0.0, description="The retrieval weight for masked SQL similarity")
-    exclude_same_db: bool = Field(default=False, description="Whether to exclude training examples from the target database id")
     max_samples: Optional[int] = Field(default=None, ge=1, description="The maximum number of training examples to index")
     max_samples_per_db: Optional[int] = Field(default=None, ge=1, description="The maximum number of training examples to index per source database")
     force_rebuild: bool = Field(default=False, description="Whether to overwrite an existing few-shot index")
@@ -159,8 +236,6 @@ class FewShotIndexConfig(BaseModel):
 
 class SchemaLinkingConfig(BaseModel):
     llm: LLMConfig = Field(..., description="The llm config, used to link tables and columns")
-    n_parallel: int = Field(default=16, description="The number of parallel threads to use")
-    n_internal_parallel: int = Field(default=3, description="Max parallel workers within a single sample (direct/reversed/value linkers)")
     save_path: str = Field(default=_path_to_str(WORKSPACE_ROOT / "schema_linking"), description="The save path of the schema linking result")
     direct_linking_sampling_budget: int = Field(default=5, description="The sampling budget of the direct linking")
     reversed_linking_sampling_budget: int = Field(default=5, description="The sampling budget of the reversed linking")
@@ -169,8 +244,6 @@ class SchemaLinkingConfig(BaseModel):
 
 class SQLGenerationConfig(BaseModel):
     llm: LLMConfig = Field(..., description="The llm config, used to generate sql")
-    n_parallel: int = Field(default=16, description="The number of parallel threads to use")
-    n_internal_parallel: int = Field(default=3, description="Max parallel workers within a single sample (dc/skeleton/icl generators)")
     save_path: str = Field(default=_path_to_str(WORKSPACE_ROOT / "sql_generation"), description="The save path of the sql generation result")
     dc_sampling_budget: int = Field(default=5, description="The sampling budget of the dc generation")
     skeleton_sampling_budget: int = Field(default=5, description="The sampling budget of the skeleton generation")
@@ -180,8 +253,6 @@ class SQLGenerationConfig(BaseModel):
 
 class SQLRevisionConfig(BaseModel):
     llm: LLMConfig = Field(..., description="The llm config, used to revise sql")
-    n_parallel: int = Field(default=16, description="The number of parallel threads to use")
-    n_internal_parallel: int = Field(default=16, description="Max parallel workers within a single sample (revising unique candidates)")
     save_path: str = Field(default=_path_to_str(WORKSPACE_ROOT / "sql_revision"), description="The save path of the sql revision result")
     checker_sampling_budget: int = Field(default=5, description="The sampling budget of the checker")
     checkers: List[str] = Field(default=[], description="The list of checkers to enable")
@@ -189,8 +260,6 @@ class SQLRevisionConfig(BaseModel):
 
 class SQLSelectionConfig(BaseModel):
     llm: LLMConfig = Field(..., description="The llm config, used to select sql")
-    n_parallel: int = Field(default=16, description="The number of parallel threads to use")
-    n_internal_parallel: int = Field(default=8, description="Max parallel workers within a single sample (pairwise SQL comparison)")
     save_path: str = Field(default=_path_to_str(WORKSPACE_ROOT / "sql_selection"), description="The save path of the sql selection result")
     filter_top_k_sql: int = Field(default=2, description="The number of top k sql to filter")
     evaluator_sampling_budget: int = Field(default=1, description="The sampling budget of the evaluator")
@@ -205,7 +274,20 @@ class LoggerConfig(BaseModel):
     print_level: str = Field(default="INFO", description="The log level for the console")
 
 
+class RunConfig(BaseModel):
+    save_root: str = Field(default=_path_to_str(WORKSPACE_ROOT / "runs"), description="Root directory for managed run outputs")
+    exp_name: str = Field(default="default", description="Experiment name used under save_root")
+    save_dir: str = Field(default=_path_to_str(WORKSPACE_ROOT / "runs" / "default"), description="Resolved directory for this run")
+    shared_dir: str = Field(default=_path_to_str(WORKSPACE_ROOT / "runs" / "_shared"), description="Resolved directory for reusable artifacts shared across runs")
+    parallelism: int = Field(default=16, ge=1, description="Global parallelism for LLM-heavy pipeline stages")
+    embedding_batch_size: int = Field(default=128, ge=1, description="Global batch size for embedding requests and local embedding forwards")
+    llm_timeout: int = Field(default=300, ge=1, description="Global timeout for explicit LLM requests in seconds")
+    progress_log_interval: int = Field(default=50, ge=1, description="Log long-running progress every N completed items")
+    checkpoint_interval: int = Field(default=20, ge=1, description="Persist intermediate pipeline checkpoints every N completed items")
+
+
 class AppConfig(BaseModel):
+    run: RunConfig = Field(default_factory=RunConfig, description="The config of managed run output directories")
     dataset: DatasetConfig = Field(default_factory=DatasetConfig, description="The config of the dataset")
     vector_database: VectorDatabaseConfig = Field(default_factory=VectorDatabaseConfig, description="The config of the vector database")
     value_retrieval: ValueRetrievalConfig = Field(default_factory=ValueRetrievalConfig, description="The config of the value retrieval")
@@ -260,31 +342,48 @@ class Config:
         self._config_path = config_path
         config = Config._load_config(config_path)
         
-        # llm config
-        llm_config_list = config.get("llm_list", [])
-        llm_settings = []
-        for llm_config in llm_config_list:
-            llm_settings.append({
-                "model": llm_config.get("model"),
-                "base_url": llm_config.get("base_url"),
-                "api_key": llm_config.get("api_key"),
-                "max_tokens": llm_config.get("max_tokens", 4096),
-                "max_request_n": llm_config.get("max_request_n", None),
-                "n_call_strategy": llm_config.get("n_call_strategy", "single"),
-                "temperature": llm_config.get("temperature", 0.7),
-                "api_type": llm_config.get("api_type", "openai"),
-                "api_version": llm_config.get("api_version", None),
-            })
+        default_llm_config = config.get("llm")
+        default_embedding_config = config.get("embedding")
         
         # dataset config
         dataset_config = config.get("dataset", {})
         dataset_type = dataset_config.get("type")
         dataset_split = dataset_config.get("split", "")
+        run_config = config.get("run")
+        managed_paths = run_config is not None
+        default_exp_name = f"{dataset_type}-{dataset_split}".strip("-") if dataset_type else "default"
+        if managed_paths:
+            run_save_root = Path(run_config.get("save_root", WORKSPACE_ROOT / "runs"))
+            run_exp_name = run_config.get("exp_name", default_exp_name)
+            run_save_dir = Path(run_config.get("save_dir", run_save_root / run_exp_name))
+            run_shared_dir = Path(run_config.get("shared_dir", run_save_root / "_shared" / str(dataset_type)))
+        else:
+            run_save_root = WORKSPACE_ROOT / "runs"
+            run_exp_name = default_exp_name
+            run_save_dir = run_save_root / run_exp_name
+            run_shared_dir = run_save_root / "_shared" / str(dataset_type)
+        run_settings = {
+            "save_root": _path_to_str(run_save_root),
+            "exp_name": str(run_exp_name),
+            "save_dir": _path_to_str(run_save_dir),
+            "shared_dir": _path_to_str(run_shared_dir),
+            "parallelism": run_config.get("parallelism", 16) if managed_paths else 16,
+            "embedding_batch_size": run_config.get("embedding_batch_size", 128) if managed_paths else 128,
+            "llm_timeout": run_config.get("llm_timeout", 300) if managed_paths else 300,
+            "progress_log_interval": run_config.get("progress_log_interval", 50) if managed_paths else 50,
+            "checkpoint_interval": run_config.get("checkpoint_interval", 20) if managed_paths else 20,
+        }
         dataset_settings = {
             "type": dataset_type,
             "split": dataset_split,
             "root_path": dataset_config.get("root_path"),
-            "save_path": dataset_config.get("save_path"),
+            "save_path": _get_path_value(
+                dataset_config,
+                "save_path",
+                managed_paths,
+                run_save_dir / "dataset.snapshot",
+                WORKSPACE_ROOT / "dataset" / str(dataset_type) / f"{dataset_split}.snapshot",
+            ),
             "max_samples": dataset_config.get("max_samples", None),
             "max_samples_per_db": dataset_config.get("max_samples_per_db", None),
             # Spider2 specific configurations
@@ -296,20 +395,24 @@ class Config:
         
         # vector database config
         vector_database_config = config.get("vector_database", {})
+        vector_database_embedding_config = _merge_section_defaults(default_embedding_config, vector_database_config)
         vector_database_settings = {
-            "api_type": vector_database_config.get("api_type", "local"),
-            "embedding_model_name_or_path": vector_database_config.get("embedding_model_name_or_path"),
-            "store_root_path": _path_to_str(vector_database_config.get("store_root_path", WORKSPACE_ROOT / "vector_store")),
-            "embedding_device": vector_database_config.get("embedding_device", "auto"),
-            "use_qwen3_embedding": vector_database_config.get("use_qwen3_embedding", False),
-            "local_files_only": vector_database_config.get("local_files_only", False),
-            "normalize_embeddings": vector_database_config.get("normalize_embeddings", False),
-            "base_url": vector_database_config.get("base_url", None),
-            "api_key": vector_database_config.get("api_key", None),
+            "api_type": (vector_database_embedding_config or {}).get("api_type", "local"),
+            "embedding_model_name_or_path": (vector_database_embedding_config or {}).get("embedding_model_name_or_path"),
+            "store_root_path": _get_path_value(
+                vector_database_config,
+                "store_root_path",
+                managed_paths,
+                run_save_dir / "vector_database",
+                WORKSPACE_ROOT / "vector_store",
+            ),
+            "embedding_device": (vector_database_embedding_config or {}).get("embedding_device", "auto"),
+            "use_qwen3_embedding": (vector_database_embedding_config or {}).get("use_qwen3_embedding", False),
+            "local_files_only": (vector_database_embedding_config or {}).get("local_files_only", False),
+            "normalize_embeddings": (vector_database_embedding_config or {}).get("normalize_embeddings", False),
+            "base_url": (vector_database_embedding_config or {}).get("base_url", None),
+            "api_key": (vector_database_embedding_config or {}).get("api_key", None),
             "max_value_length": vector_database_config.get("max_value_length", 100),
-            "batch_size": vector_database_config.get("batch_size", 1024),
-            "db_parallel": vector_database_config.get("db_parallel", 1),
-            "column_parallel": vector_database_config.get("column_parallel", 1),
             "lower_meta_data": vector_database_config.get("lower_meta_data", True),
             "build_backend": vector_database_config.get("build_backend", "both"),
         }
@@ -317,13 +420,17 @@ class Config:
         # value retrieval config
         value_retrieval_config = config.get("value_retrieval", {})
         value_retrieval_settings = {
-            "llm": LLMConfig(**value_retrieval_config.get("llm")),
-            "n_results": value_retrieval_config.get("n_results", 5),
-            "n_parallel": value_retrieval_config.get("n_parallel", 16),
-            "query_parallel_per_sample": value_retrieval_config.get("query_parallel_per_sample", 4),
+            "llm": _resolve_llm_config(default_llm_config, value_retrieval_config.get("llm"), "[value_retrieval]", required=True),
+            "max_values_per_column": value_retrieval_config.get("max_values_per_column", 5),
             "backend": value_retrieval_config.get("backend", "chroma"),
             "local_index_device": value_retrieval_config.get("local_index_device", "auto"),
-            "save_path": _path_to_str(value_retrieval_config.get("save_path", WORKSPACE_ROOT / "value_retrieval")),
+            "save_path": _get_path_value(
+                value_retrieval_config,
+                "save_path",
+                managed_paths,
+                run_save_dir / "value_retrieval.snapshot",
+                WORKSPACE_ROOT / "value_retrieval",
+            ),
         }
 
         # few-shot index config
@@ -336,46 +443,68 @@ class Config:
             "enabled": preliminary_sql_config.get("enabled", False),
             "dc_sampling_budget": preliminary_sql_config.get("dc_sampling_budget", 2),
             "skeleton_sampling_budget": preliminary_sql_config.get("skeleton_sampling_budget", 2),
-            "n_internal_parallel": preliminary_sql_config.get("n_internal_parallel", 2),
-            "llm": LLMConfig(**preliminary_sql_llm_config) if preliminary_sql_llm_config else None,
+            "llm": _resolve_llm_config(
+                default_llm_config,
+                preliminary_sql_llm_config,
+                "[few_shot_index.preliminary_sql]",
+                required=False,
+            ),
         }
         few_shot_index_settings = {
-            "save_path": _path_to_str(few_shot_index_config.get("save_path", WORKSPACE_ROOT / "few_shot_index" / str(dataset_type) / "train")),
-            "prepared_save_path": _path_to_str(few_shot_index_config.get("prepared_save_path", WORKSPACE_ROOT / "few_shot_preparation" / str(dataset_type) / f"{dataset_split}.snapshot")),
-            "mask_cache_path": (
-                _path_to_str(few_shot_index_config.get("mask_cache_path"))
-                if few_shot_index_config.get("mask_cache_path") is not None
-                else None
+            "save_path": _get_path_value(
+                few_shot_index_config,
+                "save_path",
+                managed_paths,
+                run_shared_dir / "train_full_index",
+                WORKSPACE_ROOT / "few_shot_index" / str(dataset_type) / "train",
             ),
-            "target_mask_cache_path": (
-                _path_to_str(few_shot_index_config.get("target_mask_cache_path"))
-                if few_shot_index_config.get("target_mask_cache_path") is not None
-                else None
+            "prepared_save_path": _get_path_value(
+                few_shot_index_config,
+                "prepared_save_path",
+                managed_paths,
+                run_save_dir / "few_shot_preparation.snapshot",
+                WORKSPACE_ROOT / "few_shot_preparation" / str(dataset_type) / f"{dataset_split}.snapshot",
             ),
-            "batch_size": few_shot_index_config.get("batch_size", 128),
-            "n_parallel": few_shot_index_config.get("n_parallel", 1),
-            "llm_timeout": few_shot_index_config.get("llm_timeout", 300),
-            "progress_log_interval": few_shot_index_config.get("progress_log_interval", 50),
+            "mask_cache_path": _get_optional_path_value(
+                few_shot_index_config,
+                "mask_cache_path",
+                managed_paths,
+                run_shared_dir / "train_full_mask_cache.jsonl",
+            ),
+            "target_mask_cache_path": _get_optional_path_value(
+                few_shot_index_config,
+                "target_mask_cache_path",
+                managed_paths,
+                run_save_dir / "few_shot_target_mask_cache.jsonl",
+            ),
             "similarity_device": few_shot_index_config.get("similarity_device", "cpu"),
-            "n_results": few_shot_index_config.get("n_results", 5),
+            "num_examples": few_shot_index_config.get("num_examples", 5),
             "question_weight": few_shot_index_config.get("question_weight", 0.5),
             "sql_weight": few_shot_index_config.get("sql_weight", 0.5),
-            "exclude_same_db": few_shot_index_config.get("exclude_same_db", False),
             "max_samples": few_shot_index_config.get("max_samples", None),
             "max_samples_per_db": few_shot_index_config.get("max_samples_per_db", None),
             "force_rebuild": few_shot_index_config.get("force_rebuild", False),
-            "llm": LLMConfig(**few_shot_index_llm_config) if few_shot_index_llm_config else None,
-            "embedding": EmbeddingConfig(**few_shot_index_embedding_config) if few_shot_index_embedding_config else None,
+            "llm": _resolve_llm_config(default_llm_config, few_shot_index_llm_config, "[few_shot_index]", required=False),
+            "embedding": _resolve_embedding_config(
+                default_embedding_config,
+                few_shot_index_embedding_config,
+                "[few_shot_index]",
+                required=False,
+            ),
             "preliminary_sql": PreliminarySQLConfig(**preliminary_sql_settings),
         }
         
         # schema linking config
         schema_linking_config = config.get("schema_linking", {})
         schema_linking_settings = {
-            "llm": LLMConfig(**schema_linking_config.get("llm")),
-            "n_parallel": schema_linking_config.get("n_parallel", 16),
-            "n_internal_parallel": schema_linking_config.get("n_internal_parallel", 3),
-            "save_path": _path_to_str(schema_linking_config.get("save_path", WORKSPACE_ROOT / "schema_linking")),
+            "llm": _resolve_llm_config(default_llm_config, schema_linking_config.get("llm"), "[schema_linking]", required=True),
+            "save_path": _get_path_value(
+                schema_linking_config,
+                "save_path",
+                managed_paths,
+                run_save_dir / "schema_linking.snapshot",
+                WORKSPACE_ROOT / "schema_linking",
+            ),
             "direct_linking_sampling_budget": schema_linking_config.get("direct_linking_sampling_budget", 5),
             "reversed_linking_sampling_budget": schema_linking_config.get("reversed_linking_sampling_budget", 5),
             "value_distance_threshold": schema_linking_config.get("value_distance_threshold", 0.05),
@@ -384,10 +513,14 @@ class Config:
         # sql generation config
         sql_generation_config = config.get("sql_generation", {})
         sql_generation_settings = {
-            "llm": LLMConfig(**sql_generation_config.get("llm")),
-            "n_parallel": sql_generation_config.get("n_parallel", 16),
-            "n_internal_parallel": sql_generation_config.get("n_internal_parallel", 3),
-            "save_path": _path_to_str(sql_generation_config.get("save_path", WORKSPACE_ROOT / "sql_generation")),
+            "llm": _resolve_llm_config(default_llm_config, sql_generation_config.get("llm"), "[sql_generation]", required=True),
+            "save_path": _get_path_value(
+                sql_generation_config,
+                "save_path",
+                managed_paths,
+                run_save_dir / "sql_generation.snapshot",
+                WORKSPACE_ROOT / "sql_generation",
+            ),
             "dc_sampling_budget": sql_generation_config.get("dc_sampling_budget", 5),
             "skeleton_sampling_budget": sql_generation_config.get("skeleton_sampling_budget", 5),
             "icl_sampling_budget": sql_generation_config.get("icl_sampling_budget", 5),
@@ -397,10 +530,14 @@ class Config:
         # sql revision config
         sql_revision_config = config.get("sql_revision", {})
         sql_revision_settings = {
-            "llm": LLMConfig(**sql_revision_config.get("llm")),
-            "n_parallel": sql_revision_config.get("n_parallel", 16),
-            "n_internal_parallel": sql_revision_config.get("n_internal_parallel", 16),
-            "save_path": _path_to_str(sql_revision_config.get("save_path", WORKSPACE_ROOT / "sql_revision")),
+            "llm": _resolve_llm_config(default_llm_config, sql_revision_config.get("llm"), "[sql_revision]", required=True),
+            "save_path": _get_path_value(
+                sql_revision_config,
+                "save_path",
+                managed_paths,
+                run_save_dir / "sql_revision.snapshot",
+                WORKSPACE_ROOT / "sql_revision",
+            ),
             "checker_sampling_budget": sql_revision_config.get("checker_sampling_budget", 5),
             "checkers": sql_revision_config.get("checkers", []),
         }
@@ -408,10 +545,14 @@ class Config:
         # sql selection config
         sql_selection_config = config.get("sql_selection", {})
         sql_selection_settings = {
-            "llm": LLMConfig(**sql_selection_config.get("llm")),
-            "n_parallel": sql_selection_config.get("n_parallel", 16),
-            "n_internal_parallel": sql_selection_config.get("n_internal_parallel", 8),
-            "save_path": _path_to_str(sql_selection_config.get("save_path", WORKSPACE_ROOT / "sql_selection")),
+            "llm": _resolve_llm_config(default_llm_config, sql_selection_config.get("llm"), "[sql_selection]", required=True),
+            "save_path": _get_path_value(
+                sql_selection_config,
+                "save_path",
+                managed_paths,
+                run_save_dir / "sql_selection.snapshot",
+                WORKSPACE_ROOT / "sql_selection",
+            ),
             "filter_top_k_sql": sql_selection_config.get("filter_top_k_sql", 10),
             "evaluator_sampling_budget": sql_selection_config.get("evaluator_sampling_budget", 1),
             "shortcut_consistency_score_threshold": sql_selection_config.get("shortcut_consistency_score_threshold", 0.8),
@@ -430,6 +571,7 @@ class Config:
         }
         
         self._app_config = AppConfig(
+            run=RunConfig(**run_settings),
             dataset=DatasetConfig(**dataset_settings),
             vector_database=VectorDatabaseConfig(**vector_database_settings),
             value_retrieval=ValueRetrievalConfig(**value_retrieval_settings),
@@ -468,6 +610,10 @@ class Config:
     @property
     def dataset_config(self):
         return self._app_config.dataset
+
+    @property
+    def run_config(self):
+        return self._app_config.run
 
     @property
     def vector_database_config(self):

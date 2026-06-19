@@ -7,6 +7,7 @@ from .qwen_embedding_function import QwenEmbeddingFunction
 from .local_index import get_local_index_path, write_local_index_column, write_local_index_manifest
 from app.db_utils import load_table_names, load_column_names_and_types, execute_sql_without_cache
 from app.logger import logger
+from app.progress import log_progress
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 import pandas as pd
@@ -123,25 +124,13 @@ def _resolve_local_embedding_device(embedding_device: str) -> str:
     return embedding_device
 
 
-def _get_progress_markers(total_steps: int) -> set[int]:
-    if total_steps <= 0:
-        return set()
-    return {
-        1,
-        max(1, total_steps // 4),
-        max(1, total_steps // 2),
-        max(1, (total_steps * 3) // 4),
-        total_steps,
-    }
-
-
 def _process_one_column(
     db_path: str, 
     table_name: str, 
     column_name: str, 
     column_type: str, 
     max_value_length: int, 
-    batch_size: int, 
+    embedding_batch_size: int,
     lower_meta_data: bool, 
     collection: Any | None, 
     db_id: str,
@@ -174,9 +163,9 @@ def _process_one_column(
         stored_table_name = table_name.lower() if lower_meta_data else table_name
         stored_column_name = column_name.lower() if lower_meta_data else column_name
         
-        # Process in batches to stay under ChromaDB's batch size limit.
-        for i in range(0, len(value_examples), batch_size):
-            batch_examples = value_examples[i:i + batch_size]
+        # Process in batches to stay under embedding endpoint/model and ChromaDB limits.
+        for i in range(0, len(value_examples), embedding_batch_size):
+            batch_examples = value_examples[i:i + embedding_batch_size]
             batch_embeddings = embedding_function(batch_examples)
             if collection is not None:
                 collection.add(
@@ -206,15 +195,27 @@ def _process_one_column(
         raise RuntimeError(f"Error executing SQL for {db_id}.{table_name}.{column_name}: {result.error_message}")
 
 
+def _process_one_column_with_limit(
+    work_semaphore: Any | None,
+    *args,
+):
+    if work_semaphore is None:
+        return _process_one_column(*args)
+    with work_semaphore:
+        return _process_one_column(*args)
+
+
 def make_vector_db(
     db_path: str,
     vector_db_path: str,
     max_value_length: int = 100,
-    batch_size: int = 1024,
-    column_parallel: int = 1,
+    embedding_batch_size: int = 128,
+    parallelism: int = 1,
     lower_meta_data=True,
     embedding_function=None,
     build_backend: str = "both",
+    work_semaphore: Any | None = None,
+    progress_log_interval: int = 50,
 ):
     """
     Make a vector database from a database path.
@@ -256,20 +257,20 @@ def make_vector_db(
             write_local_index_manifest(get_local_index_path(vector_db_path), [])
         return True
 
-    max_workers = min(len(all_column_tasks), column_parallel)
+    max_workers = min(len(all_column_tasks), max(1, parallelism))
     logger.info(f"Processing {len(all_column_tasks)} text columns for {db_id} with {max_workers} worker(s)")
 
     failed = False
     local_index_entries = []
-    progress_markers = _get_progress_markers(len(all_column_tasks))
     completed_columns = 0
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_column = {}
         for table_name, column_name, column_type in all_column_tasks:
             future = executor.submit(
-                _process_one_column,
+                _process_one_column_with_limit,
+                work_semaphore,
                 db_path, table_name, column_name, column_type,
-                max_value_length, batch_size, lower_meta_data, collection, db_id,
+                max_value_length, embedding_batch_size, lower_meta_data, collection, db_id,
                 embedding_function, local_index_path,
             )
             future_to_column[future] = (table_name, column_name)
@@ -280,12 +281,15 @@ def make_vector_db(
                 local_index_entry = future.result()
                 if local_index_entry is not None:
                     local_index_entries.append(local_index_entry)
+                previous_completed_columns = completed_columns
                 completed_columns += 1
-                if completed_columns in progress_markers:
-                    logger.info(
-                        f"Vector DB {db_id}: processed "
-                        f"{completed_columns}/{len(all_column_tasks)} text columns"
-                    )
+                log_progress(
+                    f"Vector DB {db_id} text columns",
+                    completed_columns,
+                    len(all_column_tasks),
+                    progress_log_interval,
+                    previous_completed=previous_completed_columns,
+                )
             except Exception as e:
                 logger.exception(f"Failed to process column {db_id}.{table_name}.{column_name}: {e}")
                 # Cancel all other pending tasks

@@ -9,6 +9,7 @@ import threading
 from app.vector_db.vector_db import make_vector_db, get_embedding_function
 from app.dataset import load_dataset
 from app.logger import configure_logger, logger
+from app.progress import log_progress
 
 _WORKER_STATE = threading.local()
 
@@ -67,21 +68,15 @@ def _collect_sqlite_db_paths(dataset) -> list[str]:
     return sqlite_db_paths
 
 
-def _resolve_db_parallel(vector_database_config, override_db_parallel: int | None = None) -> int:
-    resolved = override_db_parallel or vector_database_config.db_parallel
-    if resolved < 1:
-        raise ValueError(f"db_parallel must be >= 1, got {resolved}")
-    return resolved
-
-
-def _resolve_column_parallel(vector_database_config, override_column_parallel: int | None = None) -> int:
-    resolved = override_column_parallel or vector_database_config.column_parallel
-    if resolved < 1:
-        raise ValueError(f"column_parallel must be >= 1, got {resolved}")
-    return resolved
-
-
-def make_vector_db_for_db_path(db_path: str, vector_database_config, column_parallel: int | None = None):
+def make_vector_db_for_db_path(
+    db_path: str,
+    vector_database_config,
+    *,
+    parallelism: int,
+    embedding_batch_size: int,
+    work_semaphore: threading.BoundedSemaphore,
+    progress_log_interval: int,
+):
     db_id = Path(db_path).stem
     success_flag_file = Path(vector_database_config.store_root_path) / db_id / "success_flag"
 
@@ -96,11 +91,13 @@ def make_vector_db_for_db_path(db_path: str, vector_database_config, column_para
             db_path=db_path,
             vector_db_path=Path(vector_database_config.store_root_path) / db_id,
             max_value_length=vector_database_config.max_value_length,
-            batch_size=vector_database_config.batch_size,
-            column_parallel=_resolve_column_parallel(vector_database_config, column_parallel),
+            embedding_batch_size=embedding_batch_size,
+            parallelism=parallelism,
             lower_meta_data=vector_database_config.lower_meta_data,
             embedding_function=embedding_function,
             build_backend=vector_database_config.build_backend,
+            work_semaphore=work_semaphore,
+            progress_log_interval=progress_log_interval,
         )
         
         if not success:
@@ -124,9 +121,15 @@ def run_vector_db_creation(
     dataset_snapshot_path: str,
     dataset_type: str,
     vector_database_config,
-    db_parallel: int | None = None,
-    column_parallel: int | None = None,
+    parallelism: int,
+    embedding_batch_size: int,
+    progress_log_interval: int,
 ) -> None:
+    if parallelism < 1:
+        raise ValueError(f"parallelism must be >= 1, got {parallelism}")
+    if embedding_batch_size < 1:
+        raise ValueError(f"embedding_batch_size must be >= 1, got {embedding_batch_size}")
+
     logger.info(f"Loading dataset from {dataset_snapshot_path}")
     dataset = load_dataset(dataset_snapshot_path)
 
@@ -138,13 +141,23 @@ def run_vector_db_creation(
     if len(db_paths) == 0:
         logger.info("No SQLite databases found for vector DB creation")
         return
-    db_parallel = _resolve_db_parallel(vector_database_config, db_parallel)
-    column_parallel = _resolve_column_parallel(vector_database_config, column_parallel)
-    logger.info(f"Vector DB concurrency: db_parallel={db_parallel}, column_parallel={column_parallel}")
+    logger.info(
+        f"Vector DB concurrency: parallelism={parallelism}, "
+        f"embedding_batch_size={embedding_batch_size}"
+    )
 
-    with ThreadPoolExecutor(max_workers=db_parallel) as executor:
+    work_semaphore = threading.BoundedSemaphore(parallelism)
+    with ThreadPoolExecutor(max_workers=parallelism) as executor:
         futures = {
-            executor.submit(make_vector_db_for_db_path, db_path, vector_database_config, column_parallel): db_path
+            executor.submit(
+                make_vector_db_for_db_path,
+                db_path,
+                vector_database_config,
+                parallelism=parallelism,
+                embedding_batch_size=embedding_batch_size,
+                work_semaphore=work_semaphore,
+                progress_log_interval=progress_log_interval,
+            ): db_path
             for db_path in db_paths
         }
         completed_databases = 0
@@ -161,9 +174,12 @@ def run_vector_db_creation(
                 failed_databases += 1
                 logger.exception(f"Unhandled exception for database {db_path}: {e}")
             completed_databases += 1
-            logger.info(
-                f"Vector DB progress: completed {completed_databases}/{len(futures)} databases "
-                f"(success={succeeded_databases}, failed={failed_databases})"
+            log_progress(
+                f"Vector DB databases (success={succeeded_databases}, failed={failed_databases})",
+                completed_databases,
+                len(futures),
+                progress_log_interval,
+                previous_completed=completed_databases - 1,
             )
 
     logger.info(
@@ -173,21 +189,17 @@ def run_vector_db_creation(
 
 
 if __name__ == "__main__":
-    parser = ArgumentParser()
-    parser.add_argument("--db_parallel", type=int, default=None, help="Number of databases to process in parallel")
-    parser.add_argument("--column_parallel", type=int, default=None, help="Number of columns to scan in parallel within a single database")
-    args = parser.parse_args()
+    ArgumentParser().parse_args()
     from app.config import get_config
 
     app_config = get_config()
     configure_logger(app_config.logger_config.print_level)
 
-    db_parallel = args.db_parallel if args.db_parallel is not None else app_config.vector_database_config.db_parallel
-    column_parallel = args.column_parallel if args.column_parallel is not None else app_config.vector_database_config.column_parallel
     run_vector_db_creation(
         dataset_snapshot_path=app_config.dataset_config.save_path,
         dataset_type=app_config.dataset_config.type,
         vector_database_config=app_config.vector_database_config,
-        db_parallel=db_parallel,
-        column_parallel=column_parallel,
+        parallelism=app_config.run_config.parallelism,
+        embedding_batch_size=app_config.run_config.embedding_batch_size,
+        progress_log_interval=app_config.run_config.progress_log_interval,
     )

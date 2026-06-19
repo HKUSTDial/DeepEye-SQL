@@ -21,6 +21,7 @@ import time
 import threading
 from collections import defaultdict
 from app.logger import logger
+from app.progress import log_progress, should_checkpoint
 from app.services import ArtifactStore, STAGE_ARTIFACT_FIELDS, configure_schema_service, get_schema_service, load_stage_dataset, reset_schema_service
 from app.llm_extractor import LLMExtractor
 
@@ -30,7 +31,6 @@ def _is_spider2_item(data_item: DataItem) -> bool:
     return hasattr(data_item, "instance_id")
 
 
-DEFAULT_QUERY_PARALLEL_PER_SAMPLE = 4
 MAX_CHROMA_POOL_TIMEOUT_RETRIES = 3
 
 
@@ -44,6 +44,7 @@ class ValueRetrievalRunner:
     _prepared_sqlite_schema_dict: Dict[str, Dict[str, Any]]
     _embedding_function: Any = None # Shared embedding function
     _thread_pool_executor: ThreadPoolExecutor = None
+    _column_query_executor: ThreadPoolExecutor = None
     _db_lock: threading.Lock
     _artifact_store: ArtifactStore = None
     _extractor_max_retry: int = 3
@@ -51,7 +52,10 @@ class ValueRetrievalRunner:
     _dataset_config = None
     _vector_database_config = None
     _keyword_extractor: LLMExtractor = None
-    _query_parallel_per_sample: int = 1
+    _parallelism: int = 16
+    _embedding_batch_size: int = 128
+    _progress_log_interval: int = 50
+    _checkpoint_interval: int = 20
     _retrieval_backend: str = "chroma"
     _local_index_device: str = "auto"
     
@@ -61,11 +65,19 @@ class ValueRetrievalRunner:
         dataset_config,
         vector_database_config,
         extractor_max_retry: int,
+        parallelism: int,
+        embedding_batch_size: int,
+        progress_log_interval: int,
+        checkpoint_interval: int,
     ):
         self._stage_config = stage_config
         self._dataset_config = dataset_config
         self._vector_database_config = vector_database_config
         self._extractor_max_retry = extractor_max_retry
+        self._parallelism = max(1, parallelism)
+        self._embedding_batch_size = max(1, embedding_batch_size)
+        self._progress_log_interval = max(1, progress_log_interval)
+        self._checkpoint_interval = max(1, checkpoint_interval)
         self._vector_db_client_dict = {}
         self._vector_db_collection_dict = {}
         self._local_value_index_dict = {}
@@ -103,27 +115,19 @@ class ValueRetrievalRunner:
             logger.info("Skipping embedding function initialization for Spider2 dataset")
             self._embedding_function = None
 
-        self._query_parallel_per_sample = max(
-            1,
-            getattr(
-                self._stage_config,
-                "query_parallel_per_sample",
-                DEFAULT_QUERY_PARALLEL_PER_SAMPLE,
-            ),
-        )
         self._retrieval_backend = getattr(self._stage_config, "backend", "chroma")
         self._local_index_device = getattr(self._stage_config, "local_index_device", "auto")
         logger.info(
-            "Using up to "
-            f"{self._query_parallel_per_sample} concurrent column retrieval tasks per sample "
-            f"with n_parallel={self._stage_config.n_parallel}"
+            f"Value retrieval parallelism={self._parallelism}, "
+            f"embedding_batch_size={self._embedding_batch_size}"
         )
         logger.info(
             f"Using value retrieval backend={self._retrieval_backend} "
             f"(local_index_device={self._local_index_device})"
         )
 
-        self._thread_pool_executor = ThreadPoolExecutor(max_workers=self._stage_config.n_parallel)
+        self._thread_pool_executor = ThreadPoolExecutor(max_workers=self._parallelism)
+        self._column_query_executor = ThreadPoolExecutor(max_workers=self._parallelism)
         self._keyword_extractor = LLMExtractor(max_retry=self._extractor_max_retry)
 
     @classmethod
@@ -137,6 +141,10 @@ class ValueRetrievalRunner:
             dataset_config=app_config.dataset_config,
             vector_database_config=app_config.vector_database_config,
             extractor_max_retry=app_config.llm_extractor_config.max_retry,
+            parallelism=app_config.run_config.parallelism,
+            embedding_batch_size=app_config.run_config.embedding_batch_size,
+            progress_log_interval=app_config.run_config.progress_log_interval,
+            checkpoint_interval=app_config.run_config.checkpoint_interval,
         )
     
     def _get_vector_collection(self, db_id: str) -> Collection:
@@ -197,7 +205,7 @@ class ValueRetrievalRunner:
                 query_embeddings=query_embeddings,
                 table_name=table_name,
                 column_name=column_name,
-                n_results=self._stage_config.n_results,
+                max_values_per_column=self._stage_config.max_values_per_column,
                 lower_meta_data=self._vector_database_config.lower_meta_data,
             )
 
@@ -208,7 +216,7 @@ class ValueRetrievalRunner:
                     collection_or_index,
                     table_name,
                     column_name,
-                    self._stage_config.n_results,
+                    self._stage_config.max_values_per_column,
                     self._vector_database_config.lower_meta_data,
                 )
             except Exception as exc:
@@ -241,18 +249,6 @@ class ValueRetrievalRunner:
     def _get_item_log_prefix(data_item: DataItem) -> str:
         return f"[value_retrieval][item {data_item.get_item_id()}][db {data_item.database_id}]"
 
-    @staticmethod
-    def _get_progress_markers(total_steps: int) -> set[int]:
-        if total_steps <= 0:
-            return set()
-        return {
-            1,
-            max(1, total_steps // 4),
-            max(1, total_steps // 2),
-            max(1, (total_steps * 3) // 4),
-            total_steps,
-        }
-    
     def _retrieve_values_for_item(self, data_item: DataItem):
         """Processes a single data item: keyword extraction + vector retrieval."""
         start_time = time.time()
@@ -275,7 +271,7 @@ class ValueRetrievalRunner:
         query_embeddings = embed_keywords(
             keywords,
             self._embedding_function,
-            batch_size=self._vector_database_config.batch_size,
+            embedding_batch_size=self._embedding_batch_size,
         )
         logger.info(
             f"{item_log_prefix} embedded {len(keywords)} keywords "
@@ -314,35 +310,35 @@ class ValueRetrievalRunner:
         else:
             logger.info(
                 f"{item_log_prefix} retrieving values from {total_column_tasks} text columns "
-                f"with query_parallel_per_sample={self._query_parallel_per_sample}"
+                f"with global column parallelism={self._parallelism}"
             )
 
         if column_tasks:
-            progress_markers = self._get_progress_markers(total_column_tasks)
             completed_columns = 0
-            with ThreadPoolExecutor(max_workers=min(total_column_tasks, self._query_parallel_per_sample)) as col_executor:
-                future_to_col = {
-                    col_executor.submit(
-                        self._retrieve_values_for_column,
-                        query_embeddings,
-                        retrieval_resource,
-                        data_item.database_id,
-                        t_name,
-                        c_name,
-                    ): (t_name, c_name) for t_name, c_name in column_tasks
-                }
-                for future in as_completed(future_to_col):
-                    result = future.result()
-                    original_table_name = map_lower_table_name_to_original_table_name(result["table_name"], data_item.database_schema)
-                    original_column_name = map_lower_column_name_to_original_column_name(result["table_name"], result["column_name"], data_item.database_schema)
-                    data_item.retrieved_values[original_table_name][original_column_name] = result["values"]
-                    completed_columns += 1
-                    if completed_columns in progress_markers:
-                        logger.info(
-                            f"{item_log_prefix} column retrieval progress "
-                            f"{completed_columns}/{total_column_tasks} "
-                            f"({time.time() - retrieval_start_time:.2f}s elapsed)"
-                        )
+            future_to_col = {
+                self._column_query_executor.submit(
+                    self._retrieve_values_for_column,
+                    query_embeddings,
+                    retrieval_resource,
+                    data_item.database_id,
+                    t_name,
+                    c_name,
+                ): (t_name, c_name) for t_name, c_name in column_tasks
+            }
+            for future in as_completed(future_to_col):
+                result = future.result()
+                original_table_name = map_lower_table_name_to_original_table_name(result["table_name"], data_item.database_schema)
+                original_column_name = map_lower_column_name_to_original_column_name(result["table_name"], result["column_name"], data_item.database_schema)
+                data_item.retrieved_values[original_table_name][original_column_name] = result["values"]
+                previous_completed_columns = completed_columns
+                completed_columns += 1
+                log_progress(
+                    f"{item_log_prefix} column retrieval",
+                    completed_columns,
+                    total_column_tasks,
+                    self._progress_log_interval,
+                    previous_completed=previous_completed_columns,
+                )
         
         data_item.retrieved_values = dict(data_item.retrieved_values)
         schema_update_start_time = time.time()
@@ -374,7 +370,7 @@ class ValueRetrievalRunner:
                 if original_values is None:
                     original_values = prepared_schema["tables"][table_name]["columns"][column_name].get("value_examples") or []
                 new_values = [value["value"] for value in values] + original_values
-                new_values = new_values[:self._stage_config.n_results]
+                new_values = new_values[:self._stage_config.max_values_per_column]
                 database_schema_after_value_retrieval["tables"][table_name]["columns"][column_name]["value_examples"] = new_values
         data_item.database_schema_after_value_retrieval = database_schema_after_value_retrieval
 
@@ -420,6 +416,9 @@ class ValueRetrievalRunner:
         if self._thread_pool_executor is not None:
             self._thread_pool_executor.shutdown(wait=True)
             self._thread_pool_executor = None
+        if self._column_query_executor is not None:
+            self._column_query_executor.shutdown(wait=True)
+            self._column_query_executor = None
         self._vector_db_client_dict = {}
         self._vector_db_collection_dict = {}
         self._local_value_index_dict = {}
@@ -483,8 +482,8 @@ class ValueRetrievalRunner:
             except Exception as e:
                 logger.exception(f"Error processing data item {data_item.get_item_id()}: {e}")
             
-            if idx % 5 == 0:
-                logger.info(f"Value Retrieval {idx} / {len(future_to_item)} completed")
+            log_progress("Value Retrieval", idx, len(future_to_item), self._progress_log_interval, previous_completed=idx - 1)
+            if should_checkpoint(idx, self._checkpoint_interval):
                 self.save_result()
             
         # Validate that all required fields are filled

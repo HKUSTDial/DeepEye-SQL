@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -14,6 +15,7 @@ from app.few_shot.masker import MaskCache, MaskResult, mask_training_example
 from app.few_shot.train_loader import TrainingExample, load_training_examples
 from app.llm import LLM
 from app.logger import logger
+from app.progress import log_progress
 from app.vector_db.vector_db import get_embedding_function
 
 
@@ -32,8 +34,8 @@ def build_few_shot_index(
     embedding_config: Any,
     llm: Optional[LLM] = None,
     mask_cache_path: Optional[str | Path] = None,
-    batch_size: int = 128,
-    n_parallel: int = 1,
+    embedding_batch_size: int = 128,
+    parallelism: int = 1,
     llm_timeout: int = 300,
     progress_log_interval: int = 50,
     max_samples: Optional[int] = None,
@@ -55,14 +57,15 @@ def build_few_shot_index(
         )
 
     if save_path.exists():
-        if not force_rebuild:
-            raise FileExistsError(f"Few-shot index path already exists without manifest: {save_path}. Use --force to rebuild.")
-        shutil.rmtree(save_path)
+        if force_rebuild:
+            shutil.rmtree(save_path)
+        elif not manifest_path.exists():
+            logger.info(f"Resuming incomplete few-shot index build at {save_path}")
 
-    if batch_size < 1:
-        raise ValueError(f"batch_size must be >= 1, got {batch_size}")
-    if n_parallel < 1:
-        raise ValueError(f"n_parallel must be >= 1, got {n_parallel}")
+    if embedding_batch_size < 1:
+        raise ValueError(f"embedding_batch_size must be >= 1, got {embedding_batch_size}")
+    if parallelism < 1:
+        raise ValueError(f"parallelism must be >= 1, got {parallelism}")
     if llm_timeout < 1:
         raise ValueError(f"llm_timeout must be >= 1, got {llm_timeout}")
     if progress_log_interval < 1:
@@ -71,6 +74,8 @@ def build_few_shot_index(
         raise ValueError("llm is required for LLM masking. Set skip_mask_llm=True to build a raw-text index.")
 
     save_path.mkdir(parents=True, exist_ok=True)
+    checkpoint_dir = save_path / ".build_checkpoint"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
     resolved_cache_path = Path(mask_cache_path) if mask_cache_path is not None else save_path / "mask_cache.jsonl"
 
     examples = load_training_examples(
@@ -89,7 +94,7 @@ def build_few_shot_index(
         llm=llm,
         cache=cache,
         skip_mask_llm=skip_mask_llm,
-        n_parallel=n_parallel,
+        parallelism=parallelism,
         llm_timeout=llm_timeout,
         progress_log_interval=progress_log_interval,
     )
@@ -107,26 +112,31 @@ def build_few_shot_index(
         api_key=embedding_config.api_key,
         embedding_device=embedding_config.embedding_device,
     )
+    embedding_checkpoint_key = _embedding_checkpoint_key(embedding_config, embedding_batch_size)
 
     question_embeddings = _embed_texts(
         texts=[mask_result.masked_question for mask_result in mask_results],
         embedding_function=embedding_function,
-        batch_size=batch_size,
+        embedding_batch_size=embedding_batch_size,
         label="masked questions",
         progress_log_interval=progress_log_interval,
+        checkpoint_dir=checkpoint_dir / "question_embeddings",
+        checkpoint_key=embedding_checkpoint_key,
     )
     sql_embeddings = _embed_texts(
         texts=[mask_result.masked_sql for mask_result in mask_results],
         embedding_function=embedding_function,
-        batch_size=batch_size,
+        embedding_batch_size=embedding_batch_size,
         label="masked SQL",
         progress_log_interval=progress_log_interval,
+        checkpoint_dir=checkpoint_dir / "sql_embeddings",
+        checkpoint_key=embedding_checkpoint_key,
     )
 
     question_embeddings_path = save_path / "question_embeddings.npy"
     sql_embeddings_path = save_path / "sql_embeddings.npy"
-    np.save(question_embeddings_path, question_embeddings)
-    np.save(sql_embeddings_path, sql_embeddings)
+    _save_npy_atomic(question_embeddings_path, question_embeddings)
+    _save_npy_atomic(sql_embeddings_path, sql_embeddings)
 
     manifest = _build_manifest(
         dataset_type=dataset_type,
@@ -136,8 +146,8 @@ def build_few_shot_index(
         embedding_config=embedding_config,
         llm_config=llm.llm_config if llm is not None and not skip_mask_llm else None,
         mask_cache_path=resolved_cache_path if not skip_mask_llm else None,
-        batch_size=batch_size,
-        n_parallel=n_parallel,
+        embedding_batch_size=embedding_batch_size,
+        parallelism=parallelism,
         llm_timeout=llm_timeout,
         max_samples=max_samples,
         max_samples_per_db=max_samples_per_db,
@@ -145,8 +155,11 @@ def build_few_shot_index(
         question_embedding_dim=question_embeddings.shape[1],
         sql_embedding_dim=sql_embeddings.shape[1],
     )
-    with open(manifest_path, "w", encoding="utf-8") as f:
+    manifest_tmp_path = manifest_path.with_suffix(".json.tmp")
+    with open(manifest_tmp_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
+    manifest_tmp_path.replace(manifest_path)
+    shutil.rmtree(checkpoint_dir, ignore_errors=True)
 
     logger.info(f"Built few-shot index at {save_path} with {len(examples)} examples")
     return FewShotIndexBuildResult(
@@ -161,11 +174,11 @@ def _mask_examples(
     llm: Optional[LLM],
     cache: Optional[MaskCache],
     skip_mask_llm: bool,
-    n_parallel: int,
+    parallelism: int,
     llm_timeout: int,
     progress_log_interval: int,
 ) -> List[MaskResult]:
-    if n_parallel == 1:
+    if parallelism == 1:
         results = []
         for idx, example in enumerate(examples, start=1):
             results.append(
@@ -177,12 +190,12 @@ def _mask_examples(
                     llm_timeout=llm_timeout,
                 )
             )
-            _log_progress("Masking few-shot examples", idx, len(examples), progress_log_interval, previous_completed=idx - 1)
+            log_progress("Masking few-shot examples", idx, len(examples), progress_log_interval, previous_completed=idx - 1)
         return results
 
     results: List[Optional[MaskResult]] = [None] * len(examples)
     completed = 0
-    with ThreadPoolExecutor(max_workers=n_parallel) as executor:
+    with ThreadPoolExecutor(max_workers=parallelism) as executor:
         futures = {
             executor.submit(mask_training_example, example, llm, cache, skip_mask_llm, llm_timeout): idx
             for idx, example in enumerate(examples)
@@ -192,7 +205,7 @@ def _mask_examples(
             results[idx] = future.result()
             previous_completed = completed
             completed += 1
-            _log_progress("Masking few-shot examples", completed, len(examples), progress_log_interval, previous_completed=previous_completed)
+            log_progress("Masking few-shot examples", completed, len(examples), progress_log_interval, previous_completed=previous_completed)
 
     if any(result is None for result in results):
         raise RuntimeError("Some few-shot examples did not produce mask results")
@@ -203,7 +216,8 @@ def _write_examples(examples_path: Path, examples: List[TrainingExample], mask_r
     if len(examples) != len(mask_results):
         raise ValueError(f"Example/mask result count mismatch: {len(examples)} examples, {len(mask_results)} mask results")
 
-    with open(examples_path, "w", encoding="utf-8") as f:
+    tmp_path = examples_path.with_suffix(".jsonl.tmp")
+    with open(tmp_path, "w", encoding="utf-8") as f:
         for example, mask_result in zip(examples, mask_results):
             record = example.to_record(
                 masked_question=mask_result.masked_question,
@@ -211,16 +225,37 @@ def _write_examples(examples_path: Path, examples: List[TrainingExample], mask_r
                 mask_source=mask_result.source,
             )
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    tmp_path.replace(examples_path)
 
 
-def _embed_texts(texts: List[str], embedding_function: Any, batch_size: int, label: str, progress_log_interval: int) -> np.ndarray:
+def _embed_texts(
+    texts: List[str],
+    embedding_function: Any,
+    embedding_batch_size: int,
+    label: str,
+    progress_log_interval: int,
+    checkpoint_dir: Path,
+    checkpoint_key: str,
+) -> np.ndarray:
     embeddings: List[List[float]] = []
     total = len(texts)
-    for start in range(0, total, batch_size):
-        batch = texts[start : start + batch_size]
-        batch_embeddings = embedding_function(batch)
+    _prepare_embedding_checkpoint(
+        checkpoint_dir=checkpoint_dir,
+        checkpoint_key=checkpoint_key,
+        text_hash=_hash_texts(texts),
+        total=total,
+        embedding_batch_size=embedding_batch_size,
+        label=label,
+    )
+    for start in range(0, total, embedding_batch_size):
+        batch = texts[start : start + embedding_batch_size]
+        shard_path = checkpoint_dir / f"{start:08d}_{start + len(batch):08d}.npy"
+        batch_embeddings = _load_embedding_shard(shard_path, expected_rows=len(batch))
+        if batch_embeddings is None:
+            batch_embeddings = np.asarray(embedding_function(batch), dtype=np.float32)
+            _save_npy_atomic(shard_path, batch_embeddings)
         embeddings.extend(batch_embeddings)
-        _log_progress(
+        log_progress(
             f"Embedding {label}",
             min(start + len(batch), total),
             total,
@@ -234,39 +269,85 @@ def _embed_texts(texts: List[str], embedding_function: Any, batch_size: int, lab
     return _l2_normalize(matrix)
 
 
+def _prepare_embedding_checkpoint(
+    checkpoint_dir: Path,
+    checkpoint_key: str,
+    text_hash: str,
+    total: int,
+    embedding_batch_size: int,
+    label: str,
+) -> None:
+    expected_metadata = {
+        "version": 1,
+        "label": label,
+        "checkpoint_key": checkpoint_key,
+        "text_hash": text_hash,
+        "total": total,
+        "embedding_batch_size": embedding_batch_size,
+    }
+    metadata_path = checkpoint_dir / "metadata.json"
+    if metadata_path.exists():
+        try:
+            with open(metadata_path, "r", encoding="utf-8") as f:
+                existing_metadata = json.load(f)
+        except json.JSONDecodeError:
+            existing_metadata = None
+        if existing_metadata != expected_metadata:
+            logger.info(f"Discarding stale embedding checkpoint for {label}")
+            shutil.rmtree(checkpoint_dir, ignore_errors=True)
+
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    if not metadata_path.exists():
+        tmp_path = metadata_path.with_suffix(".json.tmp")
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(expected_metadata, f, indent=2, ensure_ascii=False)
+        tmp_path.replace(metadata_path)
+
+
+def _load_embedding_shard(shard_path: Path, expected_rows: int) -> Optional[np.ndarray]:
+    if not shard_path.exists():
+        return None
+    try:
+        shard = np.load(shard_path)
+    except Exception:
+        shard_path.unlink(missing_ok=True)
+        return None
+    if shard.ndim != 2 or shard.shape[0] != expected_rows:
+        shard_path.unlink(missing_ok=True)
+        return None
+    return np.asarray(shard, dtype=np.float32)
+
+
+def _save_npy_atomic(path: Path, array: np.ndarray) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    with open(tmp_path, "wb") as f:
+        np.save(f, array)
+    tmp_path.replace(path)
+
+
+def _hash_texts(texts: List[str]) -> str:
+    hasher = hashlib.sha1()
+    for text in texts:
+        encoded = text.encode("utf-8")
+        hasher.update(len(encoded).to_bytes(8, byteorder="big"))
+        hasher.update(encoded)
+    return hasher.hexdigest()
+
+
+def _embedding_checkpoint_key(embedding_config: Any, embedding_batch_size: int) -> str:
+    payload = {
+        "embedding_config": _redact_config(embedding_config),
+        "embedding_batch_size": embedding_batch_size,
+    }
+    content = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha1(content.encode("utf-8")).hexdigest()
+
+
 def _l2_normalize(matrix: np.ndarray) -> np.ndarray:
     norms = np.linalg.norm(matrix, axis=1, keepdims=True)
     norms[norms == 0] = 1.0
     return matrix / norms
-
-
-def _log_progress(
-    label: str,
-    completed: int,
-    total: int,
-    progress_log_interval: int = 50,
-    previous_completed: Optional[int] = None,
-) -> None:
-    if total <= 0:
-        return
-    completed = min(max(completed, 0), total)
-    if completed == 0:
-        return
-
-    markers = {1, total, max(1, total // 4), max(1, total // 2), max(1, (total * 3) // 4)}
-    should_log = completed in markers
-
-    if not should_log:
-        interval = max(progress_log_interval, 1)
-        if previous_completed is None:
-            should_log = completed % interval == 0
-        else:
-            previous_completed = min(max(previous_completed, 0), total)
-            should_log = completed // interval > previous_completed // interval
-
-    if should_log:
-        percent = completed / total * 100
-        logger.info(f"{label}: {completed}/{total} ({percent:.1f}%)")
 
 
 def _build_manifest(
@@ -277,8 +358,8 @@ def _build_manifest(
     embedding_config: Any,
     llm_config: Any,
     mask_cache_path: Optional[Path],
-    batch_size: int,
-    n_parallel: int,
+    embedding_batch_size: int,
+    parallelism: int,
     llm_timeout: int,
     max_samples: Optional[int],
     max_samples_per_db: Optional[int],
@@ -301,13 +382,13 @@ def _build_manifest(
         "masking": {
             "skip_mask_llm": skip_mask_llm,
             "cache_path": str(mask_cache_path) if mask_cache_path is not None else None,
-            "n_parallel": n_parallel,
+            "parallelism": parallelism,
             "llm_timeout": llm_timeout,
             "llm": _redact_config(llm_config) if llm_config is not None else None,
         },
         "embedding": {
             "config": _redact_config(embedding_config),
-            "batch_size": batch_size,
+            "embedding_batch_size": embedding_batch_size,
             "question_embedding_dim": question_embedding_dim,
             "sql_embedding_dim": sql_embedding_dim,
             "normalized": True,

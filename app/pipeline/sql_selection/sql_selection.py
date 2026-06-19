@@ -4,6 +4,7 @@ from app.logger import logger
 from app.prompt import PromptFactory
 from app.llm_extractor import LLMExtractor
 from app.pipeline.validation import validate_pipeline_step
+from app.progress import log_progress, should_checkpoint
 from typing import Dict, List, Any, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import numpy as np
@@ -29,12 +30,27 @@ class SQLSelectionRunner:
     _dataset_config = None
     _timing_refine_repeat: int = 2
     _extractor: LLMExtractor = None
+    _parallelism: int = 16
+    _progress_log_interval: int = 50
+    _checkpoint_interval: int = 20
     
-    def __init__(self, stage_config, dataset_config, input_save_path: str, extractor_max_retry: int):
+    def __init__(
+        self,
+        stage_config,
+        dataset_config,
+        input_save_path: str,
+        extractor_max_retry: int,
+        parallelism: int,
+        progress_log_interval: int,
+        checkpoint_interval: int,
+    ):
         self._stage_config = stage_config
         self._dataset_config = dataset_config
         self._input_save_path = input_save_path
         self._extractor_max_retry = extractor_max_retry
+        self._parallelism = max(1, parallelism)
+        self._progress_log_interval = max(1, progress_log_interval)
+        self._checkpoint_interval = max(1, checkpoint_interval)
         self._artifact_store = ArtifactStore(
             self._stage_config.save_path,
             "sql_selection",
@@ -55,8 +71,9 @@ class SQLSelectionRunner:
             snowflake_credential_path=self._dataset_config.snowflake_credential_path,
         )
         self._llm = LLM(self._stage_config.llm)
-        self._thread_pool_executor = ThreadPoolExecutor(max_workers=self._stage_config.n_parallel)
-        self._inner_thread_pool_executor = ThreadPoolExecutor(max_workers=max(1, self._stage_config.n_internal_parallel))
+        logger.info(f"SQL selection parallelism: {self._parallelism}")
+        self._thread_pool_executor = ThreadPoolExecutor(max_workers=self._parallelism)
+        self._inner_thread_pool_executor = ThreadPoolExecutor(max_workers=self._parallelism)
         self._execution_service = get_execution_service()
         self._extractor = LLMExtractor(max_retry=self._extractor_max_retry)
 
@@ -71,6 +88,9 @@ class SQLSelectionRunner:
             dataset_config=app_config.dataset_config,
             input_save_path=app_config.sql_revision_config.save_path,
             extractor_max_retry=app_config.llm_extractor_config.max_retry,
+            parallelism=app_config.run_config.parallelism,
+            progress_log_interval=app_config.run_config.progress_log_interval,
+            checkpoint_interval=app_config.run_config.checkpoint_interval,
         )
     
     def _parse_llm_response(self, response: str) -> Optional[List[Dict[str, Any]]]:
@@ -403,8 +423,8 @@ class SQLSelectionRunner:
         for idx, future in tqdm(enumerate(as_completed(future_to_item), start=1), total=len(future_to_item), desc="Selecting Best SQL"):
             future.result()
             self._artifact_store.record_item(future_to_item[future])
-            if idx % 5 == 0:
-                logger.info(f"Selecting Best SQL {idx} / {len(future_to_item)} completed")
+            log_progress("Selecting Best SQL", idx, len(future_to_item), self._progress_log_interval, previous_completed=idx - 1)
+            if should_checkpoint(idx, self._checkpoint_interval):
                 self.save_result()
         logger.info("Selecting Best SQL completed")
         
