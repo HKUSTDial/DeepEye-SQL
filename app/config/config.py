@@ -75,7 +75,7 @@ class DatasetConfig(BaseModel):
 
 class VectorDatabaseConfig(BaseModel):
     api_type: Literal["local", "openai"] = Field(default="local", description="The type of the embedding api")
-    embedding_model_name_or_path: str = Field(..., description="The embedding model name or path")
+    embedding_model_name_or_path: Optional[str] = Field(default=None, description="The embedding model name or path")
     use_qwen3_embedding: bool = Field(default=False, description="Whether to use Qwen3 embedding")
     local_files_only: bool = Field(default=False, description="Whether to use local files only")
     normalize_embeddings: bool = Field(default=False, description="Whether to normalize embeddings")
@@ -124,18 +124,31 @@ def _resolve_llm_config(
     section_name: str,
     *,
     required: bool,
+    llm_profiles: Optional[Dict[str, Dict[str, Any]]] = None,
+    default_profile: Optional[str] = None,
+    section_profile: Optional[str] = None,
 ) -> Optional[LLMConfig]:
-    merged = _merge_section_defaults(default_config, section_config)
+    profile_name = section_profile or default_profile
+    base_config = default_config
+    if profile_name:
+        if not llm_profiles or profile_name not in llm_profiles:
+            raise ValueError(f"Unknown llm_profile '{profile_name}' for {section_name}")
+        base_config = llm_profiles[profile_name]
+
+    merged = _merge_section_defaults(base_config, section_config)
     if merged is None:
         if required:
-            raise ValueError(f"{section_name}.llm is required when top-level [llm] is not configured")
+            raise ValueError(
+                f"{section_name}.llm or {section_name}.llm_profile is required "
+                "when neither [llm] nor [run].default_llm_profile is configured"
+            )
         return None
     try:
         return LLMConfig(**merged)
     except Exception as exc:
         raise ValueError(
             f"Invalid LLM config for {section_name}. "
-            "Provide a complete top-level [llm] section or a complete section-specific .llm override."
+            "Provide a complete [llm], a valid llm_profile, or a complete section-specific .llm override."
         ) from exc
 
 
@@ -279,6 +292,7 @@ class RunConfig(BaseModel):
     exp_name: str = Field(default="default", description="Experiment name used under save_root")
     save_dir: str = Field(default=_path_to_str(WORKSPACE_ROOT / "runs" / "default"), description="Resolved directory for this run")
     shared_dir: str = Field(default=_path_to_str(WORKSPACE_ROOT / "runs" / "_shared"), description="Resolved directory for reusable artifacts shared across runs")
+    default_llm_profile: Optional[str] = Field(default=None, description="Default LLM profile name used by stages without an explicit llm_profile")
     parallelism: int = Field(default=16, ge=1, description="Global parallelism for LLM-heavy pipeline stages")
     embedding_batch_size: int = Field(default=128, ge=1, description="Global batch size for embedding requests and local embedding forwards")
     llm_timeout: int = Field(default=300, ge=1, description="Global timeout for explicit LLM requests in seconds")
@@ -343,6 +357,7 @@ class Config:
         config = Config._load_config(config_path)
         
         default_llm_config = config.get("llm")
+        llm_profiles_config = config.get("llm_profiles", {})
         default_embedding_config = config.get("embedding")
         
         # dataset config
@@ -350,6 +365,7 @@ class Config:
         dataset_type = dataset_config.get("type")
         dataset_split = dataset_config.get("split", "")
         run_config = config.get("run")
+        default_llm_profile = (run_config or {}).get("default_llm_profile")
         managed_paths = run_config is not None
         default_exp_name = f"{dataset_type}-{dataset_split}".strip("-") if dataset_type else "default"
         if managed_paths:
@@ -367,6 +383,7 @@ class Config:
             "exp_name": str(run_exp_name),
             "save_dir": _path_to_str(run_save_dir),
             "shared_dir": _path_to_str(run_shared_dir),
+            "default_llm_profile": default_llm_profile,
             "parallelism": run_config.get("parallelism", 16) if managed_paths else 16,
             "embedding_batch_size": run_config.get("embedding_batch_size", 128) if managed_paths else 128,
             "llm_timeout": run_config.get("llm_timeout", 300) if managed_paths else 300,
@@ -396,6 +413,11 @@ class Config:
         # vector database config
         vector_database_config = config.get("vector_database", {})
         vector_database_embedding_config = _merge_section_defaults(default_embedding_config, vector_database_config)
+        if (
+            dataset_type != "spider2"
+            and not (vector_database_embedding_config or {}).get("embedding_model_name_or_path")
+        ):
+            raise ValueError("[embedding].embedding_model_name_or_path is required for non-Spider2 datasets")
         vector_database_settings = {
             "api_type": (vector_database_embedding_config or {}).get("api_type", "local"),
             "embedding_model_name_or_path": (vector_database_embedding_config or {}).get("embedding_model_name_or_path"),
@@ -420,7 +442,15 @@ class Config:
         # value retrieval config
         value_retrieval_config = config.get("value_retrieval", {})
         value_retrieval_settings = {
-            "llm": _resolve_llm_config(default_llm_config, value_retrieval_config.get("llm"), "[value_retrieval]", required=True),
+            "llm": _resolve_llm_config(
+                default_llm_config,
+                value_retrieval_config.get("llm"),
+                "[value_retrieval]",
+                required=True,
+                llm_profiles=llm_profiles_config,
+                default_profile=default_llm_profile,
+                section_profile=value_retrieval_config.get("llm_profile"),
+            ),
             "max_values_per_column": value_retrieval_config.get("max_values_per_column", 5),
             "backend": value_retrieval_config.get("backend", "chroma"),
             "local_index_device": value_retrieval_config.get("local_index_device", "auto"),
@@ -448,6 +478,9 @@ class Config:
                 preliminary_sql_llm_config,
                 "[few_shot_index.preliminary_sql]",
                 required=False,
+                llm_profiles=llm_profiles_config,
+                default_profile=default_llm_profile,
+                section_profile=preliminary_sql_config.get("llm_profile"),
             ),
         }
         few_shot_index_settings = {
@@ -484,7 +517,15 @@ class Config:
             "max_samples": few_shot_index_config.get("max_samples", None),
             "max_samples_per_db": few_shot_index_config.get("max_samples_per_db", None),
             "force_rebuild": few_shot_index_config.get("force_rebuild", False),
-            "llm": _resolve_llm_config(default_llm_config, few_shot_index_llm_config, "[few_shot_index]", required=False),
+            "llm": _resolve_llm_config(
+                default_llm_config,
+                few_shot_index_llm_config,
+                "[few_shot_index]",
+                required=False,
+                llm_profiles=llm_profiles_config,
+                default_profile=default_llm_profile,
+                section_profile=few_shot_index_config.get("llm_profile"),
+            ),
             "embedding": _resolve_embedding_config(
                 default_embedding_config,
                 few_shot_index_embedding_config,
@@ -497,7 +538,15 @@ class Config:
         # schema linking config
         schema_linking_config = config.get("schema_linking", {})
         schema_linking_settings = {
-            "llm": _resolve_llm_config(default_llm_config, schema_linking_config.get("llm"), "[schema_linking]", required=True),
+            "llm": _resolve_llm_config(
+                default_llm_config,
+                schema_linking_config.get("llm"),
+                "[schema_linking]",
+                required=True,
+                llm_profiles=llm_profiles_config,
+                default_profile=default_llm_profile,
+                section_profile=schema_linking_config.get("llm_profile"),
+            ),
             "save_path": _get_path_value(
                 schema_linking_config,
                 "save_path",
@@ -513,7 +562,15 @@ class Config:
         # sql generation config
         sql_generation_config = config.get("sql_generation", {})
         sql_generation_settings = {
-            "llm": _resolve_llm_config(default_llm_config, sql_generation_config.get("llm"), "[sql_generation]", required=True),
+            "llm": _resolve_llm_config(
+                default_llm_config,
+                sql_generation_config.get("llm"),
+                "[sql_generation]",
+                required=True,
+                llm_profiles=llm_profiles_config,
+                default_profile=default_llm_profile,
+                section_profile=sql_generation_config.get("llm_profile"),
+            ),
             "save_path": _get_path_value(
                 sql_generation_config,
                 "save_path",
@@ -530,7 +587,15 @@ class Config:
         # sql revision config
         sql_revision_config = config.get("sql_revision", {})
         sql_revision_settings = {
-            "llm": _resolve_llm_config(default_llm_config, sql_revision_config.get("llm"), "[sql_revision]", required=True),
+            "llm": _resolve_llm_config(
+                default_llm_config,
+                sql_revision_config.get("llm"),
+                "[sql_revision]",
+                required=True,
+                llm_profiles=llm_profiles_config,
+                default_profile=default_llm_profile,
+                section_profile=sql_revision_config.get("llm_profile"),
+            ),
             "save_path": _get_path_value(
                 sql_revision_config,
                 "save_path",
@@ -545,7 +610,15 @@ class Config:
         # sql selection config
         sql_selection_config = config.get("sql_selection", {})
         sql_selection_settings = {
-            "llm": _resolve_llm_config(default_llm_config, sql_selection_config.get("llm"), "[sql_selection]", required=True),
+            "llm": _resolve_llm_config(
+                default_llm_config,
+                sql_selection_config.get("llm"),
+                "[sql_selection]",
+                required=True,
+                llm_profiles=llm_profiles_config,
+                default_profile=default_llm_profile,
+                section_profile=sql_selection_config.get("llm_profile"),
+            ),
             "save_path": _get_path_value(
                 sql_selection_config,
                 "save_path",
