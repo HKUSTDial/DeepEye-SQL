@@ -6,7 +6,7 @@
 # This script runs the full pipeline from preprocessing to SQL selection.
 # 
 # Usage: 
-#   CONFIG_PATH="config/your_config.toml" bash script/run_pipeline.sh
+#   CONFIG_PATH="config/local/your_config.toml" bash script/run_pipeline.sh
 # or
 #   bash script/run_pipeline.sh config/your_config.toml
 # ==============================================================================
@@ -22,7 +22,7 @@ fi
 
 # Default CONFIG_PATH if not set
 if [ -z "$CONFIG_PATH" ]; then
-    export CONFIG_PATH="config/config.toml"
+    export CONFIG_PATH="config/local/config.toml"
 fi
 
 # Create logs directory if it doesn't exist

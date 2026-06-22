@@ -27,12 +27,8 @@ data/
 exp/
 
 # local configs
-config/config-spider.toml
-config/config-bird.toml
-config/config-gemini.toml
-config/config.toml
-config/config-bird-submission.toml
-config/config-spider2.toml
+config/local/
+config/*.toml
 
 # credentials
 bigquery_credential.json
@@ -40,14 +36,9 @@ snowflake_credential.json
 
 # docs
 docs/
-config/*-ds-reasoner.toml
 
 .codex
-config/config-bird-kimi-k2.6-openrouter.toml
 
 # Jupyter checkpoints
 .ipynb_checkpoints/
 **/.ipynb_checkpoints/
-
-# local BIRD test submission config
-config/config-bird-test-official.toml

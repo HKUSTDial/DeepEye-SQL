@@ -219,7 +219,7 @@ Spider2 cloud evaluation may require valid:
 - BigQuery credentials
 - Snowflake credentials
 
-The corresponding paths are configured in [config/config-spider2-example.toml](config/config-spider2-example.toml).
+The corresponding paths are configured in [config/template/config-spider2-lite.toml](config/template/config-spider2-lite.toml) and [config/template/config-spider2-snow.toml](config/template/config-spider2-snow.toml).
 
 ## Dataset Setup
 
@@ -253,11 +253,20 @@ You also need valid cloud credentials if your Spider2 split references BigQuery 
 
 ## Configuration
 
-Three examples are included:
+Tracked templates live under `config/template/`:
 
-- [config/config-spider-example.toml](config/config-spider-example.toml)
-- [config/config-bird-example.toml](config/config-bird-example.toml)
-- [config/config-spider2-example.toml](config/config-spider2-example.toml)
+- [config/template/config-bird-dev.toml](config/template/config-bird-dev.toml)
+- [config/template/config-bird-test.toml](config/template/config-bird-test.toml)
+- [config/template/config-spider-test.toml](config/template/config-spider-test.toml)
+- [config/template/config-spider2-lite.toml](config/template/config-spider2-lite.toml)
+- [config/template/config-spider2-snow.toml](config/template/config-spider2-snow.toml)
+
+Local experiment configs belong under `config/local/`, which is ignored by git. Start by copying a template and filling in endpoint-specific fields such as API keys:
+
+```bash
+mkdir -p config/local
+cp config/template/config-bird-dev.toml config/local/config-bird-dev.toml
+```
 
 ### Important config blocks
 
@@ -346,13 +355,13 @@ temperature = 0.6
 ### Option A: one-config full pipeline
 
 ```bash
-export CONFIG_PATH=config/config-bird-example.toml
+export CONFIG_PATH=config/local/config-bird-dev.toml
 bash script/run_pipeline.sh
 ```
 
 ### Option B: BIRD full-run command wrapper
 
-For larger BIRD dev/test runs, keep local endpoint-specific configs under `workspace/run_configs/` and use the standard wrapper:
+For larger BIRD dev/test runs, keep local endpoint-specific configs under `config/local/` and use the standard wrapper:
 
 ```bash
 bash script/bird-full-run-commands.sh dev
@@ -365,7 +374,7 @@ bash script/bird-full-run-commands.sh inspect-test
 bash script/bird-full-run-commands.sh export-test
 ```
 
-By default the wrapper reads `workspace/run_configs/bird-full-dev.toml` and `workspace/run_configs/bird-full-test.toml`. Override them when needed:
+By default the wrapper reads `config/local/config-bird-dev.toml` and `config/local/config-bird-test.toml`. Override them when needed:
 
 ```bash
 DEV_CONFIG=path/to/dev.toml TEST_CONFIG=path/to/test.toml \
@@ -374,10 +383,35 @@ DEV_CONFIG=path/to/dev.toml TEST_CONFIG=path/to/test.toml \
 
 The `dev`/`test` commands run Step 4a automatically: if the few-shot training index is missing, it is built from the training set; if `manifest.json` already exists, it is reused. Use `rebuild-index` only for an intentional overwrite or an incomplete index directory.
 
-### Option C: stage-by-stage
+### Option C: Spider wrapper
 
 ```bash
-export CONFIG_PATH=config/config-bird-example.toml
+bash script/spider-run-commands.sh test
+bash script/spider-run-commands.sh inspect-test
+bash script/spider-run-commands.sh eval-test
+bash script/spider-run-commands.sh export-test
+```
+
+By default the wrapper reads `config/local/config-spider-test.toml`.
+
+### Option D: Spider2 wrapper
+
+```bash
+bash script/spider2-run-commands.sh lite
+bash script/spider2-run-commands.sh eval-lite
+bash script/spider2-run-commands.sh export-lite
+
+bash script/spider2-run-commands.sh snow
+bash script/spider2-run-commands.sh eval-snow
+bash script/spider2-run-commands.sh export-snow
+```
+
+By default the wrapper reads `config/local/config-spider2-lite.toml` and `config/local/config-spider2-snow.toml`.
+
+### Option E: stage-by-stage
+
+```bash
+export CONFIG_PATH=config/local/config-bird-dev.toml
 
 uv run runner/preprocess_dataset.py
 uv run runner/create_vector_db_parallel.py
@@ -405,13 +439,13 @@ With `[run] save_root = "workspace/runs"` and `exp_name = "bird-dev"`, stage out
 Reusable training artifacts such as the few-shot train index are stored under `workspace/runs/_shared/<dataset>/`.
 
 - active config copy:
-  `workspace/config/<config-file>.toml`
+  `workspace/runs/<exp_name>/config.toml`
 
 ## Reproducibility Workflow
 
 DeepEye-SQL uses a structured snapshot format to make long-running experiments resumable and inspectable.
 
-Each run that loads `app.config.get_config()` copies the active TOML config to `workspace/config/<config-file>.toml`, so workspace outputs can be checked against the config used for the run.
+Each run that loads `app.config.get_config()` copies the active TOML config to `<run.save_dir>/config.toml`, so run outputs can be checked against the config used for the run.
 
 ### 1. Preprocess dataset
 

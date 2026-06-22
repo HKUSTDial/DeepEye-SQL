@@ -303,7 +303,7 @@ class AppConfig(BaseModel):
 class Config:
     _app_config: AppConfig = None
     _config_path: Optional[Path] = None
-    _workspace_config_path: Optional[Path] = None
+    _run_config_path: Optional[Path] = None
     _instance = None
     _lock = threading.Lock()
     
@@ -324,7 +324,7 @@ class Config:
         if env_config_path:
             config_path = Path(env_config_path)
         else:
-            config_path = PROJECT_ROOT / "config" / "config.toml"
+            config_path = PROJECT_ROOT / "config" / "local" / "config.toml"
             
         if not config_path.exists():
             raise FileNotFoundError(f"Config file not found at {config_path}")
@@ -583,17 +583,17 @@ class Config:
             llm_extractor=LLMExtractorConfig(**llm_extractor_settings),
             logger=LoggerConfig(**logger_settings)
         )
-        self._copy_config_to_workspace()
+        self._copy_config_to_run_dir()
 
-    def _copy_config_to_workspace(self) -> None:
-        if self._config_path is None:
+    def _copy_config_to_run_dir(self) -> None:
+        if self._config_path is None or self._app_config is None:
             return
 
-        workspace_config_dir = WORKSPACE_ROOT / "config"
-        workspace_config_dir.mkdir(parents=True, exist_ok=True)
-        workspace_config_path = workspace_config_dir / self._config_path.name
-        shutil.copy2(self._config_path, workspace_config_path)
-        self._workspace_config_path = workspace_config_path
+        run_config_dir = Path(self._app_config.run.save_dir)
+        run_config_dir.mkdir(parents=True, exist_ok=True)
+        run_config_path = run_config_dir / "config.toml"
+        shutil.copy2(self._config_path, run_config_path)
+        self._run_config_path = run_config_path
 
     @property
     def app_config(self):
@@ -604,8 +604,12 @@ class Config:
         return self._config_path
 
     @property
+    def run_config_path(self):
+        return self._run_config_path
+
+    @property
     def workspace_config_path(self):
-        return self._workspace_config_path
+        return self._run_config_path
 
     @property
     def dataset_config(self):
