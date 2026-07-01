@@ -172,7 +172,7 @@ DeepEye-SQL
 ### Key entry points
 
 - [script/run_pipeline.sh](script/run_pipeline.sh): full pipeline automation for one TOML config
-- [script/bird-full-run-commands.sh](script/bird-full-run-commands.sh): standard BIRD full-run command wrapper for dev/test, inspection, evaluation, and export
+- [script/run_bird.sh](script/run_bird.sh): standard BIRD full-run command wrapper for dev/test, inspection, evaluation, and export
 - [runner/preprocess_dataset.py](runner/preprocess_dataset.py): build initial dataset snapshot
 - [runner/create_vector_db_parallel.py](runner/create_vector_db_parallel.py): create value-retrieval vector indices
 - [runner/run_value_retrieval.py](runner/run_value_retrieval.py)
@@ -219,7 +219,7 @@ Spider2 cloud evaluation may require valid:
 - BigQuery credentials
 - Snowflake credentials
 
-The corresponding paths are configured in [config/template/config-spider2-lite.toml](config/template/config-spider2-lite.toml) and [config/template/config-spider2-snow.toml](config/template/config-spider2-snow.toml).
+The corresponding paths are configured in [config/template/Qwen3.6-27B/config-spider2-lite.toml](config/template/Qwen3.6-27B/config-spider2-lite.toml) and [config/template/Qwen3.6-27B/config-spider2-snow.toml](config/template/Qwen3.6-27B/config-spider2-snow.toml).
 
 ## Dataset Setup
 
@@ -253,19 +253,24 @@ You also need valid cloud credentials if your Spider2 split references BigQuery 
 
 ## Configuration
 
-Tracked templates live under `config/template/`:
+Tracked templates are grouped by model under `config/template/<model>/`:
 
-- [config/template/config-bird-dev.toml](config/template/config-bird-dev.toml)
-- [config/template/config-bird-test.toml](config/template/config-bird-test.toml)
-- [config/template/config-spider-test.toml](config/template/config-spider-test.toml)
-- [config/template/config-spider2-lite.toml](config/template/config-spider2-lite.toml)
-- [config/template/config-spider2-snow.toml](config/template/config-spider2-snow.toml)
+- `config/template/Qwen3.6-27B/`
+- `config/template/Qwen3-Coder-30B-A3B-Instruct/`
 
-Local experiment configs belong under `config/local/`, which is ignored by git. Start by copying a template and filling in endpoint-specific fields such as API keys:
+Each model directory contains dataset-specific templates:
+
+- `config-bird-dev.toml`
+- `config-bird-test.toml`
+- `config-spider-test.toml`
+- `config-spider2-lite.toml`
+- `config-spider2-snow.toml`
+
+Local experiment configs mirror the same model grouping under `config/local/<model>/`, which is ignored by git. Start by copying a template and filling in endpoint-specific fields such as API endpoints and API keys:
 
 ```bash
-mkdir -p config/local
-cp config/template/config-bird-dev.toml config/local/config-bird-dev.toml
+mkdir -p config/local/Qwen3.6-27B
+cp config/template/Qwen3.6-27B/config-bird-dev.toml config/local/Qwen3.6-27B/config-bird-dev.toml
 ```
 
 ### Important config blocks
@@ -276,11 +281,12 @@ cp config/template/config-bird-dev.toml config/local/config-bird-dev.toml
 [run]
 save_root = "workspace/runs"
 exp_name = "bird-dev"
-parallelism = 8
-embedding_batch_size = 128
+parallelism = 16
+embedding_batch_size = 256
 llm_timeout = 300
 progress_log_interval = 50
 checkpoint_interval = 20
+default_llm_profile = "qwen36_thinking"
 ```
 
 By default, stage outputs are written under `save_root/exp_name`, for example `dataset.snapshot`, `value_retrieval.snapshot`, `schema_linking.snapshot`, and `sql_selection.snapshot`. Reusable training artifacts such as the few-shot index are written under `save_root/_shared/<dataset>/`.
@@ -300,53 +306,68 @@ root_path = "data/bird"
 
 ```toml
 [embedding]
-api_type = "openai"          # or local
-embedding_model_name_or_path = "your-embedding-model"
-base_url = "https://your-openai-compatible-embedding-endpoint/v1"
-api_key = "your-api-key"
-embedding_device = "auto"       # auto | cpu | cuda | cuda:0
+api_type = "openai"
+embedding_model_name_or_path = "Qwen3-Embedding-0.6B"
+base_url = "your-embedding-model-base-url"
+api_key = "your-embedding-api-key"
 
 [vector_database]
 max_value_length = 100
-build_backend = "local_index"   # chroma | local_index | both
+build_backend = "local_index"
 ```
 
 #### Few-shot retrieval
 
 ```toml
 [few_shot_index]
-num_examples = 5
+num_examples = 7
 question_weight = 0.6
 sql_weight = 0.4
-similarity_device = "cpu"  # cpu | auto | cuda | cuda:0
+similarity_device = "cuda:0"
+llm_profile = "qwen36_instruct"
 ```
 
 `similarity_device` controls where few-shot question/SQL vector similarity is computed. It is separate from the embedding endpoint or local embedding model.
 
 Few-shot index builds are resumable: masking uses the JSONL mask cache, and embedding batches are checkpointed under `.build_checkpoint` until the final `manifest.json` is written.
 
-#### Default and Stage LLMs
+#### LLM Profiles
 
 ```toml
-[llm]
-model = "your-model-name"
-base_url = "https://your-openai-compatible-endpoint/v1"
-api_key = "your-api-key"
-max_tokens = 4096
-temperature = 0.7
-api_type = "openai"
-max_model_len = 128000
+[run]
+default_llm_profile = "qwen36_thinking"
 
-# Optional: any stage can override only the fields that differ.
-[sql_generation.llm]
+[llm_profiles.qwen36_thinking]
+model = "Qwen3.6-27B"
+base_url = "your-llm-model-base-url"
+api_key = "your-llm-api-key"
+max_tokens = 16384
 temperature = 0.6
+n_call_strategy = "single"
+api_type = "openai"
+max_model_len = 65536
+extra_body = { top_p = 0.95, top_k = 20, min_p = 0.0, presence_penalty = 0.0, repetition_penalty = 1.0, chat_template_kwargs = { enable_thinking = true } }
+
+[llm_profiles.qwen36_instruct]
+model = "Qwen3.6-27B"
+base_url = "your-llm-model-base-url"
+api_key = "your-llm-api-key"
+max_tokens = 16384
+temperature = 0.7
+n_call_strategy = "single"
+api_type = "openai"
+max_model_len = 65536
+extra_body = { top_p = 0.8, top_k = 20, min_p = 0.0, presence_penalty = 1.5, repetition_penalty = 1.0, chat_template_kwargs = { enable_thinking = false } }
+
+[sql_generation]
+llm_profile = "qwen36_thinking"
 ```
 
 ### Notes
 
 - `save_path`, `store_root_path`, and cache path fields are optional. Set them only when you need to override the managed paths from `[run]`.
-- `[llm]` and `[embedding]` provide defaults. Stage-specific `[... .llm]` and `[... .embedding]` blocks only need to include overridden fields.
-- Each stage can still use a different model by overriding `model`, `base_url`, or other fields in that stage's block.
+- `[llm_profiles]` defines reusable LLM profiles. `[run].default_llm_profile` sets the default, and each stage can choose a profile with `llm_profile`.
+- `[embedding]` provides the shared embedding endpoint/model for BIRD and Spider. Spider2 templates omit embedding, vector DB, value retrieval, and few-shot sections because those stages are skipped there.
 - All stage outputs are stored as structured `.snapshot` manifests.
 - Only structured `.snapshot` manifests are supported.
 
@@ -355,7 +376,7 @@ temperature = 0.6
 ### Option A: one-config full pipeline
 
 ```bash
-export CONFIG_PATH=config/local/config-bird-dev.toml
+export CONFIG_PATH=config/local/Qwen3.6-27B/config-bird-dev.toml
 bash script/run_pipeline.sh
 ```
 
@@ -364,21 +385,21 @@ bash script/run_pipeline.sh
 For larger BIRD dev/test runs, keep local endpoint-specific configs under `config/local/` and use the standard wrapper:
 
 ```bash
-bash script/bird-full-run-commands.sh dev
-bash script/bird-full-run-commands.sh inspect-dev
-bash script/bird-full-run-commands.sh eval-dev
-bash script/bird-full-run-commands.sh export-dev
+bash script/run_bird.sh dev
+bash script/run_bird.sh inspect-dev
+bash script/run_bird.sh eval-dev
+bash script/run_bird.sh export-dev
 
-bash script/bird-full-run-commands.sh test
-bash script/bird-full-run-commands.sh inspect-test
-bash script/bird-full-run-commands.sh export-test
+bash script/run_bird.sh test
+bash script/run_bird.sh inspect-test
+bash script/run_bird.sh export-test
 ```
 
-By default the wrapper reads `config/local/config-bird-dev.toml` and `config/local/config-bird-test.toml`. Override them when needed:
+By default the wrapper reads `config/local/Qwen3.6-27B/config-bird-dev.toml` and `config/local/Qwen3.6-27B/config-bird-test.toml`. Override them when needed:
 
 ```bash
 DEV_CONFIG=path/to/dev.toml TEST_CONFIG=path/to/test.toml \
-  bash script/bird-full-run-commands.sh dev
+  bash script/run_bird.sh dev
 ```
 
 The `dev`/`test` commands run Step 4a automatically: if the few-shot training index is missing, it is built from the training set; if `manifest.json` already exists, it is reused. Use `rebuild-index` only for an intentional overwrite or an incomplete index directory.
@@ -386,32 +407,32 @@ The `dev`/`test` commands run Step 4a automatically: if the few-shot training in
 ### Option C: Spider wrapper
 
 ```bash
-bash script/spider-run-commands.sh test
-bash script/spider-run-commands.sh inspect-test
-bash script/spider-run-commands.sh eval-test
-bash script/spider-run-commands.sh export-test
+bash script/run_spider.sh test
+bash script/run_spider.sh inspect-test
+bash script/run_spider.sh eval-test
+bash script/run_spider.sh export-test
 ```
 
-By default the wrapper reads `config/local/config-spider-test.toml`.
+By default the wrapper reads `config/local/Qwen3.6-27B/config-spider-test.toml`.
 
 ### Option D: Spider2 wrapper
 
 ```bash
-bash script/spider2-run-commands.sh lite
-bash script/spider2-run-commands.sh eval-lite
-bash script/spider2-run-commands.sh export-lite
+bash script/run_spider2.sh lite
+bash script/run_spider2.sh eval-lite
+bash script/run_spider2.sh export-lite
 
-bash script/spider2-run-commands.sh snow
-bash script/spider2-run-commands.sh eval-snow
-bash script/spider2-run-commands.sh export-snow
+bash script/run_spider2.sh snow
+bash script/run_spider2.sh eval-snow
+bash script/run_spider2.sh export-snow
 ```
 
-By default the wrapper reads `config/local/config-spider2-lite.toml` and `config/local/config-spider2-snow.toml`.
+By default the wrapper reads `config/local/Qwen3.6-27B/config-spider2-lite.toml` and `config/local/Qwen3.6-27B/config-spider2-snow.toml`.
 
 ### Option E: stage-by-stage
 
 ```bash
-export CONFIG_PATH=config/local/config-bird-dev.toml
+export CONFIG_PATH=config/local/Qwen3.6-27B/config-bird-dev.toml
 
 uv run runner/preprocess_dataset.py
 uv run runner/create_vector_db_parallel.py

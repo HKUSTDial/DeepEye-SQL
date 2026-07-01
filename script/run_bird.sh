@@ -4,8 +4,8 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${PROJECT_ROOT}"
 
-DEV_CONFIG="${DEV_CONFIG:-config/local/config-bird-dev.toml}"
-TEST_CONFIG="${TEST_CONFIG:-config/local/config-bird-test.toml}"
+DEV_CONFIG="${DEV_CONFIG:-config/local/Qwen3.6-27B/config-bird-dev.toml}"
+TEST_CONFIG="${TEST_CONFIG:-config/local/Qwen3.6-27B/config-bird-test.toml}"
 
 source "${PROJECT_ROOT}/script/run-command-utils.sh"
 
@@ -49,18 +49,18 @@ case "${1:-help}" in
   help|*)
     cat <<EOF
 Usage:
-  bash script/bird-full-run-commands.sh build-index
-  bash script/bird-full-run-commands.sh rebuild-index
-  bash script/bird-full-run-commands.sh dev
-  bash script/bird-full-run-commands.sh inspect-dev
-  bash script/bird-full-run-commands.sh eval-dev
-  bash script/bird-full-run-commands.sh export-dev
-  bash script/bird-full-run-commands.sh test
-  bash script/bird-full-run-commands.sh inspect-test
-  bash script/bird-full-run-commands.sh export-test
+  bash script/run_bird.sh build-index
+  bash script/run_bird.sh rebuild-index
+  bash script/run_bird.sh dev
+  bash script/run_bird.sh inspect-dev
+  bash script/run_bird.sh eval-dev
+  bash script/run_bird.sh export-dev
+  bash script/run_bird.sh test
+  bash script/run_bird.sh inspect-test
+  bash script/run_bird.sh export-test
 
 Config overrides:
-  DEV_CONFIG=path/to/bird-dev.toml TEST_CONFIG=path/to/bird-test.toml bash script/bird-full-run-commands.sh dev
+  DEV_CONFIG=path/to/bird-dev.toml TEST_CONFIG=path/to/bird-test.toml bash script/run_bird.sh dev
 
 Default configs:
   DEV_CONFIG=${DEV_CONFIG}

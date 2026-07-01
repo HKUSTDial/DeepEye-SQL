@@ -4,7 +4,7 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${PROJECT_ROOT}"
 
-TEST_CONFIG="${TEST_CONFIG:-config/local/config-spider-test.toml}"
+TEST_CONFIG="${TEST_CONFIG:-config/local/Qwen3.6-27B/config-spider-test.toml}"
 
 source "${PROJECT_ROOT}/script/run-command-utils.sh"
 
@@ -36,15 +36,15 @@ case "${1:-help}" in
   help|*)
     cat <<EOF
 Usage:
-  bash script/spider-run-commands.sh build-index
-  bash script/spider-run-commands.sh rebuild-index
-  bash script/spider-run-commands.sh test
-  bash script/spider-run-commands.sh inspect-test
-  bash script/spider-run-commands.sh eval-test
-  bash script/spider-run-commands.sh export-test
+  bash script/run_spider.sh build-index
+  bash script/run_spider.sh rebuild-index
+  bash script/run_spider.sh test
+  bash script/run_spider.sh inspect-test
+  bash script/run_spider.sh eval-test
+  bash script/run_spider.sh export-test
 
 Config overrides:
-  TEST_CONFIG=path/to/config-spider-test.toml bash script/spider-run-commands.sh test
+  TEST_CONFIG=path/to/config-spider-test.toml bash script/run_spider.sh test
 
 Default config:
   TEST_CONFIG=${TEST_CONFIG}

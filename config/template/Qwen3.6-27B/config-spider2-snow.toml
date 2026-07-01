@@ -1,0 +1,61 @@
+########## Logger configuration ##########
+[logger]
+print_level = "INFO"
+
+########## Run output configuration ##########
+[run]
+save_root = "workspace/runs"
+exp_name = "spider2-snow"
+parallelism = 16
+llm_timeout = 300
+progress_log_interval = 50
+checkpoint_interval = 20
+default_llm_profile = "qwen36_thinking"
+
+########## LLM profiles ##########
+[llm_profiles.qwen36_thinking]
+model = "Qwen3.6-27B"
+base_url = "your-llm-model-base-url"
+api_key = "your-llm-api-key"
+max_tokens = 16384
+temperature = 0.6
+n_call_strategy = "single"
+api_type = "openai"
+max_model_len = 262144
+extra_body = { top_p = 0.95, top_k = 20, min_p = 0.0, presence_penalty = 0.0, repetition_penalty = 1.0, chat_template_kwargs = { enable_thinking = true } }
+
+########## Dataset configuration ##########
+[dataset]
+type = "spider2"
+split = "snow"
+root_path = "data/spider2-snow"
+snowflake_credential_path = "snowflake_credential.json"
+bigquery_credential_path = "bigquery_credential.json"
+sql_execution_timeout = 600
+max_value_example_length = 50
+
+########## Schema linking configuration ##########
+[schema_linking]
+direct_linking_sampling_budget = 4
+reversed_linking_sampling_budget = 4
+
+########## SQL generation configuration ##########
+[sql_generation]
+dc_sampling_budget = 4
+skeleton_sampling_budget = 4
+icl_sampling_budget = 4
+
+########## SQL revision configuration ##########
+[sql_revision]
+checker_sampling_budget = 5
+checkers = ["SyntaxChecker", "ResultChecker"]
+
+########## SQL selection configuration ##########
+[sql_selection]
+filter_top_k_sql = 2
+evaluator_sampling_budget = 5
+shortcut_consistency_score_threshold = 0.6
+
+########## LLM extractor configuration ##########
+[llm_extractor]
+max_retry = 5

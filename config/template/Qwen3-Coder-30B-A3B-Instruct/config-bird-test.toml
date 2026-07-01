@@ -1,0 +1,98 @@
+########## Logger configuration ##########
+[logger]
+print_level = "INFO"
+
+########## Run output configuration ##########
+[run]
+save_root = "workspace/runs"
+exp_name = "bird-test"
+parallelism = 16
+embedding_batch_size = 256
+llm_timeout = 300
+progress_log_interval = 50
+checkpoint_interval = 20
+default_llm_profile = "qwen3_coder_instruct"
+
+########## LLM profiles ##########
+[llm_profiles.qwen3_coder_instruct]
+model = "Qwen3-Coder-30B-A3B-Instruct"
+base_url = "your-llm-model-base-url"
+api_key = "your-llm-api-key"
+max_tokens = 16384
+temperature = 0.7
+n_call_strategy = "single"
+api_type = "openai"
+max_model_len = 65536
+extra_body = { top_p = 0.8, top_k = 20, repetition_penalty = 1.05 }
+
+########## Default embedding configuration ##########
+[embedding]
+api_type = "openai"
+embedding_model_name_or_path = "Qwen3-Embedding-0.6B"
+base_url = "your-embedding-model-base-url"
+api_key = "your-embedding-api-key"
+
+########## Dataset configuration ##########
+[dataset]
+type = "bird"
+split = "test"
+root_path = "data/bird"
+sql_execution_timeout = 600
+
+########## Vector database configuration ##########
+[vector_database]
+max_value_length = 100
+lower_meta_data = true
+build_backend = "local_index"
+
+########## Few-shot index configuration ##########
+[few_shot_index]
+num_examples = 7
+question_weight = 0.6
+sql_weight = 0.4
+similarity_device = "cuda:0"
+force_rebuild = false
+llm_profile = "qwen3_coder_instruct"
+
+[few_shot_index.preliminary_sql]
+enabled = true
+dc_sampling_budget = 12
+skeleton_sampling_budget = 12
+llm_profile = "qwen3_coder_instruct"
+
+########## Value retrieval configuration ##########
+[value_retrieval]
+max_values_per_column = 5
+backend = "local_index"
+local_index_device = "cuda:0"
+llm_profile = "qwen3_coder_instruct"
+
+########## Schema linking configuration ##########
+[schema_linking]
+direct_linking_sampling_budget = 12
+reversed_linking_sampling_budget = 12
+value_distance_threshold = 0.05
+llm_profile = "qwen3_coder_instruct"
+
+########## SQL generation configuration ##########
+[sql_generation]
+dc_sampling_budget = 12
+skeleton_sampling_budget = 12
+icl_sampling_budget = 12
+llm_profile = "qwen3_coder_instruct"
+
+########## SQL revision configuration ##########
+[sql_revision]
+checker_sampling_budget = 16
+llm_profile = "qwen3_coder_instruct"
+
+########## SQL selection configuration ##########
+[sql_selection]
+filter_top_k_sql = 2
+evaluator_sampling_budget = 16
+shortcut_consistency_score_threshold = 0.6
+llm_profile = "qwen3_coder_instruct"
+
+########## LLM extractor configuration ##########
+[llm_extractor]
+max_retry = 5

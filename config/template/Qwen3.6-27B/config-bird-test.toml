@@ -1,100 +1,108 @@
 ########## Logger configuration ##########
 [logger]
-print_level = "INFO"      # Console log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+print_level = "INFO"
 
 ########## Run output configuration ##########
 [run]
 save_root = "workspace/runs"
 exp_name = "bird-test"
-parallelism = 8
-embedding_batch_size = 128
+parallelism = 16
+embedding_batch_size = 256
 llm_timeout = 300
 progress_log_interval = 50
 checkpoint_interval = 20
+default_llm_profile = "qwen36_thinking"
 
-########## Default LLM configuration ##########
-[llm]
-model = "your-llm-model-name"
+########## LLM profiles ##########
+[llm_profiles.qwen36_thinking]
+model = "Qwen3.6-27B"
 base_url = "your-llm-model-base-url"
 api_key = "your-llm-api-key"
-max_tokens = 4096
-temperature = 0.7
+max_tokens = 16384
+temperature = 0.6
+n_call_strategy = "single"
 api_type = "openai"
-max_model_len = 128000
+max_model_len = 65536
+extra_body = { top_p = 0.95, top_k = 20, min_p = 0.0, presence_penalty = 0.0, repetition_penalty = 1.0, chat_template_kwargs = { enable_thinking = true } }
+
+[llm_profiles.qwen36_instruct]
+model = "Qwen3.6-27B"
+base_url = "your-llm-model-base-url"
+api_key = "your-llm-api-key"
+max_tokens = 16384
+temperature = 0.7
+n_call_strategy = "single"
+api_type = "openai"
+max_model_len = 65536
+extra_body = { top_p = 0.8, top_k = 20, min_p = 0.0, presence_penalty = 1.5, repetition_penalty = 1.0, chat_template_kwargs = { enable_thinking = false } }
 
 ########## Default embedding configuration ##########
 [embedding]
 api_type = "openai"
-embedding_model_name_or_path = "your-embedding-model-name"
+embedding_model_name_or_path = "Qwen3-Embedding-0.6B"
 base_url = "your-embedding-model-base-url"
 api_key = "your-embedding-api-key"
-embedding_device = "auto"   # auto | cpu | cuda | cuda:0
 
 ########## Dataset configuration ##########
 [dataset]
 type = "bird"
 split = "test"
 root_path = "data/bird"
-# max_samples = 100       # Limit total samples to load (optional)
-# max_samples_per_db = 5  # Limit samples per database (optional, None means load all samples from each database)
+sql_execution_timeout = 600
 
 ########## Vector database configuration ##########
 [vector_database]
 max_value_length = 100
 lower_meta_data = true
-build_backend = "local_index"   # chroma | local_index | both
+build_backend = "local_index"
 
 ########## Few-shot index configuration ##########
 [few_shot_index]
-num_examples = 5
+num_examples = 7
 question_weight = 0.6
 sql_weight = 0.4
-similarity_device = "cpu"  # cpu | auto | cuda | cuda:0
+similarity_device = "cuda:0"
 force_rebuild = false
-# max_samples = 100       # Limit training examples to index (optional)
-# max_samples_per_db = 2  # Limit indexed training examples per source database (optional)
-
-[few_shot_index.llm]
-max_tokens = 2048
-temperature = 0.0
+llm_profile = "qwen36_instruct"
 
 [few_shot_index.preliminary_sql]
-enabled = false
-dc_sampling_budget = 2
-skeleton_sampling_budget = 2
-
-[few_shot_index.preliminary_sql.llm]
-temperature = 0.6
+enabled = true
+dc_sampling_budget = 4
+skeleton_sampling_budget = 4
+llm_profile = "qwen36_thinking"
 
 ########## Value retrieval configuration ##########
 [value_retrieval]
 max_values_per_column = 5
-backend = "local_index"   # use "chroma" to keep the original backend
-local_index_device = "auto"   # auto | cpu | cuda | cuda:0 | cuda:1
+backend = "local_index"
+local_index_device = "cuda:0"
+llm_profile = "qwen36_instruct"
 
 ########## Schema linking configuration ##########
 [schema_linking]
 direct_linking_sampling_budget = 4
 reversed_linking_sampling_budget = 4
-value_distance_threshold = 0.02
+value_distance_threshold = 0.05
+llm_profile = "qwen36_thinking"
 
 ########## SQL generation configuration ##########
 [sql_generation]
 dc_sampling_budget = 4
 skeleton_sampling_budget = 4
 icl_sampling_budget = 4
-# Optional static fallback. Leave unset to use dynamic examples from few-shot preparation.
-# icl_few_shot_examples_path = "results/bird_test_few_shots.json"
+llm_profile = "qwen36_thinking"
 
 ########## SQL revision configuration ##########
 [sql_revision]
-checker_sampling_budget = 3
+checker_sampling_budget = 5
+llm_profile = "qwen36_thinking"
 
 ########## SQL selection configuration ##########
 [sql_selection]
 filter_top_k_sql = 2
 evaluator_sampling_budget = 5
 shortcut_consistency_score_threshold = 0.6
+llm_profile = "qwen36_thinking"
 
 ########## LLM extractor configuration ##########
 [llm_extractor]
