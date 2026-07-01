@@ -34,8 +34,8 @@ config/*.toml
 bigquery_credential.json
 snowflake_credential.json
 
-# docs
-docs/
+# local docs
+local_docs/
 
 .codex
 

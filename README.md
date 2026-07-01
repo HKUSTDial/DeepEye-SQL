@@ -163,6 +163,7 @@ DeepEye-SQL
 │   ├── prompt/          # prompt templates
 │   └── vector_db/       # vector index creation for value retrieval
 ├── config/              # example experiment configs
+├── docs/                # public from-scratch runbooks
 ├── runner/              # reproducible entry scripts
 ├── results/             # released predictions and few-shot seeds
 ├── script/              # helper shell scripts
@@ -220,6 +221,16 @@ Spider2 cloud evaluation may require valid:
 - Snowflake credentials
 
 The corresponding paths are configured in [config/template/Qwen3.6-27B/config-spider2-lite.toml](config/template/Qwen3.6-27B/config-spider2-lite.toml) and [config/template/Qwen3.6-27B/config-spider2-snow.toml](config/template/Qwen3.6-27B/config-spider2-snow.toml).
+
+## Runbooks
+
+For from-scratch dataset-specific instructions, see:
+
+- [BIRD runbook](docs/bird.md)
+- [Spider runbook](docs/spider.md)
+- [Spider2 runbook](docs/spider2.md)
+
+The templates are intended to run as-is after filling endpoint fields and local-device fields: LLM/embedding `base_url`, `api_key`, `similarity_device`, and `local_index_device` where applicable.
 
 ## Dataset Setup
 
@@ -367,7 +378,7 @@ llm_profile = "qwen36_thinking"
 
 - `save_path`, `store_root_path`, and cache path fields are optional. Set them only when you need to override the managed paths from `[run]`.
 - `[llm_profiles]` defines reusable LLM profiles. `[run].default_llm_profile` sets the default, and each stage can choose a profile with `llm_profile`.
-- `[embedding]` provides the shared embedding endpoint/model for BIRD and Spider. Spider2 templates omit embedding, vector DB, value retrieval, and few-shot sections because those stages are skipped there.
+- `[embedding]` provides the shared embedding endpoint/model for BIRD and Spider. For Spider2, configure only the LLM endpoint fields in the template.
 - All stage outputs are stored as structured `.snapshot` manifests.
 - Only structured `.snapshot` manifests are supported.
 
@@ -380,54 +391,48 @@ export CONFIG_PATH=config/local/Qwen3.6-27B/config-bird-dev.toml
 bash script/run_pipeline.sh
 ```
 
-### Option B: BIRD full-run command wrapper
+### Option B: BIRD wrapper
 
-For larger BIRD dev/test runs, keep local endpoint-specific configs under `config/local/` and use the standard wrapper:
-
-```bash
-bash script/run_bird.sh dev
-bash script/run_bird.sh inspect-dev
-bash script/run_bird.sh eval-dev
-bash script/run_bird.sh export-dev
-
-bash script/run_bird.sh test
-bash script/run_bird.sh inspect-test
-bash script/run_bird.sh export-test
-```
-
-By default the wrapper reads `config/local/Qwen3.6-27B/config-bird-dev.toml` and `config/local/Qwen3.6-27B/config-bird-test.toml`. Override them when needed:
+Set `CONFIG_PATH` before running each wrapper command.
 
 ```bash
-DEV_CONFIG=path/to/dev.toml TEST_CONFIG=path/to/test.toml \
-  bash script/run_bird.sh dev
+export CONFIG_PATH=config/local/Qwen3.6-27B/config-bird-dev.toml
+bash script/run_bird.sh run
+bash script/run_bird.sh inspect
+bash script/run_bird.sh eval
+bash script/run_bird.sh export
+
+export CONFIG_PATH=config/local/Qwen3.6-27B/config-bird-test.toml
+bash script/run_bird.sh run
+bash script/run_bird.sh inspect
+bash script/run_bird.sh export
 ```
 
-The `dev`/`test` commands run Step 4a automatically: if the few-shot training index is missing, it is built from the training set; if `manifest.json` already exists, it is reused. Use `rebuild-index` only for an intentional overwrite or an incomplete index directory.
+The `run` command builds the few-shot training index automatically if it is missing. Use `rebuild-index` only for an intentional overwrite or an incomplete index directory. BIRD test has no public gold labels, so skip `eval` for official test runs.
 
 ### Option C: Spider wrapper
 
 ```bash
-bash script/run_spider.sh test
-bash script/run_spider.sh inspect-test
-bash script/run_spider.sh eval-test
-bash script/run_spider.sh export-test
+export CONFIG_PATH=config/local/Qwen3.6-27B/config-spider-test.toml
+bash script/run_spider.sh run
+bash script/run_spider.sh inspect
+bash script/run_spider.sh eval
+bash script/run_spider.sh export
 ```
-
-By default the wrapper reads `config/local/Qwen3.6-27B/config-spider-test.toml`.
 
 ### Option D: Spider2 wrapper
 
 ```bash
-bash script/run_spider2.sh lite
-bash script/run_spider2.sh eval-lite
-bash script/run_spider2.sh export-lite
+export CONFIG_PATH=config/local/Qwen3.6-27B/config-spider2-lite.toml
+bash script/run_spider2.sh run
+bash script/run_spider2.sh eval
+bash script/run_spider2.sh export
 
-bash script/run_spider2.sh snow
-bash script/run_spider2.sh eval-snow
-bash script/run_spider2.sh export-snow
+export CONFIG_PATH=config/local/Qwen3.6-27B/config-spider2-snow.toml
+bash script/run_spider2.sh run
+bash script/run_spider2.sh eval
+bash script/run_spider2.sh export
 ```
-
-By default the wrapper reads `config/local/Qwen3.6-27B/config-spider2-lite.toml` and `config/local/Qwen3.6-27B/config-spider2-snow.toml`.
 
 ### Option E: stage-by-stage
 
@@ -485,7 +490,7 @@ uv run runner/create_vector_db_parallel.py
 Notes:
 
 - This step is required for Spider/BIRD.
-- Spider2 skips vector DB creation because the current workflow does not use vector retrieval there.
+- For Spider2, start from the pipeline stages; vector DB creation is not required.
 
 ### 3. Run pipeline stages
 
@@ -577,7 +582,7 @@ This is useful when you want to quantify:
 
 ### Does Spider2 need vector retrieval?
 
-No. The current pipeline skips vector DB construction for Spider2 and relies on the Spider2-specific database and schema workflow.
+No. For Spider2, use the Spider2-specific database and schema workflow.
 
 ### Can I use local models?
 
@@ -585,7 +590,7 @@ Yes, as long as the endpoint is OpenAI-compatible, or the embedding stack is con
 
 ### Why does a stage fail immediately saying an input snapshot is missing?
 
-That is intentional fail-fast behavior. Each stage expects its predecessor snapshot to exist. Run the previous stage first.
+Run stages in order. Each stage expects the snapshot produced by the stage before it.
 
 ## Citation
 

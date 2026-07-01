@@ -4,56 +4,72 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${PROJECT_ROOT}"
 
-TEST_CONFIG="${TEST_CONFIG:-config/local/Qwen3.6-27B/config-spider-test.toml}"
-
 source "${PROJECT_ROOT}/script/run-command-utils.sh"
+
+require_config_path() {
+  local command_name="$1"
+  if [ -z "${CONFIG_PATH:-}" ]; then
+    echo "Error: CONFIG_PATH is required for '${command_name}'." >&2
+    echo "Example:" >&2
+    echo "  CONFIG_PATH=config/local/<model>/config-spider-test.toml bash script/run_spider.sh ${command_name}" >&2
+    exit 2
+  fi
+}
 
 case "${1:-help}" in
   build-index)
-    build_few_shot_index "${TEST_CONFIG}"
+    require_config_path "build-index"
+    build_few_shot_index "${CONFIG_PATH}"
     ;;
 
   rebuild-index)
-    build_few_shot_index "${TEST_CONFIG}" --force
+    require_config_path "rebuild-index"
+    build_few_shot_index "${CONFIG_PATH}" --force
     ;;
 
-  test)
-    run_pipeline_for_config "${TEST_CONFIG}"
+  run)
+    require_config_path "run"
+    run_pipeline_for_config "${CONFIG_PATH}"
     ;;
 
-  inspect-test)
-    inspect_few_shot "${TEST_CONFIG}"
+  inspect)
+    require_config_path "inspect"
+    inspect_few_shot "${CONFIG_PATH}"
     ;;
 
-  eval-test)
-    eval_sql "${TEST_CONFIG}" "${MAX_WORKERS:-32}"
+  eval)
+    require_config_path "eval"
+    eval_sql "${CONFIG_PATH}" "${MAX_WORKERS:-32}"
     ;;
 
-  export-test)
-    export_sql "${TEST_CONFIG}"
+  export)
+    require_config_path "export"
+    export_sql "${CONFIG_PATH}"
     ;;
 
   help|*)
     cat <<EOF
 Usage:
-  bash script/run_spider.sh build-index
-  bash script/run_spider.sh rebuild-index
-  bash script/run_spider.sh test
-  bash script/run_spider.sh inspect-test
-  bash script/run_spider.sh eval-test
-  bash script/run_spider.sh export-test
+  CONFIG_PATH=path/to/config-spider-test.toml bash script/run_spider.sh build-index
+  CONFIG_PATH=path/to/config-spider-test.toml bash script/run_spider.sh rebuild-index
+  CONFIG_PATH=path/to/config-spider-test.toml bash script/run_spider.sh run
+  CONFIG_PATH=path/to/config-spider-test.toml bash script/run_spider.sh inspect
+  CONFIG_PATH=path/to/config-spider-test.toml bash script/run_spider.sh eval
+  CONFIG_PATH=path/to/config-spider-test.toml bash script/run_spider.sh export
 
-Config overrides:
-  TEST_CONFIG=path/to/config-spider-test.toml bash script/run_spider.sh test
+Commands:
+  run            Run the full pipeline for CONFIG_PATH.
+  inspect        Inspect dynamic few-shot preparation for CONFIG_PATH.
+  eval           Evaluate selected SQL for CONFIG_PATH.
+  export         Export selected SQL predictions for CONFIG_PATH.
+  build-index    Build the few-shot training index used by CONFIG_PATH.
+  rebuild-index  Force rebuild the few-shot training index used by CONFIG_PATH.
 
-Default config:
-  TEST_CONFIG=${TEST_CONFIG}
-
-Recommended order for Spider test:
-  1. test          # automatically builds the few-shot train index if missing
-  2. inspect-test
-  3. eval-test
-  4. export-test
+Recommended Spider order:
+  1. CONFIG_PATH=... bash script/run_spider.sh run
+  2. CONFIG_PATH=... bash script/run_spider.sh inspect
+  3. CONFIG_PATH=... bash script/run_spider.sh eval
+  4. CONFIG_PATH=... bash script/run_spider.sh export
 
 Use rebuild-index only when the few-shot index directory is incomplete/corrupt or
 when you intentionally want to overwrite an existing index.

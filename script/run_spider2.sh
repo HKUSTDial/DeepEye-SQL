@@ -4,58 +4,52 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${PROJECT_ROOT}"
 
-LITE_CONFIG="${LITE_CONFIG:-config/local/Qwen3.6-27B/config-spider2-lite.toml}"
-SNOW_CONFIG="${SNOW_CONFIG:-config/local/Qwen3.6-27B/config-spider2-snow.toml}"
-
 source "${PROJECT_ROOT}/script/run-command-utils.sh"
 
+require_config_path() {
+  local command_name="$1"
+  if [ -z "${CONFIG_PATH:-}" ]; then
+    echo "Error: CONFIG_PATH is required for '${command_name}'." >&2
+    echo "Example:" >&2
+    echo "  CONFIG_PATH=config/local/<model>/config-spider2-lite.toml bash script/run_spider2.sh ${command_name}" >&2
+    exit 2
+  fi
+}
+
 case "${1:-help}" in
-  lite)
-    run_pipeline_for_config "${LITE_CONFIG}"
+  run)
+    require_config_path "run"
+    run_pipeline_for_config "${CONFIG_PATH}"
     ;;
 
-  eval-lite)
-    eval_sql "${LITE_CONFIG}" "${MAX_WORKERS:-8}"
+  eval)
+    require_config_path "eval"
+    eval_sql "${CONFIG_PATH}" "${MAX_WORKERS:-8}"
     ;;
 
-  export-lite)
-    export_sql "${LITE_CONFIG}"
-    ;;
-
-  snow)
-    run_pipeline_for_config "${SNOW_CONFIG}"
-    ;;
-
-  eval-snow)
-    eval_sql "${SNOW_CONFIG}" "${MAX_WORKERS:-8}"
-    ;;
-
-  export-snow)
-    export_sql "${SNOW_CONFIG}"
+  export)
+    require_config_path "export"
+    export_sql "${CONFIG_PATH}"
     ;;
 
   help|*)
     cat <<EOF
 Usage:
-  bash script/run_spider2.sh lite
-  bash script/run_spider2.sh eval-lite
-  bash script/run_spider2.sh export-lite
-  bash script/run_spider2.sh snow
-  bash script/run_spider2.sh eval-snow
-  bash script/run_spider2.sh export-snow
+  CONFIG_PATH=path/to/config-spider2-lite.toml bash script/run_spider2.sh run
+  CONFIG_PATH=path/to/config-spider2-lite.toml bash script/run_spider2.sh eval
+  CONFIG_PATH=path/to/config-spider2-lite.toml bash script/run_spider2.sh export
 
-Config overrides:
-  LITE_CONFIG=path/to/config-spider2-lite.toml SNOW_CONFIG=path/to/config-spider2-snow.toml bash script/run_spider2.sh lite
+Commands:
+  run     Run the full pipeline for CONFIG_PATH.
+  eval    Evaluate selected SQL for CONFIG_PATH.
+  export  Export selected SQL files for CONFIG_PATH.
 
-Default configs:
-  LITE_CONFIG=${LITE_CONFIG}
-  SNOW_CONFIG=${SNOW_CONFIG}
+Recommended Spider2 order:
+  1. CONFIG_PATH=... bash script/run_spider2.sh run
+  2. CONFIG_PATH=... bash script/run_spider2.sh eval
+  3. CONFIG_PATH=... bash script/run_spider2.sh export
 
-Recommended order for Spider2:
-  1. lite or snow
-  2. eval-lite or eval-snow
-  3. export-lite or export-snow
-
+Use a lite config for Spider2-Lite and a snow config for Spider2-Snow.
 Spider2 currently skips dynamic few-shot preparation because it has no supported
 training index path in this pipeline.
 EOF
