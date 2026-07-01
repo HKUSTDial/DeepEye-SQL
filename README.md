@@ -94,24 +94,10 @@ DeepEye-SQL achieves strong performance with off-the-shelf LLMs and no task-spec
 
 | Benchmark | Metric | Score | Model | Public Outputs |
 | --- | --- | ---: | --- | --- |
-| BIRD-Dev | EX | **73.5** | Qwen3-Coder-30B-A3B | [results/bird-dev/qwen3-coder-30b-a3b.json](results/bird-dev/qwen3-coder-30b-a3b.json) |
+| BIRD-Dev | EX | **74.5** | Qwen3.6-27B | [results/bird-dev/qwen3.6-27b.json](results/bird-dev/qwen3.6-27b.json) |
 | BIRD-Test | EX | **75.1** | Qwen3-Coder-30B-A3B | not released |
-| Spider-Test | EX | **89.8** | Qwen3-Coder-30B-A3B | [results/spider-test/qwen3-coder-30b-a3b.json](results/spider-test/qwen3-coder-30b-a3b.json) |
 | Spider2-Lite | official score | **38.2** | DeepSeek-R1 | [results/spider2-lite/deepseek-r1](results/spider2-lite/deepseek-r1) |
 | Spider2-Snow | official score | **50.5** | DeepSeek-R1 | [results/spider2-snow/deepseek-r1](results/spider2-snow/deepseek-r1) |
-
-<details>
-<summary><strong>Additional released artifacts</strong></summary>
-
-- BIRD few-shot seeds: [results/bird_dev_few_shots.json](results/bird_dev_few_shots.json)
-- Spider few-shot seeds: [results/spider_test_few_shots.json](results/spider_test_few_shots.json)
-- Alternative public predictions:
-  [results/bird-dev/gemma3-27b.json](results/bird-dev/gemma3-27b.json),
-  [results/bird-dev/qwen2.5-coder-32b.json](results/bird-dev/qwen2.5-coder-32b.json),
-  [results/spider-test/gemma3-27b.json](results/spider-test/gemma3-27b.json),
-  [results/spider-test/qwen2.5-coder-32b.json](results/spider-test/qwen2.5-coder-32b.json)
-
-</details>
 
 ## Pipeline Overview
 
@@ -573,8 +559,7 @@ This is useful when you want to quantify:
 
 ### Released predictions
 
-- [results/bird-dev](results/bird-dev)
-- [results/spider-test](results/spider-test)
+- [results/bird-dev/qwen3.6-27b.json](results/bird-dev/qwen3.6-27b.json)
 - [results/spider2-lite](results/spider2-lite)
 - [results/spider2-snow](results/spider2-snow)
 
@@ -596,17 +581,26 @@ Run stages in order. Each stage expects the snapshot produced by the stage befor
 
 If you find DeepEye-SQL useful in your research, please cite:
 
-Paper: [arXiv:2510.17586](https://arxiv.org/abs/2510.17586)
+Paper: [https://doi.org/10.1145/3802035](https://doi.org/10.1145/3802035)
 
 ```bibtex
-@article{li2025deepeye,
-  author  = {Boyan Li and Chong Chen and Zhujun Xue and Yinan Mei and Yuyu Luo},
-  title   = {{DeepEye-SQL:} A Software-Engineering-Inspired Text-to-SQL Framework},
-  journal = {Proc. {ACM} Manag. Data},
-  volume  = {4},
-  number  = {3},
-  year    = {2026},
-  doi     = {10.1145/3802035}
+@article{10.1145/3802035,
+author = {Li, Boyan and Chen, Chong and Xue, Zhujun and Mei, Yinan and Luo, Yuyu},
+title = {DeepEye-SQL: A Software-Engineering-Inspired Text-to-SQL Framework},
+year = {2026},
+issue_date = {June 2026},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+volume = {4},
+number = {3},
+url = {https://doi.org/10.1145/3802035},
+doi = {10.1145/3802035},
+abstract = {Large language models (LLMs) have advanced Text-to-SQL, yet existing solutions still fall short of system-level reliability. The limitation is not merely in individual modules -- e.g., schema linking, reasoning, and verification -- but more critically in the lack of structured orchestration that enforces correctness across the entire workflow. This gap motivates a paradigm shift: treating Text-to-SQL not as free-form language generation but as a software-engineering problem that demands structured, verifiable orchestration. We present DeepEye-SQL, a software-engineering-inspired framework that reframes Text-to-SQL as the development of a small software program, executed through a verifiable process guided by the Software Development Life Cycle (SDLC). DeepEye integrates four synergistic stages: it grounds user intent through robust schema linking, enforcing relational closure; enhances fault tolerance with N-version SQL generation; ensures deterministic verification via a ''Syntax-Logic-Quality'' tool-chain that intercepts errors pre-execution; and introduces confidence-aware selection that leverages execution-guided adjudication to resolve ambiguity beyond simple majority voting. Leveraging open-source MoE LLMs (~30B total, ~3B activated parameters) without any fine-tuning, DeepEye achieves 73.5\% execution accuracy on BIRD-Dev, 75.07\% on the official BIRD-Test leaderboard, and 89.8\% on Spider-Test, outperforming state-of-the-art solutions that rely on larger models or extensive training. This highlights that principled orchestration, rather than LLM scaling alone, is key to achieving system-level reliability in Text-to-SQL.},
+journal = {Proc. ACM Manag. Data},
+month = may,
+articleno = {158},
+numpages = {28},
+keywords = {text-to-sql, databases, large language models}
 }
 ```
 
