@@ -19,11 +19,12 @@
 <p>
   <a href="https://deepeyesql-hahwwmgj.manus.space">Homepage</a> ·
   <a href="#highlights">Highlights</a> ·
+  <a href="#news">News</a> ·
   <a href="#results">Results</a> ·
   <a href="#repository-tour">Repository Tour</a> ·
   <a href="#installation">Installation</a> ·
   <a href="#quick-start">Quick Start</a> ·
-  <a href="#reproducibility-workflow">Reproducibility</a> ·
+  <a href="#runbooks">Runbooks</a> ·
   <a href="#evaluation">Evaluation</a> ·
   <a href="#citation">Citation</a>
 </p>
@@ -82,11 +83,11 @@
     <td>💾</td>
     <td><strong>Structured snapshot workflow</strong> for checkpointing, resume, conversion, and evaluation.</td>
   </tr>
-  <tr>
-    <td>📏</td>
-    <td><strong>Built-in execution benchmark tooling</strong> for profiling SQL hotspots.</td>
-  </tr>
 </table>
+
+## News
+
+- **2026-07-02**: Added dynamic few-shot retrieval with automatic training-set indexing, LLM-based question/SQL masking, preliminary-SQL-guided example retrieval, reusable LLM profiles, model-organized config templates, unified dataset run wrappers, and public runbooks for BIRD, Spider, and Spider2.
 
 ## Results
 
@@ -151,7 +152,7 @@ DeepEye-SQL
 ├── config/              # example experiment configs
 ├── docs/                # public from-scratch runbooks
 ├── runner/              # reproducible entry scripts
-├── results/             # released predictions and few-shot seeds
+├── results/             # released predictions and benchmark outputs
 ├── script/              # helper shell scripts
 └── workspace/           # generated snapshots and intermediate outputs
 ```
@@ -172,7 +173,6 @@ DeepEye-SQL
 - [runner/run_sql_selection.py](runner/run_sql_selection.py)
 - [runner/convert_snapshot_to_sql.py](runner/convert_snapshot_to_sql.py): convert structured snapshots to evaluation outputs
 - [runner/evaluation.py](runner/evaluation.py): unified evaluation entry
-- [runner/benchmark_execution.py](runner/benchmark_execution.py): execution-layer benchmark runner
 
 ## Installation
 
@@ -453,49 +453,6 @@ Reusable training artifacts such as the few-shot train index are stored under `w
 - active config copy:
   `workspace/runs/<exp_name>/config.toml`
 
-## Reproducibility Workflow
-
-DeepEye-SQL uses a structured snapshot format to make long-running experiments resumable and inspectable.
-
-Each run that loads `app.config.get_config()` copies the active TOML config to `<run.save_dir>/config.toml`, so run outputs can be checked against the config used for the run.
-
-### 1. Preprocess dataset
-
-```bash
-uv run runner/preprocess_dataset.py
-```
-
-This creates the initial dataset snapshot referenced by the resolved `dataset.save_path`.
-
-### 2. Build value index
-
-```bash
-uv run runner/create_vector_db_parallel.py
-```
-
-Notes:
-
-- This step is required for Spider/BIRD.
-- For Spider2, start from the pipeline stages; vector DB creation is not required.
-
-### 3. Run pipeline stages
-
-Each stage consumes the previous stage snapshot and writes a new one.
-
-### 4. Convert final snapshot to official submission format
-
-```bash
-uv run runner/convert_snapshot_to_sql.py \
-  --snapshot_path workspace/runs/bird-dev/sql_selection.snapshot
-```
-
-### 5. Evaluate
-
-```bash
-uv run runner/evaluation.py \
-  --snapshot_path workspace/runs/bird-dev/sql_selection.snapshot
-```
-
 ## Evaluation
 
 The unified evaluator supports Spider, BIRD, and Spider2.
@@ -526,34 +483,6 @@ The evaluator will:
 - auto-detect dataset type when possible
 - convert snapshot outputs when needed
 - call the official Spider2 evaluation entry for Spider2 workflows
-
-## Execution Benchmarking
-
-We include an execution-layer benchmark script for profiling SQL hotspots.
-
-### Synthetic SQLite benchmark
-
-```bash
-uv run runner/benchmark_execution.py \
-  --rows 20000 \
-  --iterations 8 \
-  --measure-repeat 5
-```
-
-### Real snapshot benchmark
-
-```bash
-uv run runner/benchmark_execution.py \
-  --snapshot-path workspace/runs/bird-dev/sql_selection.snapshot \
-  --snapshot-sample-size 20
-```
-
-This is useful when you want to quantify:
-
-- cached vs uncached execution cost
-- `measure_time()` overhead
-- SQL selection scan cost
-- execution invocation counts per item
 
 ## Public Artifacts
 
