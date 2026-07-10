@@ -45,6 +45,7 @@ The repository contains the research pipeline used for our SIGMOD 2026 paper, wi
 
 | Date | Update |
 | --- | --- |
+| **2026-07-10** | **Qwen3.6-27B achieves 78.4 EX on the BIRD test set.** |
 | 2026-07-02 | Added dynamic few-shot retrieval, model-organized config templates, unified dataset wrappers, and public runbooks for BIRD, Spider, and Spider2. |
 
 ## Results
@@ -52,7 +53,7 @@ The repository contains the research pipeline used for our SIGMOD 2026 paper, wi
 | Benchmark | Metric | Score | Model | Public Output |
 | --- | --- | ---: | --- | --- |
 | BIRD-Dev | EX | **74.5** | Qwen3.6-27B | [prediction JSON](results/bird-dev/qwen3.6-27b.json) |
-| BIRD-Test | EX | **75.1** | Qwen3-Coder-30B-A3B | not released |
+| BIRD-Test | EX | **78.4** | Qwen3.6-27B | not released |
 | Spider2-Lite | official score | **38.2** | DeepSeek-R1 | [outputs](results/spider2-lite/deepseek-r1) |
 | Spider2-Snow | official score | **50.5** | DeepSeek-R1 | [outputs](results/spider2-snow/deepseek-r1) |
 
