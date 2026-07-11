@@ -134,7 +134,8 @@ def load_database_description(db_id: str, database_dir: Path) -> Dict[str, Dict[
                 "expanded_column_name": expanded_column_name,
                 "column_description": column_description,
                 "data_format": data_format,
-                "value_description": value_description
+                "value_description": value_description,
+                "is_unuseful": value_description.casefold() in {"unuseful", "unusedful"},
             }
         database_description[table_name_lower] = table_description
     return database_description
@@ -183,6 +184,9 @@ def load_database_schema_dict(db_path: Union[str, Path]) -> Dict[str, Any]:
             column_schema_dict = {}
             column_schema_dict["column_name"] = column_name
             column_schema_dict["column_type"] = column_type
+            column_schema_dict["is_unuseful"] = database_description.get(
+                table_name.lower(), {}
+            ).get(column_name.lower(), {}).get("is_unuseful", False)
             
             # Set primary keys
             if column_name.lower() in [pk.lower() for pk in primary_keys]:
@@ -237,7 +241,11 @@ def _compute_table_schema_signature(table_schema_dict: Dict[str, Any]) -> str:
     columns = table_schema_dict.get("columns", {})
     # Only use sorted column names for the signature.
     # This is stable and sufficient to identify partitioned/sharded tables.
-    sorted_col_names = sorted([col_name.lower() for col_name in columns.keys()])
+    sorted_col_names = sorted([
+        col_name.lower()
+        for col_name, column_schema_dict in columns.items()
+        if not _is_unuseful_column(column_schema_dict)
+    ])
     
     signature_parts = sorted_col_names
     
@@ -248,6 +256,25 @@ def _compute_table_schema_signature(table_schema_dict: Dict[str, Any]) -> str:
         signature_parts.extend(sorted_nested_names)
     
     return "||".join(signature_parts)
+
+
+def _is_unuseful_column(column_schema_dict: Dict[str, Any]) -> bool:
+    """Return whether a column is explicitly marked as unuseful in metadata."""
+    if column_schema_dict.get("is_unuseful", False):
+        return True
+
+    # Keep compatibility with schema dictionaries created before the structured
+    # marker was added. Avoid a substring match because ordinary descriptions may
+    # legitimately discuss the word without declaring the column unuseful.
+    for description_part in column_schema_dict.get("description", "").split("|"):
+        label, separator, value = description_part.strip().partition(":")
+        if (
+            separator
+            and label.strip().casefold() == "value description"
+            and value.strip().casefold() in {"unuseful", "unusedful"}
+        ):
+            return True
+    return False
 
 
 def _group_tables_by_schema(database_schema_dict: Dict[str, Any]) -> Dict[str, List[str]]:
@@ -311,6 +338,9 @@ def _format_single_table_profile(
     ordered_columns = pk_columns + non_pk_columns
     
     for column_name, column_schema_dict in ordered_columns:
+        if _is_unuseful_column(column_schema_dict):
+            continue
+
         column_profile = f"`{column_name}`: {column_schema_dict['column_type']}"
         if column_schema_dict.get("primary_key", False):
             column_profile += f" | Primary Key"
@@ -428,10 +458,13 @@ def get_database_schema_profile(
     all_foreign_keys = []
     for table_name, table_schema_dict in database_schema_dict["tables"].items():
         for column_name, column_schema_dict in table_schema_dict["columns"].items():
+            if _is_unuseful_column(column_schema_dict):
+                continue
             for target_table_name, target_column_name in column_schema_dict.get("foreign_keys", []):
                 # Check if both tables and columns exist
                 if (target_table_name in database_schema_dict["tables"] and 
-                    target_column_name in database_schema_dict["tables"][target_table_name]["columns"]):
+                    target_column_name in database_schema_dict["tables"][target_table_name]["columns"] and
+                    not _is_unuseful_column(database_schema_dict["tables"][target_table_name]["columns"][target_column_name])):
                     all_foreign_keys.append(f"`{table_name}`.`{column_name}` = `{target_table_name}`.`{target_column_name}`")
     if all_foreign_keys:
         profile += "Foreign Keys:\n"
